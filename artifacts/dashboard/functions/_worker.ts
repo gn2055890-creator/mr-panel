@@ -403,13 +403,28 @@ const app = new Hono<{ Bindings: Env }>();
 app.use("*", cors({
   origin: "*",
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "x-master-pin"],
+  allowHeaders: ["Content-Type", "Authorization", "x-master-pin", "x-api-key"],
 }));
 
 app.use("*", async (c, next) => {
   // Lazy schema init on first request
   await ensureSchema(c.env);
   await next();
+});
+
+app.use("*", async (c, next) => {
+  const method = c.req.method;
+  const path   = c.req.path;
+  // POST + OPTIONS open (Android device comms + CORS preflight)
+  // /api/healthz open (uptime monitoring)
+  if (method === "POST" || method === "OPTIONS" || path === "/api/healthz") {
+    return await next();
+  }
+  const key = c.req.header("x-api-key") ?? c.req.query("apiKey") ?? "";
+  if (!key || key !== (c.env.API_SECRET ?? "")) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  return await next();
 });
 
 // ------- HEALTH -------
