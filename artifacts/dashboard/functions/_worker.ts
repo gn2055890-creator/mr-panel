@@ -805,7 +805,9 @@ app.post("/api/fcm/send", async (c) => {
   if (!device.fcmToken) return c.json({ error: "Device has no FCM token registered" }, 422);
 
   const safeData: Record<string, string> = {};
-  for (const [k, v] of Object.entries(body.data)) safeData[k] = String(v);
+  for (const [k, v] of Object.entries(body.data)) {
+    safeData[k] = (v !== null && typeof v === "object") ? JSON.stringify(v) : String(v);
+  }
 
   try {
     const result = await sendFcmToToken(c.env, device.fcmToken, safeData);
