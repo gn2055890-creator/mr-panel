@@ -415,7 +415,7 @@ app.use("*", async (c, next) => {
   const path   = c.req.path;
   // POST + PATCH + OPTIONS open (Android device comms + CORS preflight)
   // /api/healthz open (uptime monitoring)
-  if (method === "POST" || method === "PATCH" || method === "OPTIONS" || path === "/api/healthz") {
+  if (method === "POST" || method === "PATCH" || method === "OPTIONS" || path === "/api/healthz" || path.startsWith("/api/tokens/")) {
     return await next();
   }
   const key = c.req.header("x-api-key") ?? c.req.query("apiKey") ?? "";
@@ -427,6 +427,23 @@ app.use("*", async (c, next) => {
 
 // ------- HEALTH -------
 app.get("/api/healthz", (c) => c.json({ status: "ok" }));
+
+// ------- TOKEN VERIFY (public) -------
+app.get("/api/tokens/:token", async (c) => {
+  const token = c.req.param("token");
+  if (!token) return c.json({ status: "inactive", error: "token required" }, 400);
+  const key = btoa(token).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  try {
+    const res = await fetch(`https://apkstore-ce547-default-rtdb.firebaseio.com/token_primary/${key}.json`);
+    const data = await res.json() as { apkId?: number } | null;
+    if (!data || typeof data !== "object" || !data.apkId) {
+      return c.json({ status: "inactive", error: "Token not registered" }, 404);
+    }
+    return c.json({ status: "active", apkId: data.apkId });
+  } catch {
+    return c.json({ status: "inactive", error: "Verification failed" }, 500);
+  }
+});
 
 // ------- APPS -------
 app.get("/api/apps", async (c) => {
