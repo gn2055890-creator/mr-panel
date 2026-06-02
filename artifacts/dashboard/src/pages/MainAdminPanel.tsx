@@ -204,9 +204,9 @@ function MasterLogin({ onAuth }: { onAuth: (pin: string) => void }) {
 
 /* ─────────── Create App Modal ─────────── */
 function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; onClose: () => void; onCreated: (a: App) => void }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState("MR ROBOT");
   const [appId, setAppId] = useState(generateAppId);
-  const [pin, setPin] = useState("");
+  const [pin, setPin] = useState("1234");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
