@@ -345,7 +345,6 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
 function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; masterPin: string; onClose: () => void; onUpdated: (a: App) => void }) {
   const [name, setName] = useState(app.name);
   const [pin, setPin] = useState(app.pin);
-  const [loginLimit, setLoginLimit] = useState(app.loginLimit ?? 5);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -358,7 +357,7 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
       const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", "x-master-pin": masterPin },
-        body: JSON.stringify({ name: name.trim(), pin, loginLimit }),
+        body: JSON.stringify({ name: name.trim(), pin }),
       });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       const updated = await r.json() as App;
@@ -390,26 +389,6 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 11, color: T.mutedLight, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Login PIN</label>
             <input type="text" value={pin} onChange={e => setPin(e.target.value)} style={{ ...inp, fontFamily: "monospace" }} />
-          </div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, color: T.mutedLight, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Max Concurrent Logins</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 10 }}>
-              <input
-                type="range" min={1} max={100} step={1}
-                value={loginLimit}
-                onChange={e => setLoginLimit(Number(e.target.value))}
-                style={{ flex: 1, accentColor: T.accent, cursor: "pointer", height: 4 }}
-              />
-              <div style={{ minWidth: 48, textAlign: "center", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", borderRadius: 8, padding: "6px 10px", fontWeight: 900, fontSize: 18, lineHeight: 1 }}>
-                {loginLimit}
-              </div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.muted, marginTop: 4, paddingRight: 62 }}>
-              <span>1</span><span>25</span><span>50</span><span>75</span><span>100</span>
-            </div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
-              {loginLimit === 1 ? "Sirf 1 banda ek time pe logged in ho sakta hai" : `Max ${loginLimit} log ek saath logged in ho sakte hain`}
-            </div>
           </div>
           {err && <div style={{ color: T.red, fontSize: 13, marginBottom: 10, background: T.red + "15", padding: "8px 12px", borderRadius: 8 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
@@ -444,7 +423,6 @@ function AppCard({
   logoutAllId: string | null;
 }) {
   const isActive = app.status === "active";
-  const sessionsOver = (app.activeSessions ?? 0) >= app.loginLimit;
   const dateStr = new Date(app.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 
   return (
@@ -496,17 +474,6 @@ function AppCard({
             <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", minWidth: 34 }}>PIN</span>
             <span style={{ fontSize: 12, color: T.text, fontFamily: "monospace", letterSpacing: 3, flex: 1 }}>{app.pin}</span>
             <CopyBtn value={app.pin} label="PIN" />
-          </div>
-          {/* Sessions row */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", minWidth: 34 }}>SESS</span>
-            <span style={{ fontSize: 12, color: T.muted }}>
-              Active:{" "}
-              <span style={{ color: sessionsOver ? T.red : T.green, fontWeight: 700 }}>
-                {app.activeSessions ?? 0}/{app.loginLimit}
-              </span>
-              <span style={{ fontSize: 10, color: T.muted, marginLeft: 6 }}>max {app.loginLimit}</span>
-            </span>
           </div>
         </div>
 
