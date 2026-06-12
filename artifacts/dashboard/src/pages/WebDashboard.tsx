@@ -2273,8 +2273,24 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
   const [resultMsg, setResultMsg] = useState("");
   const [total, setTotal] = useState(0);
   const [deleted, setDeleted] = useState(0);
+  const [msgCount, setMsgCount] = useState<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const cancelRef = useRef(false);
+
+  useEffect(() => {
+    apiFetch(`/api/messages?appId=${encodeURIComponent(appId)}&limit=1&offset=0`, { headers: { "x-silent": "1" } })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: unknown) => {
+        if (Array.isArray(data)) setMsgCount(data.length);
+      })
+      .catch(() => {});
+    apiFetch(`/api/messages/count?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: unknown) => {
+        if (data && typeof (data as { count?: number }).count === "number") setMsgCount((data as { count: number }).count);
+      })
+      .catch(() => {});
+  }, [appId]);
 
   function openDialog() {
     cancelRef.current = false;
@@ -2347,11 +2363,14 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
           <span style={{ fontWeight: 800, fontSize: 13, color: "#dc2626" }}>Danger Zone</span>
         </div>
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.6 }}>
-            Permanently delete <strong>all messages</strong> for this App ID only. Devices, form data, and sessions are <strong>not affected</strong>.
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: t.muted }}>Total Messages</span>
+            <span style={{ fontSize: 14, fontWeight: 800, color: "#dc2626" }}>
+              {msgCount === null ? "…" : msgCount.toLocaleString()}
+            </span>
           </div>
           <button onClick={openDialog} style={{ padding: "10px 16px", borderRadius: 8, border: "1.5px solid #ef4444", background: "#fef2f2", color: "#dc2626", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            🗑️ Delete All Messages of This App ID
+            🗑️ Delete All Messages
           </button>
         </div>
       </div>
@@ -2364,7 +2383,7 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
             <div>
               <div style={{ fontWeight: 800, fontSize: 15, color: "#dc2626", marginBottom: 6 }}>⚠️ Delete All Messages</div>
               <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.6 }}>
-                Only messages for <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#6366f1" }}>{appId}</span> will be deleted. Devices, form data &amp; sessions are <strong>not affected</strong>.
+                All messages for <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#6366f1" }}>{appId}</span> will be permanently deleted.{msgCount !== null && <span style={{ color: "#dc2626", fontWeight: 700 }}> ({msgCount.toLocaleString()} messages)</span>}
               </div>
             </div>
 
