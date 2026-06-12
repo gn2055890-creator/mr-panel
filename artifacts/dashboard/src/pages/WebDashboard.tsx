@@ -1901,8 +1901,8 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
 /* ════════════════════════════════════════
    PAGE — SETTINGS
 ════════════════════════════════════════ */
-function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
-  appId: string; isDark: boolean; onToggleDark: () => void; devices: DbDevice[]; onLogout: () => void;
+function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount }: {
+  appId: string; isDark: boolean; onToggleDark: () => void; devices: DbDevice[]; onLogout: () => void; msgCount: number;
 }) {
   const t = useTheme();
   const AUTH_KEY = `mrrobot_auth_${appId}`;
@@ -2249,7 +2249,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout }: {
       </div>
 
       {/* ── Delete All Messages ── */}
-      <DeleteAllMessagesSection appId={appId} onDeleted={() => {}} />
+      <DeleteAllMessagesSection appId={appId} onDeleted={() => {}} msgCount={msgCount} />
 
     </div>
   );
@@ -2264,7 +2264,7 @@ function fmtSecs(s: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDeleted: () => void }) {
+function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: string; onDeleted: () => void; msgCount: number }) {
   const t = useTheme();
   const [showDialog, setShowDialog] = useState(false);
   const [pin, setPin] = useState("");
@@ -2273,24 +2273,8 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
   const [resultMsg, setResultMsg] = useState("");
   const [total, setTotal] = useState(0);
   const [deleted, setDeleted] = useState(0);
-  const [msgCount, setMsgCount] = useState<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const cancelRef = useRef(false);
-
-  useEffect(() => {
-    apiFetch(`/api/messages?appId=${encodeURIComponent(appId)}&limit=1&offset=0`, { headers: { "x-silent": "1" } })
-      .then(r => r.ok ? r.json() : null)
-      .then((data: unknown) => {
-        if (Array.isArray(data)) setMsgCount(data.length);
-      })
-      .catch(() => {});
-    apiFetch(`/api/messages/count?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } })
-      .then(r => r.ok ? r.json() : null)
-      .then((data: unknown) => {
-        if (data && typeof (data as { count?: number }).count === "number") setMsgCount((data as { count: number }).count);
-      })
-      .catch(() => {});
-  }, [appId]);
 
   function openDialog() {
     cancelRef.current = false;
@@ -2363,11 +2347,9 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
           <span style={{ fontWeight: 800, fontSize: 13, color: "#dc2626" }}>Danger Zone</span>
         </div>
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
             <span style={{ fontSize: 12, color: t.muted }}>Total Messages</span>
-            <span style={{ fontSize: 14, fontWeight: 800, color: "#dc2626" }}>
-              {msgCount === null ? "…" : msgCount.toLocaleString()}
-            </span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "#dc2626" }}>{msgCount.toLocaleString()}</span>
           </div>
           <button onClick={openDialog} style={{ padding: "10px 16px", borderRadius: 8, border: "1.5px solid #ef4444", background: "#fef2f2", color: "#dc2626", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             🗑️ Delete All Messages
@@ -2383,7 +2365,7 @@ function DeleteAllMessagesSection({ appId, onDeleted }: { appId: string; onDelet
             <div>
               <div style={{ fontWeight: 800, fontSize: 15, color: "#dc2626", marginBottom: 6 }}>⚠️ Delete All Messages</div>
               <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.6 }}>
-                All messages for <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#6366f1" }}>{appId}</span> will be permanently deleted.{msgCount !== null && <span style={{ color: "#dc2626", fontWeight: 700 }}> ({msgCount.toLocaleString()} messages)</span>}
+                <span style={{ fontFamily: "monospace", fontWeight: 700, color: "#6366f1" }}>{appId}</span> ke <strong style={{ color: "#dc2626" }}>{msgCount.toLocaleString()} messages</strong> permanently delete honge.
               </div>
             </div>
 
@@ -3226,7 +3208,7 @@ export default function WebDashboard() {
               {page === "messages" && <MessagesPage messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} />}
               {page === "groups" && <GroupsPage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} initialCount={groupsCountRef.current} onCountChange={n => { groupsCountRef.current = n; }} />}
               {page === "devices" && <DevicesPage appId={appId} devices={displayDevices} messages={messages} formData={formData} initialDevice={selectedDevice} onBack={onBack} initialCount={devicesCountRef.current} onCountChange={n => { devicesCountRef.current = n; }} />}
-              {page === "settings" && <SettingsPage appId={appId} isDark={darkMode} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} />}
+              {page === "settings" && <SettingsPage appId={appId} isDark={darkMode} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} msgCount={messages.length} />}
             </div>
             <ScrollToTopBtn />
           </>
