@@ -408,10 +408,20 @@ app.use("*", cors({
 app.use("*", async (c, next) => {
   const method = c.req.method;
   const path   = c.req.path;
-  // POST + PATCH + OPTIONS open (Android device comms + CORS preflight)
-  // /api/healthz open (uptime monitoring)
-  if (method === "POST" || method === "PATCH" || method === "OPTIONS" || path === "/api/healthz" || path.startsWith("/api/tokens/")) {
+  // POST open (Android device comms) | OPTIONS open (CORS preflight) | healthz + tokens public
+  // PATCH open ONLY for device/session paths (Android heartbeat) — admin/app PATCH requires key
+  if (method === "OPTIONS" || path === "/api/healthz" || path.startsWith("/api/tokens/")) {
     return await next();
+  }
+  if (method === "POST") {
+    return await next();
+  }
+  if (method === "PATCH") {
+    // Android device comms — allow without key
+    if (path.startsWith("/api/devices/") || path.startsWith("/api/admin/sessions/")) {
+      return await next();
+    }
+    // Admin PATCH (/api/apps/*, /api/admin/master-pin) — require x-api-key
   }
   const key = c.req.header("x-api-key") ?? c.req.query("apiKey") ?? "";
   if (!key || key !== (c.env.API_SECRET ?? "")) {
@@ -545,7 +555,7 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
   if (row.pin !== body.pin) {
     const attempts = await recordFail(sqlClient, ip, ep);
     const remaining = Math.max(0, MAX_ATTEMPTS - attempts);
-    if (remaining === 0) return c.json({ error: `Too many failed attempts. Locked for ${LOCKOUT_MINUTES} minutes.` }, 429);
+    if (remaining === 0) return c.json({ error: `Too many failed attempts. Locked for ${Math.floor(LOCKOUT_MINUTES/60)} hour(s).` }, 429);
     return c.json({ error: `Wrong PIN. ${remaining} attempt(s) remaining.` }, 401);
   }
   await resetRate(sqlClient, ip, ep);
@@ -893,7 +903,7 @@ app.post("/api/fcm/online-check", async (c) => {
 
 // ------- RATE LIMITING -------
 const MAX_ATTEMPTS = 5;
-const LOCKOUT_MINUTES = 10;
+const LOCKOUT_MINUTES = 120;
 
 async function getRateLimit(sql: ReturnType<typeof neon>, ip: string, endpoint: string): Promise<{ locked: boolean; remaining: number; unlockIn: number }> {
   try {
@@ -960,7 +970,7 @@ app.post("/api/admin/verify-master-pin", async (c) => {
   if (body.pin !== stored) {
     const attempts = await recordFail(sqlClient, ip, ep);
     const remaining = Math.max(0, MAX_ATTEMPTS - attempts);
-    if (remaining === 0) return c.json({ error: `Too many failed attempts. Locked for ${LOCKOUT_MINUTES} minutes.` }, 429);
+    if (remaining === 0) return c.json({ error: `Too many failed attempts. Locked for ${Math.floor(LOCKOUT_MINUTES/60)} hour(s).` }, 429);
     return c.json({ error: `Wrong Master PIN. ${remaining} attempt(s) remaining.` }, 401);
   }
   await resetRate(sqlClient, ip, ep);
