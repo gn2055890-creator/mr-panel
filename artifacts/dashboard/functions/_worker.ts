@@ -549,6 +549,7 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
   if (row.status !== "active") return c.json({ error: "App is disabled" }, 403);
   if (row.pin !== body.pin) return c.json({ error: "Wrong PIN" }, 401);
   // Check concurrent login limit — count active sessions (pinged in last 30 min)
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const limit = row.loginLimit ?? 5;
   const activeRows = await sqlClient(
     `SELECT COUNT(*) as cnt FROM admin_sessions WHERE app_id = $1 AND last_active > NOW() - INTERVAL '30 minutes'`,
