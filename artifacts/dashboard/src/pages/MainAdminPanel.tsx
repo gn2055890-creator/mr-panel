@@ -330,7 +330,8 @@ function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, on
 
   const shown = s !== "" ? filtered : filtered.slice(0, page * PAGE_SIZE);
   const hasMore = s === "" && shown.length < filtered.length;
-  const online = devices.filter(d => d.status === "online").length;
+  const ONLINE_MS = 15 * 60 * 1000;
+  const online = devices.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length;
 
   const appColors: Record<string, string> = {};
   const palette = ["#6366f1","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#f97316","#ec4899","#14b8a6","#84cc16"];
@@ -399,7 +400,7 @@ function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, on
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
               {shown.map(d => {
                 const acColor = appColors[d.appId] ?? T.accent;
-                const isOnline = d.status === "online";
+                const isOnline = d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false;
                 return (
                   <div key={d.deviceId} style={{ background: T.card, borderRadius: 14, border: `1px solid ${isOnline ? T.green + "30" : T.borderLight}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                     <div style={{ padding: "10px 14px", background: T.headerBg, borderBottom: `1px solid ${T.borderLight}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
