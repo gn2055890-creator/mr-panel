@@ -377,7 +377,7 @@ function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, on
       <div style={{ background: T.bg, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         <div style={{ maxWidth: 960, margin: "0 auto", position: "relative" }}>
           <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
-          <input type="text" placeholder="Search by name, App ID, deviceId, phone…" value={inputVal} onChange={e => handleSearchInput(e.target.value)} autoFocus
+          <input type="text" placeholder="Search by name, App ID, Device ID, phone…" value={inputVal} onChange={e => handleSearchInput(e.target.value)} autoFocus
             style={{ width: "100%", boxSizing: "border-box", padding: "10px 36px 10px 40px", borderRadius: 10, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
           {inputVal && <button onClick={clearSearch} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
         </div>
@@ -394,7 +394,7 @@ function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, on
           ) : filtered.length === 0 ? (
             <div style={{ textAlign: "center", padding: 80, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
               <div style={{ color: T.border }}><Ic.Inbox /></div>
-              <div>{search ? `"${search}" se koi device nahi mila.` : "Koi device nahi hai."}</div>
+              <div>{search ? `No devices found for "${search}".` : "No devices found."}</div>
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
@@ -626,7 +626,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   }
 
   async function logoutAll(app: App) {
-    if (!confirm(`"${app.name}" ke sabhi logged-in users ko logout karein?`)) return;
+    if (!confirm(`Logout all active sessions for "${app.name}"?`)) return;
     setLogoutAllId(app.appId);
     try {
       await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE" });
@@ -710,14 +710,14 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
           </div>
           <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-              Sare app-ids ke <b style={{ color: T.mutedLight }}>FCM-enabled devices</b> ko <b style={{ color: T.mutedLight }}>check_online</b> ping bhejta hai — 100 batches mein. Sub-admin par koi effect nahi.
+              Sends a <b style={{ color: T.mutedLight }}>check_online</b> ping to all <b style={{ color: T.mutedLight }}>FCM-enabled devices</b> across all App IDs — in batches of 100. No effect on sub-admin.
             </div>
 
             {/* Progress bar */}
             {(pingState === "running" || pingState === "loading") && (
               <div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, marginBottom: 5 }}>
-                  <span>{pingState === "loading" ? "Devices fetch ho rahe hain…" : "Ping bhej raha hai…"}</span>
+                  <span>{pingState === "loading" ? "Fetching devices…" : "Sending pings…"}</span>
                   {pingState === "running" && <span style={{ color: T.accentLight, fontWeight: 700 }}>{pingDone} / {pingTotal}</span>}
                 </div>
                 <div style={{ height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
@@ -792,7 +792,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         ) : filteredApps.length === 0 ? (
           <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <div style={{ color: T.border }}><Ic.Inbox /></div>
-            <div style={{ fontSize: 13 }}>{search ? `"${search}" se koi app nahi mila.` : 'No apps yet. Click "New App" to create one.'}</div>
+            <div style={{ fontSize: 13 }}>{search ? `No apps found for "${search}".` : 'No apps yet. Click "New App" to create one.'}</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
