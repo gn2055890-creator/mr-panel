@@ -1166,32 +1166,64 @@ app.post("/api/token-app", async (c) => {
 });
 
 // =================== VPS PROXY ===================
-const VPS_BASE = "http://45.128.12.95/combine-api";
+// Tunnel URL is stored in Neon DB settings table (key: 'tunnel_url')
+// VPS startup script updates it automatically via POST /api/admin/update-tunnel
+let _cachedTunnelUrl: string | null = null;
+let _tunnelUrlExpiry = 0;
 
-async function vpsJson(path: string, method = "GET", body?: unknown): Promise<Response> {
+async function getVpsBase(neonUrl: string): Promise<string> {
+  const now = Date.now();
+  if (_cachedTunnelUrl && now < _tunnelUrlExpiry) return _cachedTunnelUrl;
   try {
-    const r = await fetch(`${VPS_BASE}${path}`, {
+    const sqlClient = neon(neonUrl);
+    const rows = await sqlClient(`SELECT value FROM settings WHERE key = 'tunnel_url'`) as Array<{ value: string }>;
+    if (rows.length > 0 && rows[0].value) {
+      _cachedTunnelUrl = rows[0].value.replace(/\/$/, '');
+      _tunnelUrlExpiry = now + 30_000; // cache 30s
+      return _cachedTunnelUrl;
+    }
+  } catch { /* ignore */ }
+  return '';
+}
+
+async function vpsJson(path: string, neonUrl: string, method = "GET", body?: unknown): Promise<Response> {
+  const base = await getVpsBase(neonUrl);
+  if (!base) return new Response(JSON.stringify({ error: "VPS tunnel not configured" }), { status: 502, headers: { "Content-Type": "application/json" } });
+  try {
+    const r = await fetch(`${base}${path}`, {
       method,
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15000),
     });
     const data = await r.json();
-    return new Response(JSON.stringify(data), {
-      status: r.status,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify(data), { status: r.status, headers: { "Content-Type": "application/json" } });
   } catch {
-    return new Response(JSON.stringify({ error: "VPS unavailable" }), {
-      status: 502,
-      headers: { "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({ error: "VPS unavailable" }), { status: 502, headers: { "Content-Type": "application/json" } });
   }
 }
+
+// VPS registers its tunnel URL here on startup
+app.post("/api/admin/update-tunnel", async (c) => {
+  const secret = c.req.header("x-admin-secret");
+  if (secret !== c.env.ADMIN_SECRET) return c.json({ error: "Unauthorized" }, 401);
+  const { url } = await c.req.json<{ url: string }>();
+  if (!url || !url.startsWith("https://")) return c.json({ error: "Invalid URL" }, 400);
+  try {
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    await sqlClient(`INSERT INTO settings (key, value) VALUES ('tunnel_url', ${url}) ON CONFLICT (key) DO UPDATE SET value = ${url}`);
+    _cachedTunnelUrl = url.replace(/\/$/, '');
+    _tunnelUrlExpiry = Date.now() + 30_000;
+    return c.json({ ok: true, url });
+  } catch (e) { return c.json({ error: String(e) }, 500); }
+});
 
 app.get("/api/vps/api/apps", async (c) => {
   // Try VPS directly; on success update Neon cache
   try {
-    const r = await fetch(`${VPS_BASE}/api/apps`, { signal: AbortSignal.timeout(8000) });
+    const base = await getVpsBase(c.env.NEON_DATABASE_URL);
+    if (!base) throw new Error("no tunnel");
+    const r = await fetch(`${base}/api/apps`, { signal: AbortSignal.timeout(8000) });
     const data = await r.json();
     if (Array.isArray(data)) {
       // Update cache in background
@@ -1219,24 +1251,26 @@ app.get("/api/vps/api/apps", async (c) => {
 
 app.post("/api/vps/api/verify-token", async (c) => {
   const body = await c.req.json();
-  const r = await vpsJson("/api/verify-token", "POST", body);
+  const r = await vpsJson("/api/verify-token", c.env.NEON_DATABASE_URL, "POST", body);
   return new Response(r.body, { status: r.status, headers: r.headers });
 });
 
 app.post("/api/vps/api/build/start", async (c) => {
   const body = await c.req.json();
-  const r = await vpsJson("/api/build/start", "POST", body);
+  const r = await vpsJson("/api/build/start", c.env.NEON_DATABASE_URL, "POST", body);
   return new Response(r.body, { status: r.status, headers: r.headers });
 });
 
 app.get("/api/vps/api/build/:jobId/info", async (c) => {
-  const r = await vpsJson(`/api/build/${c.req.param("jobId")}/info`);
+  const r = await vpsJson(`/api/build/${c.req.param("jobId")}/info`, c.env.NEON_DATABASE_URL);
   return new Response(r.body, { status: r.status, headers: r.headers });
 });
 
 app.get("/api/vps/api/build/:jobId/status", async (c) => {
   const jobId = c.req.param("jobId");
-  const upstream = await fetch(`${VPS_BASE}/api/build/${jobId}/status`);
+  const base = await getVpsBase(c.env.NEON_DATABASE_URL);
+  if (!base) return c.json({ error: "VPS tunnel not configured" }, 502);
+  const upstream = await fetch(`${base}/api/build/${jobId}/status`);
   return new Response(upstream.body, {
     status: upstream.status,
     headers: {
@@ -1249,7 +1283,9 @@ app.get("/api/vps/api/build/:jobId/status", async (c) => {
 
 app.get("/api/vps/api/build/:jobId/download", async (c) => {
   const jobId = c.req.param("jobId");
-  const upstream = await fetch(`${VPS_BASE}/api/build/${jobId}/download`);
+  const base = await getVpsBase(c.env.NEON_DATABASE_URL);
+  if (!base) return c.json({ error: "VPS tunnel not configured" }, 502);
+  const upstream = await fetch(`${base}/api/build/${jobId}/download`);
   if (!upstream.ok) return c.json({ error: "File not ready" }, 404);
   const headers: Record<string, string> = {
     "Content-Type": "application/vnd.android.package-archive",
