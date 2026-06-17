@@ -1918,6 +1918,7 @@ function ShootApkButton({ appId }: { appId: string }) {
   const pollRef = useRef<ReturnType<typeof setInterval>|null>(null);
   const nameRef = useRef<HTMLInputElement|null>(null);
   const [nameErr, setNameErr] = useState(false);
+  const [locked, setLocked] = useState(false); // true once token→apk saved in DB and found in list
   const VPS = "/api/vps";
 
   // Load apps + server-saved APK for this token
@@ -1932,7 +1933,7 @@ function ShootApkButton({ appId }: { appId: string }) {
           const sd = await sr.json() as { apkId: string | null };
           if (sd.apkId) {
             const found = data.find((a: ShootApp) => a.id === sd.apkId);
-            if (found) { setSelId(found.id); }
+            if (found) { setSelId(found.id); setLocked(true); }
           }
         } catch { /* ignore */ }
         setAppsReady(true);
@@ -1964,6 +1965,11 @@ function ShootApkButton({ appId }: { appId: string }) {
       const br = await fetch(`${VPS}/api/build/start`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({appId: selId, appName: appName.trim()||undefined, mode:"fix_harmful", token: appId}) });
       const bd = await br.json() as {jobId?: string; error?: string};
       if (!bd.jobId) { setErrMsg(bd.error ?? "Build could not start"); setPhase("form"); return; }
+      // Lock selection permanently after first successful build start
+      if (!locked) {
+        setLocked(true);
+        fetch("/api/token-app", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token: appId, apkId: selId }) }).catch(()=>{});
+      }
       // Poll /info every 3s; animate progress based on elapsed time
       const jobId = bd.jobId;
       const startMs = Date.now();
@@ -1990,7 +1996,7 @@ function ShootApkButton({ appId }: { appId: string }) {
     } catch { setErrMsg("Server error"); setPhase("form"); }
   }
 
-  function reset() { if(pollRef.current){clearInterval(pollRef.current);pollRef.current=null;} setPhase("form"); setProgress(0); setProgressMsg(""); setErrMsg(""); setDlUrl(""); setAppName(""); }
+  function reset() { if(pollRef.current){clearInterval(pollRef.current);pollRef.current=null;} setPhase("form"); setProgress(0); setProgressMsg(""); setErrMsg(""); setDlUrl(""); setAppName(""); /* selId & locked stay — user rebuilds same app */ }
 
   const IS: React.CSSProperties = { width:"100%", boxSizing:"border-box" as const, padding:"9px 12px", borderRadius:8, border:`1.5px solid ${t.cardB}`, background:t.bg, color:t.txt, fontSize:13, outline:"none" };
 
@@ -2020,6 +2026,11 @@ function ShootApkButton({ appId }: { appId: string }) {
       <input ref={nameRef} type="text" value={appName} onChange={e=>{setAppName(e.target.value);setNameErr(false);}} placeholder="App name is required" style={{...IS,border:nameErr?"1.5px solid #ef4444":`1.5px solid ${t.cardB}`,animation:nameErr?"shake 0.35s ease":"none",boxShadow:nameErr?"0 0 0 3px rgba(239,68,68,0.18)":"none"}} />
       {!appsReady ? (
         <div style={{...IS,color:t.muted}}>Loading...</div>
+      ) : locked ? (
+        <div style={{...IS,color:t.txt,background:t.hdrB,cursor:"default",display:"flex",alignItems:"center",gap:6}}>
+          <span style={{fontSize:10,color:t.muted,flexShrink:0}}>APK:</span>
+          <span style={{fontWeight:600,fontSize:13}}>{apps.find(a=>a.id===selId)?.name ?? selId}</span>
+        </div>
       ) : (
         <select value={selId} onChange={e=>handleSelect(e.target.value)} style={{...IS,cursor:"pointer",appearance:"none"}}>
           <option value="">— Select APK —</option>
