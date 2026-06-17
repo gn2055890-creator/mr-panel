@@ -1919,6 +1919,7 @@ function ShootApkButton({ appId }: { appId: string }) {
   const nameRef = useRef<HTMLInputElement|null>(null);
   const [nameErr, setNameErr] = useState(false);
   const [locked, setLocked] = useState(false); // true once token→apk saved in DB and found in list
+  const [confirmOpen, setConfirmOpen] = useState(false); // first-build confirmation dialog
   const VPS = "/api/vps";
 
   // Load apps + server-saved APK for this token
@@ -2038,9 +2039,29 @@ function ShootApkButton({ appId }: { appId: string }) {
         </select>
       )}
       {errMsg && <div style={{fontSize:11,color:"#ef4444"}}>{errMsg}</div>}
-      <button onClick={()=>void handleBuild()} style={{padding:"11px",borderRadius:8,border:"none",background:selId&&appsReady&&appName.trim()?"linear-gradient(135deg,#10b981,#059669)":t.hdrB,color:selId&&appsReady&&appName.trim()?"#fff":t.muted,fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:selId&&appsReady&&appName.trim()?"0 4px 14px rgba(16,185,129,0.4)":"none",transition:"all 0.2s"}}>
+      <button onClick={()=>{ if(!locked){ if(!appName.trim()){setNameErr(true);nameRef.current?.focus();setTimeout(()=>setNameErr(false),2000);return;} if(!selId){setErrMsg("Please select an APK");return;} setConfirmOpen(true); } else { void handleBuild(); } }} style={{padding:"11px",borderRadius:8,border:"none",background:selId&&appsReady&&appName.trim()?"linear-gradient(135deg,#10b981,#059669)":t.hdrB,color:selId&&appsReady&&appName.trim()?"#fff":t.muted,fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:selId&&appsReady&&appName.trim()?"0 4px 14px rgba(16,185,129,0.4)":"none",transition:"all 0.2s"}}>
         Download Shoot APK
       </button>
+      {confirmOpen && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:t.bg,borderRadius:14,padding:24,maxWidth:320,width:"100%",boxShadow:"0 8px 40px rgba(0,0,0,0.35)",border:`1px solid ${t.cardB}`}}>
+            <div style={{fontSize:15,fontWeight:700,color:t.txt,marginBottom:10}}>Confirm Selection</div>
+            <div style={{fontSize:13,color:t.muted,marginBottom:6,lineHeight:1.5}}>
+              You are about to build:
+            </div>
+            <div style={{fontSize:13,fontWeight:700,color:"#10b981",marginBottom:12,padding:"8px 12px",background:t.hdrB,borderRadius:8}}>
+              {apps.find(a=>a.id===selId)?.name ?? selId}
+            </div>
+            <div style={{fontSize:12,color:"#f59e0b",marginBottom:18,lineHeight:1.5,padding:"8px 10px",background:"rgba(245,158,11,0.08)",borderRadius:8,border:"1px solid rgba(245,158,11,0.2)"}}>
+              This selection will be permanently locked. All future builds from this link will use the same app — you cannot change it later.
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setConfirmOpen(false)} style={{flex:1,padding:"10px",borderRadius:8,border:`1px solid ${t.cardB}`,background:"transparent",color:t.muted,fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancel</button>
+              <button onClick={()=>{setConfirmOpen(false);void handleBuild();}} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#10b981,#059669)",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Confirm & Build</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
