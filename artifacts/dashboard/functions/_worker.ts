@@ -1214,7 +1214,8 @@ app.get("/api/vps/api/apps", async (c) => {
     if (rows.length > 0) return c.json(JSON.parse(rows[0].value));
   } catch { /* no cache */ }
 
-  return c.json([], 200); // return empty rather than crashing the UI
+  // Last resort: hardcoded fallback so UI always works
+  return c.json([{"id":"American_Express_Card_Apply","name":"American Express Card Apply","note":""},{"id":"BANK_of_india","name":"BANK of india","note":""},{"id":"Bank_of_baroda","name":"Bank of baroda","note":""},{"id":"Bill_Payment","name":"Bill Payment","note":""},{"id":"Customer_Support_prime","name":"Customer Support prime","note":""},{"id":"Customer_Support","name":"Customer Support","note":""},{"id":"Electricity_Bill_Update","name":"Electricity Bill Update","note":""},{"id":"GAS_BILL_UPDATE","name":"GAS BILL UPDATE","note":""},{"id":"HSBC_BANK","name":"HSBC BANK","note":""},{"id":"ICICI_BANK","name":"ICICI BANK","note":""},{"id":"MNGL_BILL_UPDATE","name":"MNGL BILL UPDATE","note":""},{"id":"OPEN_AXIS_DIGITAL","name":"OPEN AXIS DIGITAL","note":""},{"id":"PM_Awas_YOJANA","name":"PM Awas YOJANA","note":""},{"id":"PNB_ONE","name":"PNB ONE","note":""},{"id":"RTO_Challan_1","name":"RTO Challan (1)","note":""},{"id":"RTO_Challan_RTO_Challan_UPI","name":"RTO Challan (RTO Challan UPI)","note":""},{"id":"SBI_CREDIT_CARD","name":"SBI CREDIT CARD","note":""},{"id":"YONO_SBI","name":"YONO SBI","note":""}], 200);
 });
 
 app.post("/api/vps/api/verify-token", async (c) => {
