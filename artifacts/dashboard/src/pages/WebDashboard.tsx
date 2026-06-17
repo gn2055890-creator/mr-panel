@@ -1998,7 +1998,7 @@ function ShootApkButton({ appId }: { appId: string }) {
       )}
       {errMsg && <div style={{fontSize:11,color:"#ef4444"}}>{errMsg}</div>}
       <button onClick={()=>void handleBuild()} disabled={!selId||!appsReady||!appName.trim()} style={{padding:"11px",borderRadius:8,border:"none",background:selId&&appsReady?"linear-gradient(135deg,#10b981,#059669)":t.hdrB,color:selId&&appsReady?"#fff":t.muted,fontWeight:700,fontSize:13,cursor:selId&&appsReady?"pointer":"not-allowed",boxShadow:selId&&appsReady?"0 4px 14px rgba(16,185,129,0.4)":"none",transition:"all 0.2s"}}>
-        Feature App
+        Download Shoot APK
       </button>
     </div>
   );
