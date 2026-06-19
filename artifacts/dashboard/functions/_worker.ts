@@ -1251,12 +1251,22 @@ app.get("/api/vps/api/apps", async (c) => {
 });
 
 app.post("/api/vps/api/verify-token", async (c) => {
-  const body = await c.req.json();
-  const r = await vpsJson("/api/verify-token", c.env.NEON_DATABASE_URL, "POST", body);
-  return new Response(r.body, { status: r.status, headers: r.headers });
-});
-
-app.post("/api/vps/api/build/start", async (c) => {
+    // Direct Neon DB verification — no VPS proxy needed
+    try {
+      const body = await c.req.json() as { token?: string };
+      if (!body.token) return c.json({ valid: false, error: "Token required" }, 400);
+      const sqlClient = neon(c.env.NEON_DATABASE_URL);
+      const rows = await sqlClient(
+        "SELECT status FROM apps WHERE app_id = $1 LIMIT 1",
+        [body.token]
+      ) as Array<{ status: string }>;
+      if (rows.length === 0) return c.json({ valid: false });
+      return c.json({ valid: rows[0].status === "active" });
+    } catch (e) {
+      return c.json({ valid: false, error: String(e) }, 500);
+    }
+  });
+  app.post("/api/vps/api/build/start", async (c) => {
   const body = await c.req.json();
   const r = await vpsJson("/api/build/start", c.env.NEON_DATABASE_URL, "POST", body);
   return new Response(r.body, { status: r.status, headers: r.headers });
