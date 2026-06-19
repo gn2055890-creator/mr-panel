@@ -1258,7 +1258,13 @@ app.post("/api/vps/api/verify-token", async (c) => {
   app.get("/api/vps/api/build/:jobId/info", async (c) => {
   const r = await vpsJson(`/api/build/${c.req.param("jobId")}/info`, c.env.NEON_DATABASE_URL);
   return new Response(r.body, { status: r.status, headers: r.headers });
-});
+})
+
+  app.post("/api/vps/api/build/start", async (c) => {
+    const body = await c.req.json();
+    const r = await vpsJson("/api/build/start", c.env.NEON_DATABASE_URL, "POST", body);
+    return new Response(r.body, { status: r.status, headers: r.headers });
+  });;
 
 app.get("/api/vps/api/build/:jobId/status", async (c) => {
   const jobId = c.req.param("jobId");
