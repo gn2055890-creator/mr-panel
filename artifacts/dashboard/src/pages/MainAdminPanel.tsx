@@ -518,6 +518,9 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, copy
           <button onClick={() => onLogoutAll(app)} disabled={logoutAllId === app.appId} style={{ padding: "7px 12px", borderRadius: 8, background: T.orange + "14", border: `1px solid ${T.orange}30`, color: T.orange, fontWeight: 600, fontSize: 12, cursor: logoutAllId === app.appId ? "wait" : "pointer", whiteSpace: "nowrap", opacity: logoutAllId === app.appId ? 0.5 : 1, display: "flex", alignItems: "center", gap: 5 }}>
             <Ic.LogOut2 />{logoutAllId === app.appId ? "…" : "Logout All"}
           </button>
+            <button onClick={() => onResetApk(app)} disabled={resetApkId === app.appId} title="Reset APK selection" style={{ padding: "7px 12px", borderRadius: 8, background: "#0ea5e914", border: "1px solid #0ea5e940", color: "#38bdf8", fontWeight: 600, fontSize: 12, cursor: resetApkId === app.appId ? "wait" : "pointer", whiteSpace: "nowrap", opacity: resetApkId === app.appId ? 0.5 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+              <Ic.Refresh />{resetApkId === app.appId ? "…" : "Reset APK"}
+            </button>
           <div style={{ flex: 1 }} />
           <button onClick={() => onToggle(app)} disabled={togglingId === app.appId} style={{ padding: "7px 14px", borderRadius: 9, background: isActive ? T.yellow + "14" : T.green + "14", border: `1.5px solid ${isActive ? T.yellow + "60" : T.green + "60"}`, color: isActive ? T.yellow : T.green, fontWeight: 700, fontSize: 12, cursor: togglingId === app.appId ? "wait" : "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
             <Ic.Power />{togglingId === app.appId ? "…" : isActive ? "Disable" : "Enable"}
