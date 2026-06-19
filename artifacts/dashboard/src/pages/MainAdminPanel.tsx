@@ -514,71 +514,71 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
   const isActive = app.status === "active";
   const dateStr = new Date(app.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   return (
-    <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, overflow: "hidden", transition: "border-color 0.2s, box-shadow 0.2s" }}
-      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = isActive ? T.green + "40" : T.red + "30"; (e.currentTarget as HTMLDivElement).style.boxShadow = "0 6px 24px rgba(0,0,0,0.25)"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = T.borderLight; (e.currentTarget as HTMLDivElement).style.boxShadow = "none"; }}>
-      <div style={{ height: 2, background: isActive ? `linear-gradient(90deg,${T.green},#4ade80)` : `linear-gradient(90deg,${T.red},#f87171)`, opacity: 0.7 }} />
-      <div style={{ padding: "15px 18px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 13 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: T.text, wordBreak: "break-word" }}>{app.name}</div>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: isActive ? T.green : T.red, background: (isActive ? T.green : T.red) + "18", border: `1px solid ${(isActive ? T.green : T.red)}35` }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: isActive ? T.green : T.red, display: "inline-block" }} />
-                {isActive ? "Active" : "Disabled"}
-              </span>
+      <div style={{ background:T.card, borderRadius:16, border:`1px solid ${T.borderLight}`, overflow:"hidden", transition:"all 0.2s", position:"relative", boxShadow:"0 2px 12px rgba(0,0,0,0.18)" }}>
+        <div style={{ position:"absolute", left:0, top:0, bottom:0, width:3, background:isActive?`linear-gradient(180deg,${T.green},#4ade80)`:`linear-gradient(180deg,${T.red},#f87171)` }} />
+        <div style={{ padding:"13px 14px 13px 18px" }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:15, fontWeight:800, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{app.name}</div>
+              <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{dateStr}</div>
             </div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Created {dateStr}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
+              <span style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:99, color:isActive?T.green:T.red, background:(isActive?T.green:T.red)+"18", border:`1px solid ${(isActive?T.green:T.red)}30` }}>
+                <span style={{ width:5, height:5, borderRadius:"50%", background:isActive?T.green:T.red, display:"inline-block" }} />{isActive?"Active":"Off"}
+              </span>
+              <div style={{ textAlign:"right" }}>
+                <div style={{ fontSize:13, fontWeight:900, color:T.text, lineHeight:1 }}>{app.activeSessions}<span style={{ color:T.muted, fontWeight:500, fontSize:11 }}>/{app.loginLimit}</span></div>
+                <div style={{ fontSize:9, color:T.muted, textTransform:"uppercase", letterSpacing:0.5 }}>users</div>
+              </div>
+            </div>
           </div>
-          <div style={{ flexShrink: 0, textAlign: "right" }}>
-            <div style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>{app.activeSessions} / {app.loginLimit}</div>
-            <div style={{ fontSize: 9, color: T.muted, textTransform: "uppercase", letterSpacing: 0.5 }}>sessions</div>
+          <div style={{ display:"flex", gap:8, marginBottom:11 }}>
+            <div style={{ flex:1, background:T.inputBg, borderRadius:9, padding:"7px 10px", border:`1px solid ${T.border}`, minWidth:0 }}>
+              <div style={{ fontSize:9, color:T.muted, fontWeight:700, letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>App ID</div>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontSize:10, color:T.accentLight, fontFamily:"monospace", fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{app.appId}</span>
+                <CopyBtn value={app.appId} label="ID" />
+              </div>
+            </div>
+            <div style={{ background:T.inputBg, borderRadius:9, padding:"7px 10px", border:`1px solid ${T.border}`, flexShrink:0 }}>
+              <div style={{ fontSize:9, color:T.muted, fontWeight:700, letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>PIN</div>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontSize:14, color:T.text, fontFamily:"monospace", letterSpacing:4, fontWeight:700 }}>{app.pin}</span>
+                <CopyBtn value={app.pin} label="PIN" />
+              </div>
+            </div>
           </div>
-        </div>
-        <div style={{ background: T.inputBg, borderRadius: 10, padding: "10px 14px", marginBottom: 13, display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${T.border}` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", minWidth: 30 }}>ID</span>
-            <span style={{ fontSize: 11, color: T.accentLight, fontFamily: "monospace", fontWeight: 600, flex: 1, wordBreak: "break-all" }}>{app.appId}</span>
-            <CopyBtn value={app.appId} label="ID" />
-          </div>
-          <div style={{ height: 1, background: T.border }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", minWidth: 30 }}>PIN</span>
-            <span style={{ fontSize: 13, color: T.text, fontFamily: "monospace", letterSpacing: 4, flex: 1 }}>{app.pin}</span>
-            <CopyBtn value={app.pin} label="PIN" />
-          </div>
-        </div>
-          <div style={{ display:"flex",gap:5,alignItems:"center",flexWrap:"wrap" }}>
-            <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId] || "Copy URL"}
-              style={{ width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",flexShrink:0,border:"1px solid", background:copyMsg[app.appId]?T.green+"1a":T.border, borderColor:copyMsg[app.appId]?T.green+"55":T.borderLight, color:copyMsg[app.appId]?T.green:T.mutedLight }}>
+          <div style={{ display:"flex", gap:5, alignItems:"center" }}>
+            <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId]||"Copy URL"}
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid", background:copyMsg[app.appId]?T.green+"1a":T.border+"60", borderColor:copyMsg[app.appId]?T.green+"55":T.borderLight, color:copyMsg[app.appId]?T.green:T.mutedLight }}>
               {copyMsg[app.appId] ? <Ic.Check /> : <Ic.Link />}
             </button>
             <button onClick={() => onEdit(app)} title="Edit App"
-              style={{ width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",flexShrink:0, background:T.accentGlow, border:`1px solid ${T.accent}30`, color:T.accentLight }}>
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", background:T.accentGlow, border:`1px solid ${T.accent}30`, color:T.accentLight }}>
               <Ic.Pencil />
             </button>
             <button onClick={() => onLogoutAll(app)} disabled={logoutAllId===app.appId} title="Logout All Users"
-              style={{ width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",outline:"none",flexShrink:0, background:T.orange+"14", border:`1px solid ${T.orange}30`, color:T.orange, opacity:logoutAllId===app.appId?0.45:1, cursor:logoutAllId===app.appId?"wait":"pointer" }}>
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:T.orange+"14", border:`1px solid ${T.orange}30`, color:T.orange, opacity:logoutAllId===app.appId?0.45:1, cursor:logoutAllId===app.appId?"wait":"pointer" }}>
               <Ic.LogOut2 />
             </button>
-            <button onClick={() => onResetApk(app)} disabled={resetApkId===app.appId} title="Reset APK Selection"
-              style={{ width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",outline:"none",flexShrink:0, background:"#0ea5e914", border:"1px solid #0ea5e940", color:"#38bdf8", opacity:resetApkId===app.appId?0.45:1, cursor:resetApkId===app.appId?"wait":"pointer" }}>
+            <button onClick={() => onResetApk(app)} disabled={resetApkId===app.appId} title="Reset APK"
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:"#0ea5e914", border:"1px solid #0ea5e940", color:"#38bdf8", opacity:resetApkId===app.appId?0.45:1, cursor:resetApkId===app.appId?"wait":"pointer" }}>
               <Ic.Refresh />
             </button>
-            <div style={{ flex:1 }} />
-            <button onClick={() => onToggle(app)} disabled={togglingId===app.appId} title={isActive?"Disable App":"Enable App"}
-              style={{ width:36,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",outline:"none",flexShrink:0, background:isActive?T.yellow+"14":T.green+"14", border:`1.5px solid ${isActive?T.yellow+"60":T.green+"60"}`, color:isActive?T.yellow:T.green, opacity:togglingId===app.appId?0.45:1, cursor:togglingId===app.appId?"wait":"pointer" }}>
+            <div style={{ width:1, height:22, background:T.border, flexShrink:0 }} />
+            <button onClick={() => onToggle(app)} disabled={togglingId===app.appId} title={isActive?"Disable":"Enable"}
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:isActive?T.yellow+"14":T.green+"14", border:`1.5px solid ${isActive?T.yellow+"55":T.green+"55"}`, color:isActive?T.yellow:T.green, opacity:togglingId===app.appId?0.45:1, cursor:togglingId===app.appId?"wait":"pointer" }}>
               <Ic.Power />
             </button>
             <button onClick={() => onDelete(app)} disabled={deletingId===app.appId} title="Delete App"
-              style={{ width:36,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.15s",outline:"none",flexShrink:0, background:T.red+"14", border:`1.5px solid ${T.red}55`, color:T.red, opacity:deletingId===app.appId?0.45:1, cursor:deletingId===app.appId?"wait":"pointer" }}>
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:T.red+"14", border:`1.5px solid ${T.red}44`, color:T.red, opacity:deletingId===app.appId?0.45:1, cursor:deletingId===app.appId?"wait":"pointer" }}>
               <Ic.Trash />
             </button>
           </div>
         </div>
       </div>
     );
-}
+  }
 
 /* ─────────── Dashboard ─────────── */
 function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; onLogout: () => void; onPinChanged: (p: string) => void }) {
@@ -718,67 +718,76 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Inter', system-ui, sans-serif", color: T.text }}>
 
-        <style>{`
-            @keyframes spin { to { transform: rotate(360deg) } }
-            @keyframes ma-glow { 0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0.3)} 50%{box-shadow:0 0 0 8px rgba(99,102,241,0)} }
-            * { box-sizing: border-box; }
-            .ma-bottom-nav {
-              display:none; position:fixed; bottom:0; left:0; right:0;
-              background:rgba(10,10,18,0.97); border-top:1px solid rgba(99,102,241,0.18);
-              backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
-              padding:6px 16px 14px; z-index:100;
-              justify-content:space-around; align-items:center;
-              box-shadow:0 -4px 28px rgba(0,0,0,0.6);
-            }
-            .ma-bnav-item {
-              display:flex; flex-direction:column; align-items:center; gap:3px;
-              cursor:pointer; color:rgba(130,130,165,0.85); transition:all 0.15s;
-              background:none; border:none; outline:none; padding:4px 8px;
-              font-family:inherit; -webkit-tap-highlight-color:transparent;
-            }
-            .ma-bnav-item:active { transform:scale(0.88); }
-            .ma-bnav-lbl { font-size:9px; font-weight:700; letter-spacing:0.6px; text-transform:uppercase; }
-            .ma-fab {
-              width:50px; height:50px; border-radius:15px; border:none;
-              background:linear-gradient(135deg,#5254d4,#7c3aed);
-              box-shadow:0 4px 20px rgba(99,102,241,0.5);
-              display:flex; align-items:center; justify-content:center;
-              color:#fff; cursor:pointer; transition:all 0.15s; outline:none;
-              animation:ma-glow 3s ease-in-out infinite; margin-top:-12px;
-            }
-            .ma-fab:active,.ma-bnav-item:active { transform:scale(0.88); }
-            @media (max-width: 640px) {
-              .ma-bottom-nav { display:flex; }
-              .ma-hide-mob { display:none !important; }
-              .ma-main { padding-bottom:80px !important; }
-            }
-          `}</style>
+      <style>{`
+              @keyframes spin { to { transform: rotate(360deg) } }
+              @keyframes ma-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+              @keyframes ma-fabglow { 0%,100%{box-shadow:0 4px 20px rgba(99,102,241,0.55)} 50%{box-shadow:0 4px 32px rgba(139,92,246,0.75)} }
+              * { box-sizing:border-box; }
+              .ma-card { transition:transform 0.18s, box-shadow 0.18s !important; }
+              .ma-card:active { transform:scale(0.985); }
+              .ma-btn { -webkit-tap-highlight-color:transparent; }
+              .ma-btn:active { opacity:0.7 !important; transform:scale(0.92); }
+              .ma-bottom-nav {
+                display:none; position:fixed; bottom:0; left:0; right:0;
+                background:rgba(7,9,20,0.98); border-top:1px solid rgba(99,102,241,0.2);
+                backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px);
+                padding:8px 12px calc(10px + env(safe-area-inset-bottom)); z-index:200;
+                justify-content:space-around; align-items:center;
+                box-shadow:0 -6px 40px rgba(0,0,0,0.75);
+              }
+              .ma-bnav-item {
+                display:flex; flex-direction:column; align-items:center; gap:3px;
+                cursor:pointer; color:rgba(100,115,160,0.85); transition:color 0.15s;
+                background:none; border:none; outline:none; padding:6px 18px;
+                font-family:inherit; -webkit-tap-highlight-color:transparent; flex:1;
+              }
+              .ma-bnav-item:active { color:#818cf8; transform:scale(0.88); }
+              .ma-bnav-lbl { font-size:10px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; margin-top:1px; }
+              .ma-fab {
+                width:54px; height:54px; border-radius:17px; border:none;
+                background:linear-gradient(135deg,#5254d4,#7c3aed);
+                box-shadow:0 4px 20px rgba(99,102,241,0.55), 0 0 0 1px rgba(255,255,255,0.07) inset;
+                display:flex; align-items:center; justify-content:center;
+                color:#fff; cursor:pointer; transition:all 0.15s; outline:none;
+                margin-top:-20px; flex-shrink:0;
+                animation:ma-fabglow 2.8s ease-in-out infinite;
+              }
+              .ma-fab:active { transform:scale(0.88) !important; }
+              .ma-fab-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; }
+              @media (max-width:640px) {
+                .ma-bottom-nav { display:flex; }
+                .ma-hide-mob { display:none !important; }
+                .ma-main { padding-bottom:88px !important; }
+              }
+            `}</style>
 
       {/* ── Header ── */}
-        <div style={{ background:"rgba(10,10,18,0.97)",borderBottom:"1px solid rgba(99,102,241,0.15)",padding:"0 14px",position:"sticky",top:0,zIndex:50,backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",boxShadow:"0 2px 20px rgba(0,0,0,0.55)" }}>
-          <div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899)" }} />
-          <div style={{ maxWidth:960,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",height:54,gap:8 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:9 }}>
-              <div style={{ width:32,height:32,borderRadius:10,background:"linear-gradient(145deg,#4f52d4,#7c3aed)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",flexShrink:0,boxShadow:"0 4px 14px rgba(99,102,241,0.45)" }}><Ic.CPU /></div>
-              <div style={{ lineHeight:1.2 }}>
-                <div style={{ fontSize:13,fontWeight:900,color:"#f1f1f5",letterSpacing:-0.3 }}>MR ROBOT</div>
-                <div style={{ fontSize:8,color:"#818cf8",fontWeight:700,letterSpacing:1.5,textTransform:"uppercase" }}>Master Admin</div>
+        <div style={{ background:"rgba(7,9,20,0.98)", borderBottom:"1px solid rgba(99,102,241,0.18)", padding:"0 16px", position:"sticky", top:0, zIndex:50, backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", boxShadow:"0 4px 24px rgba(0,0,0,0.6)" }}>
+          <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899,#6366f1)", backgroundSize:"200% 100%", animation:"none" }} />
+          <div style={{ maxWidth:960, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", height:56, gap:8 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <div style={{ width:34, height:34, borderRadius:11, background:"linear-gradient(145deg,#4f52d4,#7c3aed)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0, boxShadow:"0 4px 14px rgba(99,102,241,0.5)" }}>
+                <Ic.CPU />
+              </div>
+              <div style={{ lineHeight:1.15 }}>
+                <div style={{ fontSize:14, fontWeight:900, color:"#f1f1f5", letterSpacing:-0.4 }}>MR ROBOT</div>
+                <div style={{ fontSize:9, color:"#818cf8", fontWeight:700, letterSpacing:1.8, textTransform:"uppercase" }}>Master Admin</div>
               </div>
             </div>
-            <div style={{ display:"flex",gap:6,alignItems:"center" }}>
-              <button onClick={() => void openAllDevices()} title="All Devices" style={{ width:36,height:36,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",border:"1px solid rgba(99,102,241,0.3)",background:"rgba(99,102,241,0.15)",color:"#818cf8" }}>
+            <div style={{ display:"flex", gap:7, alignItems:"center" }}>
+              <button onClick={() => void openAllDevices()} title="All Devices" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(99,102,241,0.3)", background:"rgba(99,102,241,0.14)", color:"#818cf8" }}>
                 <Ic.Smartphone />
               </button>
-              <button onClick={() => setShowChangePin(true)} title="Change PIN" style={{ width:36,height:36,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",border:"1px solid rgba(255,255,255,0.09)",background:"rgba(255,255,255,0.05)",color:"#94a3b8" }}>
+              <button onClick={() => setShowChangePin(true)} title="Change PIN" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.04)", color:"#94a3b8" }}>
                 <Ic.Key />
               </button>
-              <button onClick={onLogout} title="Logout" style={{ width:36,height:36,borderRadius:11,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",border:"1px solid rgba(239,68,68,0.25)",background:"rgba(239,68,68,0.1)",color:"#f87171" }}>
+              <button onClick={onLogout} title="Logout" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(239,68,68,0.28)", background:"rgba(239,68,68,0.1)", color:"#f87171" }}>
                 <Ic.LogOut />
               </button>
             </div>
           </div>
         </div>
-      <div className="ma-main" style={{ maxWidth:960,margin:"0 auto",padding:"24px 16px" }}>
+      <div className="ma-main" style={{ maxWidth:960,margin:"0 auto",padding:"20px 14px" }}>
 
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
@@ -911,22 +920,21 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
       {showChangePin && (<ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />)}
       {editApp && (<EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />)}
 
-      {/* ── Bottom Nav (mobile) ── */}
-        <div className="ma-bottom-nav">
-          <button className="ma-bnav-item" onClick={() => void openAllDevices()} title="All Devices">
-            <Ic.Smartphone />
-            <span className="ma-bnav-lbl">Devices</span>
-          </button>
-          <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
-            <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App"><Ic.Plus /></button>
-            <span className="ma-bnav-lbl" style={{ color:"#818cf8",marginTop:2 }}>New App</span>
+      {/* ── Bottom Nav (mobile only) ── */}
+          <div className="ma-bottom-nav">
+            <button className="ma-bnav-item ma-btn" onClick={() => void openAllDevices()} title="Devices">
+              <Ic.Smartphone />
+              <span className="ma-bnav-lbl">Devices</span>
+            </button>
+            <div className="ma-fab-wrap">
+              <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App"><Ic.Plus /></button>
+              <span className="ma-bnav-lbl" style={{ color:"#818cf8" }}>New App</span>
+            </div>
+            <button className="ma-bnav-item ma-btn" onClick={onLogout} title="Logout">
+              <Ic.LogOut />
+              <span className="ma-bnav-lbl">Logout</span>
+            </button>
           </div>
-          <button className="ma-bnav-item" onClick={onLogout} title="Logout">
-            <Ic.LogOut />
-            <span className="ma-bnav-lbl">Logout</span>
-          </button>
-        </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } } * { box-sizing: border-box; }`}</style>
     </div>
   );
 }
