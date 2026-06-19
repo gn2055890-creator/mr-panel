@@ -1163,7 +1163,19 @@ app.post("/api/token-app", async (c) => {
     `);
     return c.json({ ok: true });
   } catch (e) { return c.json({ error: String(e) }, 500); }
-});
+})
+
+  // Master admin: reset APK selection for a specific apk-id
+  app.delete("/api/master/token-app/:apkId", async (c) => {
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const apkId = c.req.param("apkId");
+    try {
+      const db = getDb(c.env);
+      await db.delete(tokenAppMap).where(eq(tokenAppMap.apkId, apkId));
+      return c.json({ ok: true });
+    } catch (e) { return c.json({ error: String(e) }, 500); }
+  });;
 
 // =================== VPS PROXY ===================
 // Tunnel URL is stored in Neon DB settings table (key: 'tunnel_url')
