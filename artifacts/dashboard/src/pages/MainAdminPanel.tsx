@@ -548,7 +548,6 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
             <CopyBtn value={app.pin} label="PIN" />
           </div>
         </div>
-        </div>
           <div style={{ display:"flex",gap:5,alignItems:"center",flexWrap:"wrap" }}>
             <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId] || "Copy URL"}
               style={{ width:34,height:34,borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",transition:"all 0.15s",outline:"none",flexShrink:0,border:"1px solid", background:copyMsg[app.appId]?T.green+"1a":T.border, borderColor:copyMsg[app.appId]?T.green+"55":T.borderLight, color:copyMsg[app.appId]?T.green:T.mutedLight }}>
