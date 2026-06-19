@@ -719,6 +719,33 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Inter', system-ui, sans-serif", color: T.text }}>
 
+        <style>{`
+          @keyframes spin { to { transform: rotate(360deg) } }
+          @keyframes ma-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+          * { box-sizing: border-box; }
+          .ma-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 13px; font-size: 12px; font-weight: 600;
+            cursor: pointer; white-space: nowrap; transition: all 0.15s;
+            outline: none; font-family: inherit;
+          }
+          .ma-btn:active { transform: scale(0.95); }
+          .ma-btn-lg { padding: 7px 15px; font-weight: 700; }
+          .ma-app-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+          .ma-hdr-btns { display: flex; gap: 7px; align-items: center; flex-shrink: 0; }
+          @media (max-width: 560px) {
+            .ma-btn-lbl { display: none; }
+            .ma-btn     { padding: 8px 9px; gap: 0; }
+            .ma-btn-lg  { padding: 8px 10px; }
+            .ma-hdr-btns{ gap: 4px; }
+            .ma-app-btns{ gap: 4px; }
+          }
+          @media (min-width: 561px) and (max-width: 768px) {
+            .ma-btn     { padding: 6px 10px; font-size: 11px; }
+            .ma-btn-lg  { padding: 6px 11px; font-size: 11px; }
+          }
+        `}</style>
+
       {/* ── Header ── */}
       <div style={{ background: T.headerBg, borderBottom: `1px solid ${T.border}`, padding: "0 20px", position: "sticky", top: 0, zIndex: 50, boxShadow: "0 1px 24px rgba(0,0,0,0.4)" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg, #6366f1, #8b5cf6, #a855f7)" }} />
