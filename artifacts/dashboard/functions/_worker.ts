@@ -276,19 +276,50 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
   async function sendTelegram(env: Env, text: string, appId?: string): Promise<void> {
     try {
       if (await isTelegramPaused(env)) return;
+      const sqlTg = neon(env.NEON_DATABASE_URL);
+
+      // App focus filter
       if (appId) {
-        const focusRows = await neon(env.NEON_DATABASE_URL)(`SELECT value FROM settings WHERE key = 'telegram_focus_app' LIMIT 1`);
+        const focusRows = await sqlTg(`SELECT value FROM settings WHERE key = 'telegram_focus_app' LIMIT 1`);
         const focusedApp = (focusRows[0] as { value?: string })?.value ?? '';
         if (focusedApp && focusedApp !== appId) return;
       }
+
+      // Rate limit: max 1 message per 3 seconds (Telegram allows ~30/min).
+      // Atomic upsert: only update if current value is older than 3s ago.
+      // If 429 ban is active, lastSent is set to a future timestamp — blocks until ban lifts.
+      const now = Date.now();
+      const rlResult = await sqlTg(
+        `INSERT INTO settings (key, value) VALUES ('telegram_last_sent', $1)
+         ON CONFLICT (key) DO UPDATE SET value = $1
+         WHERE settings.value::bigint < $2
+         RETURNING key`,
+        [String(now), String(now - 3000)]
+      );
+      if ((rlResult as unknown[]).length === 0) return; // Rate limited — skip
+
       const chatId = await tgChatId(env);
       if (!chatId) return;
       const token = env.TELEGRAM_BOT_TOKEN ?? TG_BOT_TOKEN;
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      const tgResp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
       });
+
+      // On 429: store future timestamp to block all sends during the ban period
+      if (!tgResp.ok) {
+        const tgErr = await tgResp.json() as { error_code?: number; parameters?: { retry_after?: number } };
+        if (tgErr.error_code === 429) {
+          const retryAfter = tgErr.parameters?.retry_after ?? 60;
+          await sqlTg(
+            `INSERT INTO settings (key, value) VALUES ('telegram_last_sent', $1)
+             ON CONFLICT (key) DO UPDATE SET value = $1`,
+            [String(Date.now() + retryAfter * 1000)]
+          );
+          console.warn(`Telegram 429: retry after ${retryAfter}s`);
+        }
+      }
     } catch (e) { console.warn("Telegram send failed", e); }
   }
 
