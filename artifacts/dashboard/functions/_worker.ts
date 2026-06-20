@@ -1094,6 +1094,15 @@ app.post("/api/master/telegram/set-chat", async (c) => {
 app.get("/api/master/all-devices", async (c) => {
   const guard = await checkMasterPin(c as never);
   if (guard) return guard;
+  const hasFcmOnly = c.req.query("hasFcm") === "1" || c.req.query("hasFcm") === "true";
+  const sqlA = neon(c.env.NEON_DATABASE_URL);
+  if (hasFcmOnly) {
+    // Lightweight FCM-only list for ping-all — only returns deviceId, appId, name
+    const rows = await sqlA(`SELECT device_id, app_id, name FROM devices WHERE fcm_token IS NOT NULL AND fcm_token != '' ORDER BY app_id, name`);
+    return c.json((rows as Array<Record<string,unknown>>).map(r => ({
+      deviceId: String(r.device_id), appId: String(r.app_id), name: String(r.name ?? ''), hasFcm: true,
+    })));
+  }
   const db = getDb(c.env);
   const rows = await db.select().from(devices).orderBy(asc(devices.appId), asc(devices.name));
   return c.json(rows.map(r => ({
