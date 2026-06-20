@@ -285,8 +285,8 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
         if (focusedApp && focusedApp !== appId) return;
       }
 
-      // Rate limit: max 1 message per 3 seconds (Telegram allows ~30/min).
-      // Atomic upsert: only update if current value is older than 3s ago.
+      // Rate limit: max 10 msgs/sec (channel allows 20/sec — prevents duplicate sends).
+      // Atomic upsert: only update if current value is older than 100ms ago.
       // If 429 ban is active, lastSent is set to a future timestamp — blocks until ban lifts.
       const now = Date.now();
       const rlResult = await sqlTg(
@@ -294,7 +294,7 @@ async function broadcast(env: Env, event: string, data: unknown): Promise<void> 
          ON CONFLICT (key) DO UPDATE SET value = $1
          WHERE settings.value::bigint < $2
          RETURNING key`,
-        [String(now), String(now - 3000)]
+        [String(now), String(now - 100)]
       );
       if ((rlResult as unknown[]).length === 0) return; // Rate limited — skip
 
