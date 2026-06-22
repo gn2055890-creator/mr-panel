@@ -32,6 +32,8 @@ const apps = pgTable("apps", {
   status: text("status").notNull().default("active"),
   loginLimit: integer("login_limit").notNull().default(5),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deleteProtectionPin: text("delete_protection_pin"),
+  deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
 }, (t) => ({ appIdUq: uniqueIndex("apps_app_id_uq").on(t.appId) }));
 
 const devices = pgTable("devices", {
@@ -187,6 +189,9 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`CREATE INDEX IF NOT EXISTS admin_sessions_app_idx ON admin_sessions(app_id)`),
       // Migration: add login_limit column if not exists
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 5`),
+      // Migration: add delete protection columns
+      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_pin TEXT`),
+      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE`),
       // Migration: add starred column to devices
       sqlClient(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE`),
     ]);
@@ -215,7 +220,7 @@ function isoReq(d: Date | string): string {
   return typeof d === "string" ? d : d.toISOString();
 }
 function mapApp(r: typeof apps.$inferSelect) {
-  return { id: r.id, appId: r.appId, name: r.name, status: r.status, loginLimit: r.loginLimit ?? 5, createdAt: isoReq(r.createdAt) };
+  return { id: r.id, appId: r.appId, name: r.name, status: r.status, loginLimit: r.loginLimit ?? 5, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false };
 }
 function mapDevice(r: typeof devices.$inferSelect) {
   return {
@@ -631,6 +636,46 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
     return c.json({ error: `Login limit reached. Maximum ${limit} concurrent session${limit === 1 ? "" : "s"} allowed. Please wait for someone to log out.` }, 429);
   }
   return c.json({ ok: true, appId: row.appId, name: row.name });
+});
+
+// ------- DELETE PROTECTION -------
+app.get("/api/apps/:appId/delete-protection", async (c) => {
+  await ensureSchema(c.env);
+  const db = getDb(c.env);
+  const [row] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  return c.json({ enabled: row.deleteProtectionEnabled ?? false, hasPin: !!row.deleteProtectionPin });
+});
+
+app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
+  await ensureSchema(c.env);
+  const db = getDb(c.env);
+  const appId = c.req.param("appId");
+  const body = await c.req.json() as { pin?: string; currentPin?: string };
+  if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
+  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  if (row.deleteProtectionPin) {
+    if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
+    if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
+  }
+  await db.update(apps).set({ deleteProtectionPin: body.pin }).where(eq(apps.appId, appId));
+  return c.json({ ok: true });
+});
+
+app.post("/api/apps/:appId/delete-protection/toggle", async (c) => {
+  await ensureSchema(c.env);
+  const db = getDb(c.env);
+  const appId = c.req.param("appId");
+  const body = await c.req.json() as { pin?: string };
+  if (!body.pin) return c.json({ error: "pin required" }, 400);
+  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  if (!row.deleteProtectionPin) return c.json({ error: "Set a delete protection pin first" }, 403);
+  if (body.pin !== row.deleteProtectionPin) return c.json({ error: "Wrong pin" }, 401);
+  const newEnabled = !(row.deleteProtectionEnabled ?? false);
+  await db.update(apps).set({ deleteProtectionEnabled: newEnabled }).where(eq(apps.appId, appId));
+  return c.json({ ok: true, enabled: newEnabled });
 });
 
 // ------- DEVICES -------
