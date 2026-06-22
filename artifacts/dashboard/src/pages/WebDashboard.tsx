@@ -53,6 +53,8 @@ const ZT: Theme = {
 };
 const ThemeCtx = createContext<Theme>(LT);
 function useTheme() { return useContext(ThemeCtx); }
+const DeleteProtCtx = createContext(false);
+function useDeleteProt() { return useContext(DeleteProtCtx); }
 
 interface DbDevice {
   id: number; deviceId: string; appId: string; userId: string; name: string;
@@ -1340,6 +1342,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
   const onlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // ── Like / Delete state ──
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const dpEnabled = useDeleteProt();
   const [deleting, setDeleting] = useState(false);
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [starringId, setStarringId] = useState<string | null>(null);
@@ -1861,9 +1864,11 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
                     <button onClick={e => void toggleLike(device, e)} disabled={starringId === device.deviceId} style={{ background: "none", border: "none", cursor: starringId === device.deviceId ? "wait" : "pointer", padding: "4px", borderRadius: 5, display: "flex", alignItems: "center", opacity: starringId === device.deviceId ? 0.5 : 1 }} title={device.starred ? "Unlike" : "Like"}>
                       <svg width="20" height="20" viewBox="0 0 24 24" fill={device.starred ? "#f59e0b" : "none"} stroke={device.starred ? "#f59e0b" : "#94a3b8"} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
                     </button>
+                    {!dpEnabled && (
                     <button onClick={e => { e.stopPropagation(); setConfirmDeleteId(device.deviceId); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", borderRadius: 5, display: "flex", alignItems: "center" }} title="Delete device">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -1898,7 +1903,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
       <div ref={devSentinel} style={{ height: 1 }} />
       {devsLoading && <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}><CircularLoader size={22} color={t.accent} /></div>}
       {/* Delete confirmation modal */}
-      {confirmDeleteId !== null && (
+      {!dpEnabled && confirmDeleteId !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
           onClick={() => !deleting && setConfirmDeleteId(null)}>
           <div style={{ background: t.card, borderRadius: 14, padding: "22px 24px", border: `1px solid ${t.cardB}`, width: 270, boxShadow: "0 20px 50px #00000099" }}
@@ -2085,12 +2090,59 @@ function ShootApkButton({ appId }: { appId: string }) {
     </div>
   );
 }
-function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount, isZeroTrace: isZT }: {
-  appId: string; isDark: boolean; onToggleDark: () => void; devices: DbDevice[]; onLogout: () => void; msgCount: number; isZeroTrace?: boolean;
+function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount, isZeroTrace: isZT, onDeleteProtEnabledChange }: {
+  appId: string; isDark: boolean; onToggleDark: () => void; devices: DbDevice[]; onLogout: () => void; msgCount: number; isZeroTrace?: boolean; onDeleteProtEnabledChange: (v: boolean) => void;
 }) {
   const t = useTheme();
   const AUTH_KEY = `mrrobot_auth_${appId}`;
   const SESS_KEY = `mrrobot_session_id_${appId}`;
+
+  /* ── Delete Protection state ── */
+  const [dpEnabled, setDpEnabled] = useState(false);
+  const [dpHasPin, setDpHasPin] = useState(false);
+  const [dpLoaded, setDpLoaded] = useState(false);
+  const [dpLoading, setDpLoading] = useState(false);
+  const [dpPinInput, setDpPinInput] = useState("");
+  const [dpCurrentPin, setDpCurrentPin] = useState("");
+  const [dpPinNew, setDpPinNew] = useState("");
+  const [dpErr, setDpErr] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/apps/${appId}/delete-protection`)
+      .then(r => r.json())
+      .then((d: { enabled: boolean; hasPin: boolean }) => {
+        setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true);
+        onDeleteProtEnabledChange(d.enabled);
+      }).catch(() => setDpLoaded(true));
+  }, [appId]);
+
+  async function dpSetPin() {
+    setDpLoading(true); setDpErr("");
+    try {
+      const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew }) });
+      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
+      setDpHasPin(true); setDpPinNew(""); setDpErr("");
+    } finally { setDpLoading(false); }
+  }
+
+  async function dpToggle() {
+    setDpLoading(true); setDpErr("");
+    try {
+      const r = await fetch(`/api/apps/${appId}/delete-protection/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinInput }) });
+      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Wrong PIN"); return; }
+      const d = (await r.json()) as { enabled: boolean };
+      setDpEnabled(d.enabled); setDpPinInput(""); setDpErr(""); onDeleteProtEnabledChange(d.enabled);
+    } finally { setDpLoading(false); }
+  }
+
+  async function dpChangePin() {
+    setDpLoading(true); setDpErr("");
+    try {
+      const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew, currentPin: dpCurrentPin }) });
+      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
+      setDpCurrentPin(""); setDpPinNew(""); setDpErr("");
+    } finally { setDpLoading(false); }
+  }
 
   /* ── Admin Sessions ── */
   const [sessions, setSessions] = useState<AdminSession[]>([]);
@@ -2452,8 +2504,43 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
         }
       </div>
 
-      {/* ── Delete All Messages ── */}
-      <DeleteAllMessagesSection appId={appId} onDeleted={() => {}} msgCount={msgCount} />
+      {/* ── Delete Protection ── */}
+      {dpLoaded && (
+        <div style={{ background: t.card, borderRadius: 12, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", background: t.hdr, borderBottom: `1px solid ${t.cardB}`, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16 }}>🔒</span>
+            <span style={{ fontWeight: 800, fontSize: 13, color: t.txt }}>Delete Protection</span>
+            <span style={{ marginLeft: "auto", background: dpEnabled ? "#22c55e" : "#6b7280", color: "#fff", borderRadius: 99, padding: "2px 8px", fontSize: 10, fontWeight: 800 }}>{dpEnabled ? "ON" : "OFF"}</span>
+          </div>
+          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+            {!dpHasPin ? (
+              <>
+                <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>Set a PIN to enable delete protection. This will hide all delete buttons &amp; Danger Zone for sub-admins.</div>
+                <input value={dpPinNew} onChange={e => setDpPinNew(e.target.value)} type="password" placeholder="New PIN (min 4 chars)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13 }} />
+                {dpErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{dpErr}</div>}
+                <button disabled={dpLoading || dpPinNew.length < 4} onClick={() => void dpSetPin()} style={{ padding: "10px 0", borderRadius: 8, background: t.accent, color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer", opacity: dpLoading || dpPinNew.length < 4 ? 0.5 : 1 }}>{dpLoading ? "…" : "Set PIN"}</button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>{dpEnabled ? "Delete protection is ON — sub-admins cannot see delete buttons." : "Delete protection is OFF — enter PIN to enable."}</div>
+                <input value={dpPinInput} onChange={e => setDpPinInput(e.target.value)} type="password" placeholder="Enter PIN to toggle on/off" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13 }} />
+                {dpErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{dpErr}</div>}
+                <button disabled={dpLoading || !dpPinInput} onClick={() => void dpToggle()} style={{ padding: "10px 0", borderRadius: 8, background: dpEnabled ? "#ef4444" : "#22c55e", color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer", opacity: dpLoading || !dpPinInput ? 0.5 : 1 }}>{dpLoading ? "…" : dpEnabled ? "Disable Protection" : "Enable Protection"}</button>
+                <div style={{ borderTop: `1px solid ${t.cardB}`, paddingTop: 10 }}>
+                  <div style={{ fontSize: 11, color: t.muted, marginBottom: 6, fontWeight: 700 }}>Change PIN</div>
+                  <input value={dpCurrentPin} onChange={e => setDpCurrentPin(e.target.value)} type="password" placeholder="Current PIN" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13, width: "100%", marginBottom: 6, boxSizing: "border-box" as const }} />
+                  <input value={dpPinNew} onChange={e => setDpPinNew(e.target.value)} type="password" placeholder="New PIN (min 4 chars)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13, width: "100%", boxSizing: "border-box" as const }} />
+                  {dpErr && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{dpErr}</div>}
+                  <button disabled={dpLoading || !dpCurrentPin || dpPinNew.length < 4} onClick={() => void dpChangePin()} style={{ padding: "8px 0", borderRadius: 8, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontWeight: 700, fontSize: 12, cursor: "pointer", width: "100%", marginTop: 6, opacity: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? 0.5 : 1 }}>{dpLoading ? "…" : "Change PIN"}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete All Messages (Danger Zone) ── */}
+      {!dpEnabled && <DeleteAllMessagesSection appId={appId} onDeleted={() => {}} msgCount={msgCount} />}
 
     </div>
   );
@@ -2925,6 +3012,7 @@ export default function WebDashboard() {
   }, [authed, appId]);
 
   const [darkMode, setDarkMode] = useState<boolean>(() => localStorage.getItem("mrrobot_dark") === "1");
+  const [deleteProtEnabled, setDeleteProtEnabled] = useState(false);
 
   // Zero Trace = day mode only, no dark toggle
   const isZeroTrace = appName === "ZERO TRACE";
@@ -3258,6 +3346,7 @@ export default function WebDashboard() {
 
   return (
     <ThemeCtx.Provider value={theme}>
+    <DeleteProtCtx.Provider value={deleteProtEnabled}>
     <div style={{ height: "100dvh", background: theme.bg, fontFamily: "system-ui,-apple-system,'Segoe UI',sans-serif", color: theme.txt, display: "flex", justifyContent: "center" }}>
       <div style={{ width: "100%", maxWidth: 440, height: "100dvh", display: "flex", flexDirection: "column", background: theme.bg }}>
 
@@ -3468,13 +3557,14 @@ export default function WebDashboard() {
               {page === "messages" && <MessagesPage messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} />}
               {page === "groups" && <GroupsPage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} initialCount={groupsCountRef.current} onCountChange={n => { groupsCountRef.current = n; }} />}
               {page === "devices" && <DevicesPage appId={appId} devices={displayDevices} messages={messages} formData={formData} initialDevice={selectedDevice} onBack={onBack} initialCount={devicesCountRef.current} onCountChange={n => { devicesCountRef.current = n; }} />}
-              {page === "settings" && <SettingsPage appId={appId} isDark={effectiveDark} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} msgCount={messages.length} isZeroTrace={isZeroTrace} />}
+              {page === "settings" && <SettingsPage appId={appId} isDark={effectiveDark} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} msgCount={messages.length} isZeroTrace={isZeroTrace} onDeleteProtEnabledChange={setDeleteProtEnabled} />}
             </div>
             <ScrollToTopBtn />
           </>
         )}
       </div>
     </div>
+    </DeleteProtCtx.Provider>
     </ThemeCtx.Provider>
   );
 }
