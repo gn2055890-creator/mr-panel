@@ -7,6 +7,8 @@ export const apps = pgTable("apps", {
   pin: text("pin").notNull().default("1234"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  deleteProtectionPin: text("delete_protection_pin"),
+  deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
 }, (t) => ({
   appIdUq: uniqueIndex("apps_app_id_uq").on(t.appId),
 }));
