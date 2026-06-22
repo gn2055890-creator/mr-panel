@@ -19,6 +19,8 @@ const T = {
 type App = {
   id: number; appId: string; name: string; pin: string;
   status: string; loginLimit: number; activeSessions: number; createdAt: string;
+  deleteProtectionPin: string | null;
+  deleteProtectionEnabled: boolean;
 };
 
 type FullDevice = {
@@ -559,6 +561,19 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
                 <CopyBtn value={app.pin} label="PIN" />
               </div>
             </div>
+          </div>
+          {/* Delete Protection row */}
+          <div style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 10px", borderRadius:9, background:app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border:`1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom:7 }}>
+            <span style={{ fontSize:10, color:T.muted, fontWeight:700, letterSpacing:0.8, textTransform:"uppercase", flexShrink:0 }}>Del Password</span>
+            <span style={{ flex:1 }} />
+            {app.deleteProtectionPin ? (
+              <>
+                <span style={{ fontFamily:"monospace", fontSize:13, fontWeight:700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing:1 }}>{app.deleteProtectionPin}</span>
+                <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border:`1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}`, flexShrink:0 }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
+              </>
+            ) : (
+              <span style={{ fontSize:11, color:T.muted, fontStyle:"italic" }}>Not set</span>
+            )}
           </div>
           <div style={{ display:"flex", gap:5, alignItems:"center" }}>
             <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId]||"Copy URL"}
