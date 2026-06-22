@@ -2817,8 +2817,8 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
         const j = await r.json().catch(() => ({}));
         const apiErr = (j as { error?: string }).error ?? "";
         setErr(
-          apiErr.includes("expired") ? "App validity expired (30 days). Contact admin." :
-          apiErr.includes("disabled") ? "This app is disabled. Contact admin." :
+          apiErr.includes("expired") || apiErr.includes("Licence") ? "Login restricted. Please contact admin." :
+          apiErr.includes("disabled") ? "Login restricted. Please contact admin." :
           "Wrong PIN. Try again."
         );
         setPin(""); return;
