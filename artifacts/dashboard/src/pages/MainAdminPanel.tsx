@@ -79,6 +79,7 @@ const Ic = {
   Trash: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>),
   Key: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>),
   LogOut: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>),
+  CalendarPlus: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="10" y1="17" x2="14" y2="17"/></svg>),
   Search: () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>),
   Plus: () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>),
   Inbox: () => (<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>),
@@ -519,11 +520,59 @@ function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, on
   );
 }
 
+/* ─────────── Renew Licence Modal ─────────── */
+function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPin: string; onClose: () => void; onRenewed: (a: App) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+
+  const THIRTY_MS = 30 * 24 * 60 * 60 * 1000;
+  const oldExpiry = new Date(app.createdAt).getTime() + THIRTY_MS;
+  const isExpired = oldExpiry < Date.now();
+  const newExpiry = new Date(isExpired ? Date.now() + THIRTY_MS : oldExpiry + THIRTY_MS);
+  const newExpiryStr = newExpiry.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+
+  async function handleRenew() {
+    setLoading(true); setErr("");
+    try {
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/renew`, {
+        method: "POST", headers: { "x-master-pin": masterPin },
+      });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
+      onRenewed(await r.json() as App);
+    } catch { setErr("Network error"); } finally { setLoading(false); }
+  }
+
+  return (
+    <Modal onClose={onClose} maxWidth={380}>
+      <ModalHeader title="Renew Licence +30 Days" icon={<Ic.CalendarPlus />} onClose={onClose} />
+      <div style={{ background: T.inputBg, borderRadius: 10, padding: "12px 14px", border: `1px solid ${T.green}30`, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>App</div>
+        <div style={{ fontWeight: 800, fontSize: 14, color: T.text, marginBottom: 6 }}>{app.name}</div>
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: T.accentLight }}>{app.appId}</div>
+      </div>
+      <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.7 }}>
+        {isExpired
+          ? <><span style={{ color: T.red, fontWeight: 700 }}>Licence expired.</span> A fresh <b style={{ color: T.green }}>30-day</b> licence will start from today.</>
+          : <>Current licence extended by <b style={{ color: T.green }}>+30 days</b>.</>
+        }<br />
+        New expiry: <b style={{ color: T.text }}>{newExpiryStr}</b>
+      </div>
+      {err && <ErrBanner msg={err} />}
+      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+        <button type="button" onClick={onClose} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+        <button type="button" onClick={handleRenew} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#16a34a,#22c55e)", border: "none", color: "#fff", fontWeight: 800, cursor: loading ? "default" : "pointer", fontSize: 13, boxShadow: "0 4px 14px rgba(34,197,94,0.35)" }}>
+          {loading ? "Renewing…" : "Confirm +30 Days"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ─────────── App Card ─────────── */
-function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, copyMsg, deletingId, togglingId, logoutAllId, resetApkId }: {
+function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId }: {
   app: App; onEdit: (a: App) => void; onDelete: (a: App) => void;
-  onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void; onResetApk: (a: App) => void;
-  copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null; logoutAllId: string | null; resetApkId: string | null;
+  onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void; onResetApk: (a: App) => void; onRenew: (a: App) => void;
+  copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null; logoutAllId: string | null; resetApkId: string | null; renewId: string | null;
 }) {
   const isActive = app.status === "active";
   const dt = new Date(app.createdAt);
@@ -590,6 +639,10 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
               style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:"#0ea5e914", border:"1px solid #0ea5e940", color:"#38bdf8", opacity:resetApkId===app.appId?0.45:1, cursor:resetApkId===app.appId?"wait":"pointer" }}>
               <Ic.Refresh />
             </button>
+            <button onClick={() => onRenew(app)} disabled={renewId===app.appId} title="Renew Licence +30 Days"
+              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:"#16a34a14", border:"1px solid #16a34a40", color:"#4ade80", opacity:renewId===app.appId?0.45:1, cursor:renewId===app.appId?"wait":"pointer" }}>
+              <Ic.CalendarPlus />
+            </button>
             <div style={{ width:1, height:22, background:T.border, flexShrink:0 }} />
             <button onClick={() => onToggle(app)} disabled={togglingId===app.appId} title={isActive?"Disable":"Enable"}
               style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:isActive?T.yellow+"14":T.green+"14", border:`1.5px solid ${isActive?T.yellow+"55":T.green+"55"}`, color:isActive?T.yellow:T.green, opacity:togglingId===app.appId?0.45:1, cursor:togglingId===app.appId?"wait":"pointer" }}>
@@ -621,6 +674,8 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [copyMsg, setCopyMsg] = useState<Record<string, string>>({});
   const [logoutAllId, setLogoutAllId] = useState<string | null>(null);
     const [resetApkId, setResetApkId] = useState<string | null>(null);
+  const [renewId, setRenewId] = useState<string | null>(null);
+  const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
 
   /* ── FCM Check Online ── */
@@ -723,6 +778,10 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
         else alert(`❌ Error: ${j.error ?? "Unknown error"}`);
       } catch { alert("❌ Network error"); } finally { setResetApkId(null); }
     }
+
+    function openRenew(app: App) {
+    setRenewConfirmApp(app);
+  }
 
     function copyUrl(app: App) {
     const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}`;
@@ -928,7 +987,7 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
             {filteredApps.map(app => (
-              <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} />
+              <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={openRenew} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} />
             ))}
           </div>
         )}
@@ -943,6 +1002,7 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
       {showCreate && (<CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={a => { setAppList(prev => [a, ...prev]); setShowCreate(false); }} />)}
       {showChangePin && (<ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />)}
       {editApp && (<EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />)}
+      {renewConfirmApp && (<RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />)}
 
       {/* ── Bottom Nav (mobile only) ── */}
           <div className="ma-bottom-nav">
