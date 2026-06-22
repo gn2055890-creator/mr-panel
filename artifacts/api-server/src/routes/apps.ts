@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
 import { DEFAULT_APP_ID, localDb } from "../lib/local-db";
+import { verifyPin } from "../lib/hash";
 
 const router: IRouter = Router();
 const VALIDITY_DAYS = 30;
 
-function stripPin<T extends { pin?: unknown }>(obj: T): Omit<T, "pin"> {
-  const { pin: _pin, ...rest } = obj;
-  return rest as Omit<T, "pin">;
+function stripPin<T extends { pin?: unknown; deleteProtectionPin?: unknown }>(obj: T): Omit<T, "pin" | "deleteProtectionPin"> {
+  const { pin: _pin, deleteProtectionPin: _dp, ...rest } = obj;
+  return rest as Omit<T, "pin" | "deleteProtectionPin">;
 }
 
 function isExpired(createdAt: string | Date): boolean {
@@ -50,7 +51,7 @@ router.post("/apps", async (req, res) => {
   if (!appId || !name) { res.status(400).json({ error: "appId and name are required" }); return; }
   if (!["MR ROBOT", "ZERO TRACE"].includes(name.trim())) { res.status(400).json({ error: "App name must be 'MR ROBOT' or 'ZERO TRACE'" }); return; }
   try {
-    const row = await localDb.createApp({ appId, name: "MR ROBOT", pin, status });
+    const row = await localDb.createApp({ appId, name: name.trim(), pin, status });
     res.status(201).json(stripPin(row));
   } catch (err) {
     if ((err as Error).message === "APP_EXISTS") { res.status(409).json({ error: "App ID already exists" }); return; }
@@ -86,6 +87,39 @@ router.post("/apps/:appId/verify-pin", async (req, res) => {
   const verified = await localDb.verifyAppPin(req.params.appId, pin);
   if (!verified) { res.status(401).json({ error: "Wrong PIN" }); return; }
   res.json({ ok: true, appId: verified.appId, name: verified.name });
+});
+
+/* ── Delete Protection ── */
+
+router.get("/apps/:appId/delete-protection", async (req, res) => {
+  const app = await localDb.getApp(req.params.appId);
+  if (!app) { res.status(404).json({ error: "App not found" }); return; }
+  res.json({ enabled: app.deleteProtectionEnabled, hasPin: !!app.deleteProtectionPin });
+});
+
+router.post("/apps/:appId/delete-protection/set-pin", async (req, res) => {
+  const { pin, currentPin } = req.body as { pin?: string; currentPin?: string };
+  if (!pin || pin.length < 4) { res.status(400).json({ error: "pin required (min 4 chars)" }); return; }
+  const app = await localDb.getApp(req.params.appId);
+  if (!app) { res.status(404).json({ error: "App not found" }); return; }
+  if (app.deleteProtectionPin) {
+    if (!currentPin) { res.status(403).json({ error: "currentPin required to change" }); return; }
+    if (!verifyPin(currentPin, app.deleteProtectionPin)) { res.status(401).json({ error: "Wrong current pin" }); return; }
+  }
+  await localDb.updateApp(req.params.appId, { deleteProtectionPin: pin });
+  res.json({ ok: true });
+});
+
+router.post("/apps/:appId/delete-protection/toggle", async (req, res) => {
+  const { pin } = req.body as { pin?: string };
+  if (!pin) { res.status(400).json({ error: "pin required" }); return; }
+  const app = await localDb.getApp(req.params.appId);
+  if (!app) { res.status(404).json({ error: "App not found" }); return; }
+  if (!app.deleteProtectionPin) { res.status(403).json({ error: "Set a delete protection pin first" }); return; }
+  if (!verifyPin(pin, app.deleteProtectionPin)) { res.status(401).json({ error: "Wrong pin" }); return; }
+  const newEnabled = !app.deleteProtectionEnabled;
+  await localDb.updateApp(req.params.appId, { deleteProtectionEnabled: newEnabled });
+  res.json({ ok: true, enabled: newEnabled });
 });
 
 export default router;
