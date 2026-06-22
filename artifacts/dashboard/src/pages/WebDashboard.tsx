@@ -210,6 +210,7 @@ function isBankingMsg(body: string, sender: string): boolean {
 
 /* ─── Scroll-to-top floating button ─── */
 function ScrollToTopBtn() {
+  const t = useTheme();
   const btn = (
     <button
       onClick={() => {
@@ -487,6 +488,7 @@ function SendProgressBar({ active }: { active: boolean }) {
 function PrimaryBtn({ state, idle, loading: ld, ok, onClick }: {
   state: SendState; idle: string; loading: string; ok: string; onClick: () => void;
 }) {
+  const t = useTheme();
   return (
     <>
       <button onClick={onClick} disabled={state === "loading"} style={{
@@ -1099,6 +1101,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
 
 /* ─── Per-device Check Online button ─── */
 function CheckOnlineBtn({ device }: { device: DbDevice }) {
+  const t = useTheme();
   const [checking, setChecking] = useState(false);
   const [seconds, setSeconds] = useState(0);   // live counter: 1,2,3…30
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2632,6 +2635,7 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
    LOGIN PAGE
 ════════════════════════════════════════ */
 function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: string; appName: string }) {
+  const t = useTheme();
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
