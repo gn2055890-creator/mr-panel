@@ -27,14 +27,14 @@ const LT: Theme = {
   bg: "#f1f5f9", card: "#ffffff", cardB: "#e2e8f0",
   hdr: "#f8fafc", hdrB: "#f1f5f9",
   txt: "#0f172a", txt2: "#334155", muted: "#94a3b8",
-  accent: t.accent, activeBg: "#eef2ff",
+  accent: "#6366f1", activeBg: "#eef2ff",
   isDark: false,
 };
 const DT: Theme = {
   bg: "#0f172a", card: "#1e293b", cardB: "#334155",
   hdr: "#162032", hdrB: "#243444",
   txt: "#f1f5f9", txt2: "#cbd5e1", muted: "#94a3b8",
-  accent: t.accent, activeBg: "#1e1b4b",
+  accent: "#6366f1", activeBg: "#1e1b4b",
   isDark: true,
 };
 /* ── Zero Trace theme — completely separate visual identity ── */
