@@ -2234,7 +2234,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
             </div>
             <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>
-                Install the MR ROBOT Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install.
+                {isZT ? "Install the ZERO TRACE Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install." : "Install the MR ROBOT Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install."}
               </div>
               <a
                 href="/MR_ROBOT.apk"
@@ -2242,9 +2242,9 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 18px", borderRadius: 8,
-                  background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  background: isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: "#fff", fontWeight: 700, fontSize: 13,
-                  textDecoration: "none", boxShadow: "0 4px 14px rgba(99,102,241,0.45)",
+                  textDecoration: "none", boxShadow: isZT ? "0 4px 14px rgba(29,78,216,0.45)" : "0 4px 14px rgba(99,102,241,0.45)",
                   cursor: "pointer", border: "none",
                 }}
               >
