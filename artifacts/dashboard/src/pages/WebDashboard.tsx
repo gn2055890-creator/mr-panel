@@ -260,6 +260,7 @@ const MsgCard = React.memo(function MsgCard({
   formEntries?: DbFormData[];
 }) {
   const t = useTheme();
+  const dpEnabled = useDeleteProt();
   const [showForm, setShowForm] = useState(false);
   const [deletedToast, setDeletedToast] = useState(false);
 
@@ -326,6 +327,7 @@ const MsgCard = React.memo(function MsgCard({
           )}
           <span style={{ flex: 1 }} />
           <DeleteIconButton
+            hidden={dpEnabled}
             size={30}
             title="Delete this SMS"
             confirmTitle="Delete SMS"
@@ -387,6 +389,7 @@ const MsgCard = React.memo(function MsgCard({
                     {/* Delete button — bottom */}
                     <div style={{ display: "flex", justifyContent: "flex-end", padding: "4px 10px", background: t.hdrB }}>
                       <DeleteIconButton
+                        hidden={dpEnabled}
                         size={26}
                         title="Delete this entry"
                         confirmTitle="Delete Form Entry"
@@ -931,6 +934,7 @@ function fmtKey(k: string): string {
 
 function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChange }: { devices: DbDevice[]; messages: DbMessage[]; formData: DbFormData[]; onOpenDevice: (d: DbDevice) => void; initialCount?: number; onCountChange?: (n: number) => void }) {
   const t = useTheme();
+  const dpEnabled = useDeleteProt();
   const [search, setSearch] = useState("");
 
   const formByDevice = formData.reduce((acc, f) => {
@@ -1078,6 +1082,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
                   {devForm.length > 0 && (
                     <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 10px", background: H, borderTop: `1px solid ${H}` }}>
                       <DeleteIconButton
+                        hidden={dpEnabled}
                         size={28}
                         title={`Delete all ${devForm.length} form entries from this device`}
                         confirmTitle="Delete All Form Entries"
@@ -1807,6 +1812,7 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
                   )}
                   <span style={{ flex: 1 }} />
                   <DeleteIconButton
+                    hidden={dpEnabled}
                     size={30}
                     title="Delete this SMS"
                     confirmTitle="Delete SMS"
