@@ -2237,7 +2237,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 {isZT ? "Install the ZERO TRACE Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install." : "Install the MR ROBOT Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install."}
               </div>
               <a
-                href={isZT ? "/ZERO_TRACE.apk" : "/MR_ROBOT.apk"}
+                href="/MR_ROBOT.apk"
                 download={isZT ? "ZERO_TRACE.apk" : "MR_ROBOT.apk"}
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
