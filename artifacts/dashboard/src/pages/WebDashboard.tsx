@@ -2238,7 +2238,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               </div>
               <a
                 href="/MR_ROBOT.apk"
-                download={isZT ? "ZERO_TRACE.apk" : "MR_ROBOT.apk"}
+                download="MR_ROBOT.apk"
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 18px", borderRadius: 8,
