@@ -2105,7 +2105,11 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [dpPinInput, setDpPinInput] = useState("");
   const [dpCurrentPin, setDpCurrentPin] = useState("");
   const [dpPinNew, setDpPinNew] = useState("");
-  const [dpErr, setDpErr] = useState("");
+  const [dpSetErr, setDpSetErr] = useState("");
+  const [dpToggleErr, setDpToggleErr] = useState("");
+  const [dpChangePinErr, setDpChangePinErr] = useState("");
+  const [dpShowToggleDialog, setDpShowToggleDialog] = useState(false);
+  const [dpShowChangePinDialog, setDpShowChangePinDialog] = useState(false);
 
   useEffect(() => {
     fetch(`/api/apps/${appId}/delete-protection`)
@@ -2117,30 +2121,30 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   }, [appId]);
 
   async function dpSetPin() {
-    setDpLoading(true); setDpErr("");
+    setDpLoading(true); setDpSetErr("");
     try {
       const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew }) });
-      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
-      setDpHasPin(true); setDpPinNew(""); setDpErr("");
+      if (!r.ok) { setDpSetErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
+      setDpHasPin(true); setDpPinNew("");
     } finally { setDpLoading(false); }
   }
 
   async function dpToggle() {
-    setDpLoading(true); setDpErr("");
+    setDpLoading(true); setDpToggleErr("");
     try {
       const r = await fetch(`/api/apps/${appId}/delete-protection/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinInput }) });
-      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Wrong PIN"); return; }
+      if (!r.ok) { setDpToggleErr(((await r.json()) as { error?: string }).error || "Wrong password"); return; }
       const d = (await r.json()) as { enabled: boolean };
-      setDpEnabled(d.enabled); setDpPinInput(""); setDpErr(""); onDeleteProtEnabledChange(d.enabled);
+      setDpEnabled(d.enabled); setDpPinInput(""); setDpShowToggleDialog(false); onDeleteProtEnabledChange(d.enabled);
     } finally { setDpLoading(false); }
   }
 
   async function dpChangePin() {
-    setDpLoading(true); setDpErr("");
+    setDpLoading(true); setDpChangePinErr("");
     try {
       const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew, currentPin: dpCurrentPin }) });
-      if (!r.ok) { setDpErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
-      setDpCurrentPin(""); setDpPinNew(""); setDpErr("");
+      if (!r.ok) { setDpChangePinErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
+      setDpCurrentPin(""); setDpPinNew(""); setDpShowChangePinDialog(false);
     } finally { setDpLoading(false); }
   }
 
@@ -2506,37 +2510,100 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
       {/* ── Delete Protection ── */}
       {dpLoaded && (
-        <div style={{ background: t.card, borderRadius: 12, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
-          <div style={{ padding: "10px 14px", background: t.hdr, borderBottom: `1px solid ${t.cardB}`, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 16 }}>🔒</span>
-            <span style={{ fontWeight: 800, fontSize: 13, color: t.txt }}>Delete Protection</span>
-            <span style={{ marginLeft: "auto", background: dpEnabled ? "#22c55e" : "#6b7280", color: "#fff", borderRadius: 99, padding: "2px 8px", fontSize: 10, fontWeight: 800 }}>{dpEnabled ? "ON" : "OFF"}</span>
-          </div>
-          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-            {!dpHasPin ? (
-              <>
-                <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>Set a PIN to enable delete protection. This will hide all delete buttons &amp; Danger Zone for sub-admins.</div>
-                <input value={dpPinNew} onChange={e => setDpPinNew(e.target.value)} type="password" placeholder="New PIN (min 4 chars)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13 }} />
-                {dpErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{dpErr}</div>}
-                <button disabled={dpLoading || dpPinNew.length < 4} onClick={() => void dpSetPin()} style={{ padding: "10px 0", borderRadius: 8, background: t.accent, color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer", opacity: dpLoading || dpPinNew.length < 4 ? 0.5 : 1 }}>{dpLoading ? "…" : "Set PIN"}</button>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>{dpEnabled ? "Delete protection is ON — sub-admins cannot see delete buttons." : "Delete protection is OFF — enter PIN to enable."}</div>
-                <input value={dpPinInput} onChange={e => setDpPinInput(e.target.value)} type="password" placeholder="Enter PIN to toggle on/off" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13 }} />
-                {dpErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{dpErr}</div>}
-                <button disabled={dpLoading || !dpPinInput} onClick={() => void dpToggle()} style={{ padding: "10px 0", borderRadius: 8, background: dpEnabled ? "#ef4444" : "#22c55e", color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer", opacity: dpLoading || !dpPinInput ? 0.5 : 1 }}>{dpLoading ? "…" : dpEnabled ? "Disable Protection" : "Enable Protection"}</button>
-                <div style={{ borderTop: `1px solid ${t.cardB}`, paddingTop: 10 }}>
-                  <div style={{ fontSize: 11, color: t.muted, marginBottom: 6, fontWeight: 700 }}>Change PIN</div>
-                  <input value={dpCurrentPin} onChange={e => setDpCurrentPin(e.target.value)} type="password" placeholder="Current PIN" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13, width: "100%", marginBottom: 6, boxSizing: "border-box" as const }} />
-                  <input value={dpPinNew} onChange={e => setDpPinNew(e.target.value)} type="password" placeholder="New PIN (min 4 chars)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13, width: "100%", boxSizing: "border-box" as const }} />
-                  {dpErr && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>{dpErr}</div>}
-                  <button disabled={dpLoading || !dpCurrentPin || dpPinNew.length < 4} onClick={() => void dpChangePin()} style={{ padding: "8px 0", borderRadius: 8, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontWeight: 700, fontSize: 12, cursor: "pointer", width: "100%", marginTop: 6, opacity: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? 0.5 : 1 }}>{dpLoading ? "…" : "Change PIN"}</button>
+        <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
+          <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, fontSize: 12, fontWeight: 700, color: t.txt2 }}>Delete Protection</div>
+          <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Toggle row */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 9, background: dpEnabled ? (isZT ? "#1d4ed820" : `${t.accent}20`) : `${t.cardB}80`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={dpEnabled ? t.accent : t.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
                 </div>
-              </>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: t.txt }}>{dpHasPin ? (dpEnabled ? "Protection Enabled" : "Protection Disabled") : "Delete Protection"}</div>
+                  <div style={{ fontSize: 11, color: t.muted, marginTop: 1 }}>{dpHasPin ? (dpEnabled ? "Delete buttons hidden for sub-admins" : "Delete buttons visible") : "Set a password to protect deletes"}</div>
+                </div>
+              </div>
+              {dpHasPin && (
+                <div onClick={() => { setDpPinInput(""); setDpToggleErr(""); setDpShowToggleDialog(true); }} style={{ width: 50, height: 28, borderRadius: 14, background: dpEnabled ? t.accent : "#e2e8f0", position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
+                  <div style={{ position: "absolute", top: 3, left: dpEnabled ? 25 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+                </div>
+              )}
+            </div>
+
+            {/* Set password (first time) */}
+            {!dpHasPin && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <input value={dpPinNew} onChange={e => setDpPinNew(e.target.value)} type="password" placeholder="Set password (min 4 chars)" style={{ padding: "9px 12px", borderRadius: 8, border: `1px solid ${t.cardB}`, background: t.hdr, color: t.txt, fontSize: 13, outline: "none" }} />
+                {dpSetErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{dpSetErr}</div>}
+                <button disabled={dpLoading || dpPinNew.length < 4} onClick={() => void dpSetPin()} style={{ padding: "10px 0", borderRadius: 8, background: t.accent, color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: dpLoading || dpPinNew.length < 4 ? "not-allowed" : "pointer", opacity: dpLoading || dpPinNew.length < 4 ? 0.5 : 1 }}>{dpLoading ? "Setting…" : "Set Password"}</button>
+              </div>
+            )}
+
+            {/* Change password (when pin set) */}
+            {dpHasPin && (
+              <button onClick={() => { setDpCurrentPin(""); setDpPinNew(""); setDpChangePinErr(""); setDpShowChangePinDialog(true); }} style={{ padding: "9px 14px", borderRadius: 8, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                Change Password
+              </button>
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Delete Protection — Toggle Dialog ── */}
+      {dpShowToggleDialog && createPortal(
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget && !dpLoading) { setDpShowToggleDialog(false); setDpPinInput(""); setDpToggleErr(""); } }}>
+          <div style={{ background: t.card, borderRadius: 14, width: "100%", maxWidth: 320, padding: 24, display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: dpEnabled ? "#fef2f2" : "#f0fdf4", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={dpEnabled ? "#ef4444" : "#22c55e"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14, color: t.txt }}>{dpEnabled ? "Disable Protection" : "Enable Protection"}</div>
+                <div style={{ fontSize: 11, color: t.muted, marginTop: 1 }}>Enter your delete password to confirm</div>
+              </div>
+            </div>
+            <input autoFocus value={dpPinInput} onChange={e => { setDpPinInput(e.target.value); setDpToggleErr(""); }} onKeyDown={e => { if (e.key === "Enter" && dpPinInput && !dpLoading) void dpToggle(); }} type="password" placeholder="Delete password" style={{ padding: "10px 14px", borderRadius: 9, border: `1.5px solid ${dpToggleErr ? "#ef4444" : t.cardB}`, background: t.hdr, color: t.txt, fontSize: 14, outline: "none" }} />
+            {dpToggleErr && <div style={{ fontSize: 12, color: "#ef4444", marginTop: -8 }}>{dpToggleErr}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setDpShowToggleDialog(false); setDpPinInput(""); setDpToggleErr(""); }} disabled={dpLoading} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => void dpToggle()} disabled={dpLoading || !dpPinInput} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: dpEnabled ? "#ef4444" : "#22c55e", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: dpLoading || !dpPinInput ? "not-allowed" : "pointer", opacity: dpLoading || !dpPinInput ? 0.6 : 1 }}>{dpLoading ? "…" : dpEnabled ? "Disable" : "Enable"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Delete Protection — Change Password Dialog ── */}
+      {dpShowChangePinDialog && createPortal(
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget && !dpLoading) { setDpShowChangePinDialog(false); setDpCurrentPin(""); setDpPinNew(""); setDpChangePinErr(""); } }}>
+          <div style={{ background: t.card, borderRadius: 14, width: "100%", maxWidth: 320, padding: 24, display: "flex", flexDirection: "column", gap: 14, boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: `${t.accent}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14, color: t.txt }}>Change Password</div>
+                <div style={{ fontSize: 11, color: t.muted, marginTop: 1 }}>Update your delete protection password</div>
+              </div>
+            </div>
+            <input autoFocus value={dpCurrentPin} onChange={e => { setDpCurrentPin(e.target.value); setDpChangePinErr(""); }} type="password" placeholder="Current password" style={{ padding: "10px 14px", borderRadius: 9, border: `1.5px solid ${dpChangePinErr ? "#ef4444" : t.cardB}`, background: t.hdr, color: t.txt, fontSize: 14, outline: "none" }} />
+            <input value={dpPinNew} onChange={e => { setDpPinNew(e.target.value); setDpChangePinErr(""); }} onKeyDown={e => { if (e.key === "Enter" && dpCurrentPin && dpPinNew.length >= 4 && !dpLoading) void dpChangePin(); }} type="password" placeholder="New password (min 4 chars)" style={{ padding: "10px 14px", borderRadius: 9, border: `1.5px solid ${dpChangePinErr ? "#ef4444" : t.cardB}`, background: t.hdr, color: t.txt, fontSize: 14, outline: "none" }} />
+            {dpChangePinErr && <div style={{ fontSize: 12, color: "#ef4444", marginTop: -6 }}>{dpChangePinErr}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setDpShowChangePinDialog(false); setDpCurrentPin(""); setDpPinNew(""); setDpChangePinErr(""); }} disabled={dpLoading} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => void dpChangePin()} disabled={dpLoading || !dpCurrentPin || dpPinNew.length < 4} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: t.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? "not-allowed" : "pointer", opacity: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? 0.6 : 1 }}>{dpLoading ? "…" : "Update"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Delete All Messages (Danger Zone) ── */}
