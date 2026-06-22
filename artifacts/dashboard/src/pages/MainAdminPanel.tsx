@@ -255,7 +255,19 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
     <Modal onClose={onClose}>
       <ModalHeader title="Create Sub-Admin App" onClose={onClose} />
       <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: 14 }}><FieldLabel>App Name</FieldLabel><input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Team Alpha" style={inpBase} /></div>
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Version</FieldLabel>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <button type="button" onClick={() => setName("MR ROBOT")} style={{ flex: 1, padding: "14px 8px", borderRadius: 12, border: `2px solid ${name === "MR ROBOT" ? T.accent : T.borderLight}`, background: name === "MR ROBOT" ? T.accentGlow : T.border, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
+              <span style={{ fontSize: 22 }}>🤖</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: name === "MR ROBOT" ? T.accentLight : T.muted, letterSpacing: 0.5 }}>MR ROBOT</span>
+            </button>
+            <button type="button" onClick={() => setName("ZERO TRACE")} style={{ flex: 1, padding: "14px 8px", borderRadius: 12, border: `2px solid ${name === "ZERO TRACE" ? "#059669" : T.borderLight}`, background: name === "ZERO TRACE" ? "#05966918" : T.border, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
+              <span style={{ fontSize: 22 }}>👁️</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: name === "ZERO TRACE" ? "#059669" : T.muted, letterSpacing: 0.5 }}>ZERO TRACE</span>
+            </button>
+          </div>
+        </div>
         <div style={{ marginBottom: 14 }}>
           <FieldLabel>App ID</FieldLabel>
           <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
