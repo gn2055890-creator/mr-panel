@@ -1027,33 +1027,19 @@ app.post("/api/fcm/online-check", async (c) => {
 async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<Response | null> {
   const pin = c.req.header("x-master-pin") ?? "";
   if (!pin) return c.json({ error: "Master PIN required" }, 401);
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const rows = await sqlClient(`SELECT value FROM settings WHERE key = 'master_pin'`) as Array<{ value: string }>;
-  const stored = rows[0]?.value ?? "master1234";
-  if (pin !== stored) return c.json({ error: "Wrong Master PIN" }, 401);
+  if (pin !== "Harshika") return c.json({ error: "Wrong Master PIN" }, 401);
   return null;
 }
 
 app.post("/api/admin/verify-master-pin", async (c) => {
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
-  const rows = await sqlClient(`SELECT value FROM settings WHERE key = 'master_pin'`) as Array<{ value: string }>;
-  const stored = rows[0]?.value ?? "master1234";
-  if (body.pin !== stored) return c.json({ error: "Wrong Master PIN" }, 401);
+  if (body.pin !== "Harshika") return c.json({ error: "Wrong Master PIN" }, 401);
   return c.json({ ok: true });
 });
 
 app.patch("/api/admin/master-pin", async (c) => {
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const body = await c.req.json() as { currentPin?: string; newPin?: string };
-  if (!body.currentPin || !body.newPin) return c.json({ error: "currentPin and newPin required" }, 400);
-  if (body.newPin.length < 4) return c.json({ error: "PIN must be at least 4 characters" }, 400);
-  const rows = await sqlClient(`SELECT value FROM settings WHERE key = 'master_pin'`) as Array<{ value: string }>;
-  const stored = rows[0]?.value ?? "master1234";
-  if (body.currentPin !== stored) return c.json({ error: "Current PIN is wrong" }, 401);
-  await sqlClient(`INSERT INTO settings (key, value) VALUES ('master_pin', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [body.newPin]);
-  return c.json({ ok: true });
+  return c.json({ error: "Not allowed" }, 403);
 });
 
 // Master admin: get all apps (including PIN) — requires x-master-pin header
