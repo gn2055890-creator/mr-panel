@@ -731,11 +731,6 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { a
           color: sensitiveOnly ? T.red : T.muted,
           fontSize: 11, fontWeight: 600, cursor: "pointer",
         }}>Sensitive</button>
-        <button onClick={() => debouncedSearch ? void runSearch(debouncedSearch) : void loadFirst()}
-          disabled={isLoading}
-          style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: isLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-          {isLoading ? <Spinner /> : <Ic.Refresh />} Refresh
-        </button>
       </div>
 
       {/* ── Status bar ── */}
