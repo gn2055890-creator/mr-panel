@@ -1887,14 +1887,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         .ma-tab-btn{cursor:pointer;background:none;border:none;font-family:inherit;-webkit-tap-highlight-color:transparent;}
         .ma-tab-btn:active{opacity:0.7;}
         .ma-card:active{transform:scale(0.985);}
-        .ma-bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(7,9,20,0.98);border-top:1px solid rgba(99,102,241,0.2);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);padding:6px 4px calc(8px + env(safe-area-inset-bottom));z-index:200;justify-content:space-around;align-items:center;box-shadow:0 -6px 40px rgba(0,0,0,0.75);}
-        .ma-bnav-item{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:rgba(100,115,160,0.8);transition:color 0.15s;background:none;border:none;outline:none;padding:4px 6px;font-family:inherit;-webkit-tap-highlight-color:transparent;flex:1;}
-        .ma-bnav-item:active{transform:scale(0.88);}
-        .ma-bnav-lbl{font-size:9px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;}
-        .ma-bnav-active{color:#818cf8;}
-        .ma-fab{width:46px;height:46px;border-radius:14px;border:none;background:linear-gradient(135deg,#5254d4,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;margin-top:-16px;flex-shrink:0;box-shadow:0 4px 20px rgba(99,102,241,0.55);}
-        .ma-fab-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}
-        @media(max-width:640px){.ma-bottom-nav{display:flex;}.ma-main{padding-bottom:80px!important;}.ma-hide-mob{display:none!important;}}
+        @media(max-width:640px){.ma-hide-mob{display:none!important;}}
       `}</style>
 
       {/* ── Header: sub-admin style ── */}
@@ -2038,23 +2031,6 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       {editApp && <EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />}
       {renewConfirmApp && <RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />}
 
-      {/* Mobile Bottom Nav */}
-      <div className="ma-bottom-nav">
-        {TABS.slice(0, 2).map(t => (
-          <button key={t.id} className={`ma-bnav-item ma-tab-btn ${tab === t.id ? "ma-bnav-active" : ""}`} onClick={() => setTab(t.id)}>
-            <span className="ma-bnav-lbl">{t.label}</span>
-          </button>
-        ))}
-        <div className="ma-fab-wrap">
-          <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App"><Ic.Plus /></button>
-          <span className="ma-bnav-lbl" style={{ color: "#818cf8" }}>New</span>
-        </div>
-        {TABS.slice(2).map(t => (
-          <button key={t.id} className={`ma-bnav-item ma-tab-btn ${tab === t.id ? "ma-bnav-active" : ""}`} onClick={() => setTab(t.id)}>
-            <span className="ma-bnav-lbl">{t.label}</span>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
