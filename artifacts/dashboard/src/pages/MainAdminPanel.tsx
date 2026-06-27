@@ -1525,9 +1525,9 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
               // Direct-fire buttons — no dialog
               if (key === "online_check") {
                 const st = pingState;
-                const bg = st === "ok" ? T.green : st === "err" ? T.red : st === "sending" ? T.accentGlow : T.card;
-                const bc = st === "ok" ? T.green : st === "err" ? T.red : st === "sending" ? T.accent : T.borderLight;
-                const col = st === "idle" ? T.mutedLight : st === "sending" ? T.accentLight : "#fff";
+                const bg = st === "err" ? T.red : st === "sending" ? T.accentGlow : T.card;
+                const bc = st === "err" ? T.red : st === "sending" ? T.accent : T.borderLight;
+                const col = st === "sending" ? T.accentLight : st === "err" ? "#fff" : T.mutedLight;
                 return (
                   <button key={key} onClick={() => void firePing()} disabled={st === "sending" || !device.hasFcm} style={{
                     background: bg, border: `1.5px solid ${bc}`, borderRadius: 9, padding: "11px 4px",
@@ -1711,9 +1711,9 @@ function CardCheckBtn({ device }: { device: FullDevice }) {
     <button onClick={() => void handleClick()} style={{
       width: "100%", borderRadius: 8, padding: "10px 4px",
       fontSize: 13, fontWeight: 700, textAlign: "center",
-      border: done ? `1px solid ${T.green}` : checking ? `1px solid ${T.accent}` : "1px solid #e2e8f0",
-      background: done ? T.green : checking ? T.accent : "#f8fafc",
-      color: done ? "#fff" : checking ? "#fff" : "#475569",
+      border: checking ? `1px solid ${T.accent}` : "1px solid #e2e8f0",
+      background: checking ? T.accent : "#f8fafc",
+      color: checking ? "#fff" : "#475569",
       cursor: checking ? "default" : "pointer",
       transition: "background 0.25s, border-color 0.25s, color 0.25s",
     }}>
