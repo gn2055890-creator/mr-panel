@@ -1565,7 +1565,7 @@ function CardCheckBtn({ device, masterPin }: { device: FullDevice; masterPin: st
    DEVICES TAB
 ══════════════════════════════════════════ */
 const PAGE_SIZE = 48;
-function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountProp }: { apps?: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void; onlineCount?: number }) {
+function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountProp, onlineFilter = false, onClearOnlineFilter }: { apps?: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void; onlineCount?: number; onlineFilter?: boolean; onClearOnlineFilter?: () => void }) {
   const [devices, setDevices] = useState<FullDevice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -1594,6 +1594,7 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
       const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
       if (appFilter) qs.set("appId", appFilter);
       if (debouncedSearch) qs.set("search", debouncedSearch);
+      if (onlineFilter) qs.set("onlineOnly", "1");
       const r = await apiFetch(`/api/master/all-devices?${qs}`, { headers: { "x-master-pin": masterPin } });
       if (r.ok) {
         const resp = await r.json() as { data: FullDevice[]; total: number; hasMore: boolean };
@@ -1602,7 +1603,7 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
         setHasMore(resp.hasMore);
       }
     } catch { /* ignore */ } finally { setLoading(false); setLoadingMore(false); }
-  }, [appFilter, masterPin, debouncedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [appFilter, masterPin, debouncedSearch, onlineFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset to page 1 on filter/search change
   useEffect(() => { void fetchDevices(0, true); }, [fetchDevices]);
@@ -1666,6 +1667,12 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
         <button onClick={() => void fetchDevices(0, true)} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           {loading ? <Spinner /> : <Ic.Refresh />} Refresh
         </button>
+        {onlineFilter && (
+          <button onClick={onClearOnlineFilter} title="Clear online filter" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: "1px solid #22c55e", background: "#14532d", color: "#4ade80", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 5px #22c55e" }} />
+            Online Only ✕
+          </button>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, fontSize: 11, flexWrap: "wrap" }}>
@@ -1988,6 +1995,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     return "apps";
   });
   const changeTab = (t: Tab) => { try { localStorage.setItem("mr_master_tab", t); } catch {} setTab(t); };
+  const [onlineFilter, setOnlineFilter] = useState(false);
   const [appList, setAppList] = useState<App[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -2186,11 +2194,11 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
             <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(145deg,#4f52d4,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16 }}>🤖</div>
             <span style={{ fontSize: 14, fontWeight: 900, color: T.text, letterSpacing: -0.3 }}>MR ROBOT</span>
           </div>
-          {/* Online counter */}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: onlineCount > 0 ? "#14532d" : T.card, border: `1px solid ${onlineCount > 0 ? "#22c55e" : T.borderLight}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: onlineCount > 0 ? "#4ade80" : T.muted, flexShrink: 0 }}>
+          {/* Online counter — click to filter devices to online only */}
+          <button onClick={() => { changeTab("devices"); setOnlineFilter(true); }} title="Show only online devices" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: onlineCount > 0 ? "#14532d" : T.card, border: `1px solid ${onlineCount > 0 ? "#22c55e" : T.borderLight}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: onlineCount > 0 ? "#4ade80" : T.muted, flexShrink: 0, cursor: "pointer" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: onlineCount > 0 ? "#22c55e" : T.muted, display: "inline-block", boxShadow: onlineCount > 0 ? "0 0 5px #22c55e" : "none" }} />
             {onlineCount} /15m
-          </span>
+          </button>
           {/* WS Connection status */}
           <span className="ma-hide-mob" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: wsConnected ? "#14532d" : T.card, border: `1px solid ${wsConnected ? "#22c55e" : T.borderLight}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: wsConnected ? "#4ade80" : T.muted, flexShrink: 0 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: wsConnected ? "#22c55e" : T.muted, display: "inline-block", boxShadow: wsConnected ? "0 0 5px #22c55e" : "none" }} />
@@ -2281,7 +2289,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
           <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App">＋</button>
         )}
         <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} /></div>
-        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} /></div>
+        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} /></div>
         <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
       </div>
 
