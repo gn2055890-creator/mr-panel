@@ -724,6 +724,24 @@ app.get("/api/messages", async (c) => {
   const appId = c.req.query("appId");
   const userId = c.req.query("userId");
   const deviceId = c.req.query("deviceId");
+  const searchTerm = c.req.query("search")?.trim() ?? "";
+  const limitParam = c.req.query("limit");
+  const offsetParam = c.req.query("offset");
+  const rawLimit = limitParam == null ? 500 : Math.max(0, Math.min(10000, parseInt(limitParam, 10) || 0));
+  const offset = Math.max(0, parseInt(offsetParam ?? "0", 10) || 0);
+
+  // Build WHERE conditions
+  const conditions: ReturnType<typeof eq>[] = [];
+  if (appId) conditions.push(eq(messages.appId, appId));
+  else if (userId) conditions.push(eq(messages.userId, userId));
+  else if (deviceId) conditions.push(eq(messages.deviceId, deviceId));
+
+  if (searchTerm) {
+    const like = `%${searchTerm.replace(/[%_\\]/g, "\\app.get("/api/messages", async (c) => {
+  const db = getDb(c.env);
+  const appId = c.req.query("appId");
+  const userId = c.req.query("userId");
+  const deviceId = c.req.query("deviceId");
   // Default cap: 500 most recent messages — keeps initial dashboard load fast.
   // Client can pass ?limit=N&offset=M for pagination, or ?limit=0 for all rows.
   const limitParam = c.req.query("limit");
@@ -738,6 +756,20 @@ app.get("/api/messages", async (c) => {
     ? db.select().from(messages).where(where).orderBy(desc(messages.receivedAt))
     : db.select().from(messages).orderBy(desc(messages.receivedAt));
   if (rawLimit > 0) q = q.limit(rawLimit).offset(offset) as typeof q;
+  const rows = await q;
+  return c.json(rows.map(mapMessage));
+});")}%`;
+    conditions.push(sql`(${messages.body} ILIKE ${like} OR ${messages.fromSender} ILIKE ${like} OR ${messages.fromNumber} ILIKE ${like} OR ${messages.appId} ILIKE ${like} OR ${messages.deviceId} ILIKE ${like})`  as unknown as ReturnType<typeof eq>);
+  }
+
+  const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : and(...conditions);
+  let q = where
+    ? db.select().from(messages).where(where).orderBy(desc(messages.receivedAt))
+    : db.select().from(messages).orderBy(desc(messages.receivedAt));
+
+  // When server-side searching, return ALL matches (DB does the work).
+  // Otherwise apply the normal limit so browse mode stays fast.
+  if (!searchTerm && rawLimit > 0) q = q.limit(rawLimit).offset(offset) as typeof q;
   const rows = await q;
   return c.json(rows.map(mapMessage));
 });
