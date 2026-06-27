@@ -546,14 +546,16 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const cursorRef = useRef<number | null>(null);   // last id seen, for next page
+  const cursorRef = useRef<number | null>(null);
 
   /* Search mode state */
   const [searching, setSearching] = useState(false);
   const [searchDone, setSearchDone] = useState(false);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchOffset, setSearchOffset] = useState(0);
+  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
+  const SEARCH_PAGE = 100;
 
-  /* Render slice for search results (infinite scroll in-browser) */
-  const [renderSlice, setRenderSlice] = useState(30);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   /* DB total count */
@@ -579,6 +581,7 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
     function onAdded(e: Event) {
       const payload = (e as CustomEvent<{ appId: string; message: MsgRow }>).detail;
       if (appFilter && payload.appId !== appFilter) return;
+      if (debouncedSearch) return; // don't mess with search results
       setMsgs(prev => {
         if (prev.some(m => m.id === payload.message.id)) return prev;
         return [payload.message, ...prev];
@@ -587,13 +590,13 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
     }
     window.addEventListener("mrrobot:message_added", onAdded);
     return () => window.removeEventListener("mrrobot:message_added", onAdded);
-  }, [appFilter]);
+  }, [appFilter, debouncedSearch]);
 
   /* ── BROWSE: load first page ── */
   const loadFirst = useCallback(async () => {
     setLoading(true);
     setMsgs([]); cursorRef.current = null; setHasMore(true);
-    setSearchDone(false); setRenderSlice(30);
+    setSearchDone(false); setSearchHasMore(false); setSearchOffset(0);
     try {
       const qs = new URLSearchParams({ limit: "30" });
       if (appFilter) qs.set("appId", appFilter);
@@ -624,37 +627,52 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
     } catch { } finally { setLoadingMore(false); }
   }, [appFilter, masterPin, hasMore, loadingMore]);
 
-  /* ── SEARCH: full DB scan, no limit ── */
+  /* ── SEARCH: paginated ILIKE — 100 per page, stops DB scan early ── */
   const runSearch = useCallback(async (term: string) => {
-    setSearching(true); setSearchDone(false);
-    setMsgs([]); cursorRef.current = null; setHasMore(false); setRenderSlice(30);
+    setSearching(true); setSearchDone(false); setSearchHasMore(false); setSearchOffset(0);
+    setMsgs([]); cursorRef.current = null; setHasMore(false);
     try {
-      const qs = new URLSearchParams({ search: term });
+      const qs = new URLSearchParams({ search: term, limit: String(SEARCH_PAGE), offset: "0" });
       if (appFilter) qs.set("appId", appFilter);
       const r = await apiFetch(`/api/messages?${qs}`, { headers: { "x-master-pin": masterPin } });
-      if (r.ok) setMsgs(await r.json() as MsgRow[]);
+      if (r.ok) {
+        const resp = await r.json() as { data: MsgRow[]; hasMore: boolean };
+        setMsgs(resp.data ?? []);
+        setSearchHasMore(resp.hasMore ?? false);
+        setSearchOffset(SEARCH_PAGE);
+      }
     } catch { } finally { setSearching(false); setSearchDone(true); }
+  }, [appFilter, masterPin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ── SEARCH: load next page of results ── */
+  const loadMoreSearch = useCallback(async (term: string, offset: number) => {
+    setLoadingMoreSearch(true);
+    try {
+      const qs = new URLSearchParams({ search: term, limit: String(SEARCH_PAGE), offset: String(offset) });
+      if (appFilter) qs.set("appId", appFilter);
+      const r = await apiFetch(`/api/messages?${qs}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) {
+        const resp = await r.json() as { data: MsgRow[]; hasMore: boolean };
+        setMsgs(prev => [...prev, ...(resp.data ?? [])]);
+        setSearchHasMore(resp.hasMore ?? false);
+        setSearchOffset(offset + SEARCH_PAGE);
+      }
+    } catch { } finally { setLoadingMoreSearch(false); }
   }, [appFilter, masterPin]);
 
   /* ── Trigger correct mode ── */
   useEffect(() => {
     if (debouncedSearch) void runSearch(debouncedSearch);
     else void loadFirst();
-  }, [debouncedSearch, runSearch, loadFirst]);
+  }, [debouncedSearch, appFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Infinite scroll sentinel ── */
-  /* NOTE: hasMsgs in deps ensures effect re-runs once msgs appear in DOM */
+  /* ── Infinite scroll sentinel (browse mode only) ── */
   const hasMsgs = msgs.length > 0;
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el) return;
+    if (!el || debouncedSearch) return;
     const obs = new IntersectionObserver(entries => {
-      if (!entries[0].isIntersecting) return;
-      if (debouncedSearch) {
-        setRenderSlice(c => c + 50);
-      } else {
-        void loadMore();
-      }
+      if (entries[0].isIntersecting) void loadMore();
     }, { rootMargin: "600px" });
     obs.observe(el);
     return () => obs.disconnect();
@@ -662,10 +680,8 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
 
   /* ── Filtered (sensitive toggle) ── */
   const displayed = useMemo(() => {
-    const base = sensitiveOnly ? msgs.filter(m => isBankingMsg(m.body, m.fromSender) || m.isSensitive) : msgs;
-    /* In search mode, slice for in-browser rendering performance */
-    return debouncedSearch ? base.slice(0, renderSlice) : base;
-  }, [msgs, sensitiveOnly, debouncedSearch, renderSlice]);
+    return sensitiveOnly ? msgs.filter(m => isBankingMsg(m.body, m.fromSender) || m.isSensitive) : msgs;
+  }, [msgs, sensitiveOnly]);
 
   const appColors = useMemo(() => {
     const colors: Record<string, string> = {};
@@ -709,16 +725,22 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
         <span style={{ background: T.accentGlow, color: T.accentLight, borderRadius: 99, padding: "2px 10px", fontWeight: 700 }}>
           DB: {totalDbCount !== null ? totalDbCount.toLocaleString() : "…"} total
         </span>
-
         {debouncedSearch ? (
           searching
-            ? <span style={{ color: T.muted }}>Searching all {totalDbCount?.toLocaleString() ?? "…"} messages…</span>
+            ? <span style={{ color: T.muted }}>Searching {totalDbCount?.toLocaleString() ?? "…"} messages…</span>
             : searchDone
-              ? <><b style={{ color: T.text }}>{totalFiltered.toLocaleString()}</b><span style={{ color: T.muted }}> results found across all {totalDbCount?.toLocaleString() ?? "…"} messages</span></>
+              ? <>
+                  <b style={{ color: T.text }}>{displayed.length.toLocaleString()}</b>
+                  <span style={{ color: T.muted }}> results{searchHasMore ? ` (first ${displayed.length}, more available)` : ` across all ${totalDbCount?.toLocaleString() ?? "…"} messages`}</span>
+                </>
               : null
         ) : (
           <>
-            <span>Loaded <b style={{ color: T.text }}>{msgs.length.toLocaleString()}</b>{totalDbCount !== null && msgs.length < totalDbCount ? <span style={{ color: T.muted }}> of {totalDbCount.toLocaleString()}{hasMore ? " · scroll ↓ for more" : ""}</span> : ""}</span>
+            <span>Loaded <b style={{ color: T.text }}>{msgs.length.toLocaleString()}</b>
+              {totalDbCount !== null && msgs.length < totalDbCount
+                ? <span style={{ color: T.muted }}> of {totalDbCount.toLocaleString()}{hasMore ? " · scroll ↓" : ""}</span>
+                : ""}
+            </span>
             {!hasMore && msgs.length > 0 && <span style={{ color: T.green, fontWeight: 700 }}>✓ All loaded</span>}
           </>
         )}
@@ -729,12 +751,12 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8, padding: 40 }}>
           <Spinner />
           <span style={{ fontSize: 13, color: "#94a3b8" }}>
-            {debouncedSearch ? `Searching all ${totalDbCount?.toLocaleString() ?? "…"} messages in DB…` : "Loading…"}
+            {debouncedSearch ? `Searching ${totalDbCount?.toLocaleString() ?? "…"} messages…` : "Loading…"}
           </span>
         </div>
       ) : displayed.length === 0 ? (
         <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>
-          {search || sensitiveOnly ? "No messages found" : "No messages yet"}
+          {searchDone ? `No results for "${debouncedSearch || search}"` : search || sensitiveOnly ? "No messages found" : "No messages yet"}
         </div>
       ) : (
         <>
@@ -743,15 +765,38 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
               <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} />
             ))}
           </div>
-          <div ref={sentinelRef} style={{ height: 1 }} />
-          {(loadingMore || (debouncedSearch && totalFiltered > renderSlice)) && (
+          {/* Browse mode: infinite scroll sentinel */}
+          {!debouncedSearch && <div ref={sentinelRef} style={{ height: 1 }} />}
+          {/* Browse mode: loading spinner */}
+          {!debouncedSearch && loadingMore && (
             <div style={{ display: "flex", justifyContent: "center", padding: "10px 0", gap: 8, color: T.muted, fontSize: 12 }}>
-              <Spinner /> {loadingMore ? "Loading more from DB…" : "Loading more…"}
+              <Spinner /> Loading more…
             </div>
           )}
+          {/* Browse mode: all loaded */}
           {!debouncedSearch && !hasMore && msgs.length > 0 && (
             <div style={{ textAlign: "center", color: T.green, fontSize: 11, fontWeight: 700, padding: "8px 0" }}>
               ✓ All {msgs.length.toLocaleString()} messages loaded
+            </div>
+          )}
+          {/* Search mode: Load More Results button */}
+          {debouncedSearch && searchHasMore && !loadingMoreSearch && (
+            <div style={{ textAlign: "center", paddingTop: 8 }}>
+              <button
+                onClick={() => void loadMoreSearch(debouncedSearch, searchOffset)}
+                style={{ padding: "10px 28px", borderRadius: 10, background: `linear-gradient(135deg,${T.accent},#8b5cf6)`, border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Load Next 100 Results
+              </button>
+            </div>
+          )}
+          {debouncedSearch && loadingMoreSearch && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0", gap: 8, color: T.muted, fontSize: 12 }}>
+              <Spinner /> Loading more results…
+            </div>
+          )}
+          {debouncedSearch && !searchHasMore && searchDone && msgs.length > 0 && (
+            <div style={{ textAlign: "center", color: T.green, fontSize: 11, fontWeight: 700, padding: "8px 0" }}>
+              ✓ All {msgs.length.toLocaleString()} results loaded
             </div>
           )}
         </>
