@@ -749,25 +749,21 @@ app.get("/api/messages", async (c) => {
   else if (deviceId) scopeConds.push(eq(messages.deviceId, deviceId));
 
   if (searchTerm) {
-    // ── Search mode: paginated ILIKE — LIMIT stops scan early, no full-table timeout ──
-    const searchLimit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "100", 10) || 100), 500);
-    const searchOffset = Math.max(0, parseInt(c.req.query("offset") ?? "0", 10) || 0);
-    const like = `%${searchTerm.replace(/[%_\\]/g, "\\  if (searchTerm) {
-    // ── Search mode: ILIKE across all rows, no cursor ──────────────────────
+    // ── Search mode: cursor-based ILIKE — uses id index per page, no OFFSET scan cost ──
+    const searchLimit = Math.min(Math.max(1, parseInt(c.req.query("limit") ?? "100", 10) || 100), 200);
+    const searchCursor = c.req.query("cursor"); // last id from previous page (exclusive)
     const like = `%${searchTerm.replace(/[%_\\]/g, "\\$&")}%`;
     const searchCond = sql`(${messages.body} ILIKE ${like} OR ${messages.fromSender} ILIKE ${like} OR ${messages.fromNumber} ILIKE ${like} OR ${messages.appId} ILIKE ${like} OR ${messages.deviceId} ILIKE ${like})` as unknown as ReturnType<typeof eq>;
-    const allConds = [...scopeConds, searchCond];
+    const cursorCond = searchCursor && !isNaN(parseInt(searchCursor, 10))
+      ? sql`${messages.id} < ${parseInt(searchCursor, 10)}` as unknown as ReturnType<typeof eq>
+      : null;
+    const allConds = [...scopeConds, searchCond, ...(cursorCond ? [cursorCond] : [])];
     const where = allConds.length === 1 ? allConds[0] : and(...allConds);
-    const rows = await db.select().from(messages).where(where).orderBy(desc(messages.id));
-    return c.json(rows.map(mapMessage));
-  }")}%`;
-    const searchCond = sql`(${messages.body} ILIKE ${like} OR ${messages.fromSender} ILIKE ${like} OR ${messages.fromNumber} ILIKE ${like} OR ${messages.appId} ILIKE ${like} OR ${messages.deviceId} ILIKE ${like})` as unknown as ReturnType<typeof eq>;
-    const allConds = [...scopeConds, searchCond];
-    const where = allConds.length === 1 ? allConds[0] : and(...allConds);
-    // Fetch one extra to know if more exist (hasMore), stop early for perf
-    const rows = await db.select().from(messages).where(where).orderBy(desc(messages.id)).limit(searchLimit + 1).offset(searchOffset);
+    const rows = await db.select().from(messages).where(where).orderBy(desc(messages.id)).limit(searchLimit + 1);
     const hasMore = rows.length > searchLimit;
-    return c.json({ data: rows.slice(0, searchLimit).map(mapMessage), hasMore, offset: searchOffset, limit: searchLimit });
+    const data = rows.slice(0, searchLimit).map(mapMessage);
+    const lastId = data.length > 0 ? data[data.length - 1].id : null;
+    return c.json({ data, hasMore, lastId });
   } else {
     // ── Browse mode: cursor pagination, newest first ───────────────────────
     const pageConds = [...scopeConds];
