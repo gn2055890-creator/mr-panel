@@ -1959,7 +1959,11 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
 type Tab = "apps" | "messages" | "groups" | "devices" | "settings";
 
 function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; onLogout: () => void; onPinChanged: (p: string) => void }) {
-  const [tab, setTab] = useState<Tab>("apps");
+  const [tab, setTab] = useState<Tab>(() => {
+    try { const s = localStorage.getItem("mr_master_tab"); if (s && ["apps","messages","groups","devices","settings"].includes(s)) return s as Tab; } catch {}
+    return "apps";
+  });
+  const changeTab = (t: Tab) => { try { localStorage.setItem("mr_master_tab", t); } catch {} setTab(t); };
   const [appList, setAppList] = useState<App[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -2184,7 +2188,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         {/* Tabs row — flat underline style */}
         <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", padding: "0 12px", borderTop: `1px solid ${T.border}`, overflowX: "auto" }}>
           {TABS.map(t => (
-            <button key={t.id} className="ma-tab-btn" onClick={() => setTab(t.id)} style={{
+            <button key={t.id} className="ma-tab-btn" onClick={() => changeTab(t.id)} style={{
               padding: "10px 16px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500,
               color: tab === t.id ? T.accentLight : T.muted,
               border: "none", borderBottom: `2px solid ${tab === t.id ? T.accent : "transparent"}`,
