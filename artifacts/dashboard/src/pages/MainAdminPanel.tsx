@@ -1486,19 +1486,23 @@ function CardCheckBtn({ device, masterPin }: { device: FullDevice; masterPin: st
   const [done, setDone] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const doneRef  = useRef(false);
 
-  function stopTimer() {
+  function stopAll() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (pollRef.current)  { clearInterval(pollRef.current);  pollRef.current  = null; }
   }
-  useEffect(() => () => stopTimer(), []);
+  useEffect(() => () => stopAll(), []);
 
-  // SSE fires mrrobot:device_updated → stop countdown, show ✓ Online
+  // WS fires mrrobot:device_updated → instant success (bonus path)
   useEffect(() => {
     function onUpdated(e: Event) {
       const { deviceId } = (e as CustomEvent<{ deviceId: string }>).detail;
-      if (deviceId !== device.deviceId) return;
-      stopTimer(); setChecking(false); setSeconds(0); setDone(true);
-      setTimeout(() => setDone(false), 3000);
+      if (deviceId !== device.deviceId || doneRef.current) return;
+      doneRef.current = true;
+      stopAll(); setChecking(false); setSeconds(0); setDone(true);
+      setTimeout(() => { setDone(false); doneRef.current = false; }, 3000);
     }
     window.addEventListener("mrrobot:device_updated", onUpdated);
     return () => window.removeEventListener("mrrobot:device_updated", onUpdated);
@@ -1506,20 +1510,39 @@ function CardCheckBtn({ device, masterPin }: { device: FullDevice; masterPin: st
 
   async function handleClick() {
     if (checking) return;
-    stopTimer();
+    stopAll(); doneRef.current = false;
     setDone(false); setChecking(true); setSeconds(0);
-    // 30s countdown — stops early when SSE fires device_updated
+
+    // Countdown 0→30s
     timerRef.current = setInterval(() => {
       setSeconds(s => {
         const next = s + 1;
-        if (next >= 30) { stopTimer(); setChecking(false); setSeconds(0); return 0; }
+        if (next >= 30) { stopAll(); setChecking(false); setSeconds(0); return 0; }
         return next;
       });
     }, 1000);
+
     try {
       await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "online_check" } }) });
+
+      // Primary: poll every 3s — compare lastOnline to detect device response
+      const prevOnline = device.lastOnline;
+      pollRef.current = setInterval(async () => {
+        if (doneRef.current) { stopAll(); return; }
+        try {
+          const r = await apiFetch(`/api/master/all-devices?search=${encodeURIComponent(device.deviceId)}&limit=5`, { headers: { "x-master-pin": masterPin } });
+          if (!r.ok) return;
+          const json = await r.json() as { data?: FullDevice[] };
+          const updated = (json.data ?? []).find(d => d.deviceId === device.deviceId);
+          if (updated && updated.lastOnline !== prevOnline) {
+            doneRef.current = true;
+            stopAll(); setChecking(false); setSeconds(0); setDone(true);
+            setTimeout(() => { setDone(false); doneRef.current = false; }, 3000);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 3000);
     } catch {
-      stopTimer(); setChecking(false); setSeconds(0);
+      stopAll(); setChecking(false); setSeconds(0);
     }
   }
 
@@ -1670,7 +1693,7 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
                     <span style={{ fontWeight: 800, fontSize: 13, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {totalCount - idx}.&nbsp;{d.name}
                     </span>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: d.lastOnline && (Date.now() - new Date(d.lastOnline).getTime()) < 15*60*1000 ? "#22c55e" : T.border, boxShadow: d.lastOnline && (Date.now() - new Date(d.lastOnline).getTime()) < 15*60*1000 ? "0 0 5px #22c55e" : "none", display: "inline-block" }} />
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: d.status === "online" ? "#22c55e" : T.border, boxShadow: d.status === "online" ? "0 0 5px #22c55e" : "none", display: "inline-block" }} />
                   </div>
                   {[
                     { label: "ID",      value: d.deviceId,                                        mono: true  },
