@@ -719,6 +719,16 @@ app.patch("/api/devices/:deviceId", async (c) => {
 });
 
 // ------- MESSAGES -------
+app.get("/api/messages/count", async (c) => {
+  const db = getDb(c.env);
+  const appId = c.req.query("appId");
+  const where = appId ? eq(messages.appId, appId) : undefined;
+  const rows = where
+    ? await db.select({ count: sql`COUNT(*)` }).from(messages).where(where)
+    : await db.select({ count: sql`COUNT(*)` }).from(messages);
+  return c.json({ count: Number(rows[0]?.count ?? 0) });
+});
+
 app.get("/api/messages", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
