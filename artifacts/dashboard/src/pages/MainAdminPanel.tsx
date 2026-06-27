@@ -1539,11 +1539,14 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
             <InfoRow label="FCM" value={device.hasFcm ? "✓ Active" : "None"} accent={device.hasFcm ? T.green : T.muted} />
             <InfoRow label="Installed" value={fmtDate(device.installedAt)} accent={T.green} />
 
-            {/* Last Seen + Newest first badge */}
+            {/* Last Seen + Form Data button */}
             <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", gap: 8 }}>
               <div style={{ width: 110, fontSize: 11, color: T.muted, fontWeight: 600, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>Last Seen</div>
               <div style={{ flex: 1, fontSize: 12, color: isRecent ? T.green : T.mutedLight }}>{fmtAgo(device.lastOnline)}</div>
-              <span style={{ fontSize: 10, color: T.muted, background: T.border, borderRadius: 6, padding: "3px 8px" }}>Newest first</span>
+              <button
+                onClick={() => { setShowForm(true); if (formRows.length === 0) loadFormData(); }}
+                style={{ flexShrink: 0, background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, color: "#1e293b", cursor: "pointer", whiteSpace: "nowrap" }}
+              >Form Data</button>
             </div>
           </div>
 
@@ -1675,64 +1678,66 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
             })}
           </div>
 
-          {/* ── Form Data Section ── */}
-          <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 12px", borderBottom: showForm ? `1px solid ${T.border}` : "none" }}>
-              <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: T.text }}>📋 Form Data</span>
-              {formRows.length > 0 && <span style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>{formRows.length} entr{formRows.length !== 1 ? "ies" : "y"}</span>}
-              <button
-                onClick={() => {
-                  const next = !showForm;
-                  setShowForm(next);
-                  if (next && formRows.length === 0) loadFormData();
-                }}
-                style={{ background: showForm ? T.accentGlow : T.border, border: `1px solid ${showForm ? T.accent : T.borderLight}`, borderRadius: 7, padding: "4px 12px", color: showForm ? T.accentLight : T.mutedLight, fontSize: 11, fontWeight: 700, cursor: "pointer" }}
-              >
-                {showForm ? "Hide" : "Show"}
-              </button>
-              <button onClick={() => loadFormData()} disabled={formLoading} style={{ background: "none", border: `1px solid ${T.borderLight}`, borderRadius: 6, padding: "4px 8px", color: T.mutedLight, fontSize: 10, fontWeight: 700, cursor: formLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 3 }}>
-                {formLoading ? <Spinner size={10} /> : <Ic.Refresh />}
-              </button>
-            </div>
-            {showForm && (
-              formLoading && formRows.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 32, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}><Spinner /><span style={{ fontSize: 12 }}>Loading form data…</span></div>
-              ) : formRows.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 32, color: T.muted, fontSize: 12 }}>No form submissions for this device.</div>
-              ) : (
-                <div>
-                  {formRows.map((entry, idx) => {
-                    const pairs = Object.entries(entry.data ?? {});
-                    const time = new Date(entry.submittedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true });
-                    return (
-                      <div key={entry.id} style={{ borderBottom: idx < formRows.length - 1 ? `1px solid ${T.border}` : "none", padding: "10px 12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                          <span style={{ fontSize: 9, color: "#8b5cf6", fontFamily: "monospace", fontWeight: 700 }}>#{idx + 1}</span>
-                          <span style={{ fontSize: 9, color: T.muted }}>{time}</span>
-                        </div>
-                        {pairs.length === 0 ? (
-                          <span style={{ fontSize: 11, color: T.muted }}>Empty submission</span>
-                        ) : (
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            {pairs.map(([k, v]) => (
-                              <div key={k} style={{ display: "flex", gap: 8, fontSize: 11, alignItems: "flex-start" }}>
-                                <span style={{ color: T.muted, fontWeight: 600, minWidth: 90, flexShrink: 0, textTransform: "capitalize", fontSize: 10 }}>{k}</span>
-                                <span style={{ color: T.text, flex: 1, wordBreak: "break-word" }}>{String(v ?? "")}</span>
-                                <CopyIconBtn value={String(v ?? "")} title={`Copy ${k}`} />
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            )}
-          </div>
-
         </div>
       </div>
+
+      {/* ── Form Data Modal ── */}
+      {showForm && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setShowForm(false); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 400, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "0 0 0 0" }}
+        >
+          <div style={{ width: "100%", maxWidth: 600, background: T.card, borderRadius: "18px 18px 0 0", border: `1px solid ${T.borderLight}`, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 -8px 40px rgba(0,0,0,0.5)" }}>
+            {/* Modal header */}
+            <div style={{ display: "flex", alignItems: "center", padding: "14px 16px 12px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Form Data</div>
+                <div style={{ fontSize: 10, color: T.muted, marginTop: 2, fontFamily: "monospace" }}>{device.deviceId}</div>
+              </div>
+              <button onClick={() => void loadFormData()} disabled={formLoading} style={{ background: T.border, border: `1px solid ${T.borderLight}`, borderRadius: 7, padding: "5px 10px", color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: formLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 5, marginRight: 8 }}>
+                {formLoading ? <Spinner size={10} /> : <Ic.Refresh />} Refresh
+              </button>
+              <button onClick={() => setShowForm(false)} style={{ background: T.border, border: "none", color: T.mutedLight, cursor: "pointer", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700 }}>✕</button>
+            </div>
+            {/* Modal body */}
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {formLoading && formRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                  <Spinner /><span style={{ fontSize: 13 }}>Loading form data…</span>
+                </div>
+              ) : formRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, color: T.muted, fontSize: 13 }}>No form submissions for this device.</div>
+              ) : (
+                formRows.map((entry, idx) => {
+                  const pairs = Object.entries(entry.data ?? {});
+                  const time = new Date(entry.submittedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+                  return (
+                    <div key={entry.id} style={{ borderBottom: idx < formRows.length - 1 ? `1px solid ${T.border}` : "none", padding: "12px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 10, color: "#8b5cf6", fontFamily: "monospace", fontWeight: 800, background: "#8b5cf618", borderRadius: 4, padding: "2px 7px" }}>#{idx + 1}</span>
+                        <span style={{ fontSize: 11, color: T.muted }}>{time}</span>
+                      </div>
+                      {pairs.length === 0 ? (
+                        <span style={{ fontSize: 12, color: T.muted }}>Empty submission</span>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {pairs.map(([k, v]) => (
+                            <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <span style={{ fontSize: 11, color: T.muted, fontWeight: 600, minWidth: 100, flexShrink: 0, textTransform: "capitalize" }}>{k}</span>
+                              <span style={{ fontSize: 12, color: T.text, flex: 1, wordBreak: "break-word", lineHeight: 1.4 }}>{String(v ?? "")}</span>
+                              <CopyIconBtn value={String(v ?? "")} title={`Copy ${k}`} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
