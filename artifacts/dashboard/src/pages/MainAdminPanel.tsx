@@ -682,7 +682,6 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
     <div style={{ padding: "10px 0", display: "flex", flexDirection: "column", gap: 10 }}>
       {/* ── Toolbar ── */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <AppSelector apps={apps} value={appFilter} onChange={v => setAppFilter(v)} />
         <div style={{ flex: 1, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 8, display: "flex", alignItems: "center", padding: "8px 10px", gap: 6 }}>
           <span style={{ color: T.muted, fontSize: 13 }}>⌕</span>
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -884,7 +883,6 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; mast
 
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <AppSelector apps={apps} value={appFilter} onChange={v => setAppFilter(v)} />
         <div style={{ flex: 1, minWidth: 180, background: T.card, border: `1px solid ${B}`, borderRadius: 8, display: "flex", alignItems: "center", padding: "8px 10px", gap: 6 }}>
           <span style={{ color: T.muted, fontSize: 13 }}>⌕</span>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by value, device, app…"
@@ -1519,7 +1517,6 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <AppSelector apps={apps} value={appFilter} onChange={v => { setAppFilter(v); setPage(1); }} />
         <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, display: "flex", pointerEvents: "none" }}><Ic.Search /></span>
           <input type="text" placeholder="Search name, device ID, phone…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
