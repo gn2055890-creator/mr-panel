@@ -1225,27 +1225,7 @@ app.get("/api/master/all-devices", async (c) => {
   const conds: ReturnType<typeof eq>[] = [];
   if (appIdQ) conds.push(eq(devices.appId, appIdQ));
   if (searchQ) {
-    const like = `%${searchQ.replace(/[%_\\]/g, "\\  const db = getDb(c.env);
-  const rows = await db.select().from(devices).orderBy(asc(devices.appId), asc(devices.name));
-  return c.json(rows.map(r => ({
-    id: r.id,
-    deviceId: r.deviceId,
-    appId: r.appId,
-    userId: r.userId,
-    name: r.name,
-    androidVersion: r.androidVersion,
-    sim1Carrier: r.sim1Carrier,
-    sim1Phone: r.sim1Phone,
-    sim2Carrier: r.sim2Carrier,
-    sim2Phone: r.sim2Phone,
-    status: r.status,
-    lastOnline: iso(r.lastOnline),
-    forwardEnabled: r.forwardEnabled,
-    forwardSlot: r.forwardSlot,
-    hasFcm: r.fcmToken !== null && r.fcmToken !== "",
-    installedAt: isoReq(r.installedAt),
-  })));
-});")}%`;
+    const like = `%${searchQ.replace(/[%_\\]/g, "\\$&")}%`;
     conds.push(sql`(${devices.name} ILIKE ${like} OR ${devices.deviceId} ILIKE ${like} OR COALESCE(${devices.sim1Phone},'') ILIKE ${like} OR COALESCE(${devices.sim2Phone},'') ILIKE ${like} OR COALESCE(${devices.userId},'') ILIKE ${like})` as unknown as ReturnType<typeof eq>);
   }
   const where = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
