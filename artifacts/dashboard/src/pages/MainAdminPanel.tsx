@@ -2247,6 +2247,10 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [appList, setAppList] = useState<App[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showCreateGate, setShowCreateGate] = useState(false);
+  const [createGateInput, setCreateGateInput] = useState("");
+  const [createGateError, setCreateGateError] = useState("");
+  const [createGateShow, setCreateGateShow] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
   const [editApp, setEditApp] = useState<App | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -2550,7 +2554,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
             {/* Apps header + search */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
               <div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div><div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>Sorted by newest first</div></div>
-              <button onClick={() => setShowCreate(true)} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
+              <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
             </div>
             <div style={{ marginBottom: 12, position: "relative" }}>
               <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
@@ -2576,12 +2580,51 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         {/* Mobile FAB — New App (only on apps tab) */}
         {tab === "apps" && (
-          <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App">＋</button>
+          <button className="ma-fab" onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} title="New App">＋</button>
         )}
         <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
         <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
       </div>
+
+      {/* Create App Password Gate */}
+      {showCreateGate && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div style={{ background: "#141428", borderRadius: 18, padding: "32px 28px 28px", width: "100%", maxWidth: 380, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", border: "1px solid rgba(255,255,255,0.08)", position: "relative" }}>
+            <button onClick={() => setShowCreateGate(false)} style={{ position: "absolute", top: 14, right: 14, background: "rgba(255,255,255,0.08)", border: "none", color: "#aaa", cursor: "pointer", width: 28, height: 28, borderRadius: 8, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 6 }}>Access Required</div>
+            <div style={{ fontSize: 13, color: "#888", marginBottom: 22 }}>Enter the creation password to proceed.</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#8b8fa8", letterSpacing: 1, marginBottom: 6 }}>PASSWORD</div>
+            <div style={{ position: "relative", marginBottom: 16 }}>
+              <input
+                autoFocus
+                type={createGateShow ? "text" : "password"}
+                value={createGateInput}
+                onChange={e => { setCreateGateInput(e.target.value); setCreateGateError(""); }}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    if (createGateInput === "dbneon") { setShowCreateGate(false); setShowCreate(true); }
+                    else setCreateGateError("Incorrect password. Try again.");
+                  }
+                }}
+                placeholder="Enter password"
+                style={{ width: "100%", boxSizing: "border-box", padding: "12px 44px 12px 14px", borderRadius: 10, background: "#1a1a35", border: `1.5px solid ${createGateError ? "#ef4444" : "rgba(255,255,255,0.1)"}`, color: "#fff", fontSize: 14, outline: "none" }}
+              />
+              <button type="button" onClick={() => setCreateGateShow(s => !s)} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "#666", cursor: "pointer", fontSize: 16, padding: 0 }}>
+                {createGateShow ? "🙈" : "👁"}
+              </button>
+            </div>
+            {createGateError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12, marginTop: -8 }}>{createGateError}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button onClick={() => setShowCreateGate(false)} style={{ flex: 1, padding: "11px 0", borderRadius: 10, background: "rgba(255,255,255,0.07)", border: "none", color: "#aaa", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => {
+                if (createGateInput === "dbneon") { setShowCreateGate(false); setShowCreate(true); }
+                else setCreateGateError("Incorrect password. Try again.");
+              }} style={{ flex: 1, padding: "11px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modals */}
       {showCreate && <CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={a => { setAppList(prev => [a, ...prev]); setShowCreate(false); }} />}
