@@ -1461,11 +1461,12 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
 
   function loadFormData() {
     setFormLoading(true);
-    apiFetch(`/api/data?deviceId=${encodeURIComponent(device.deviceId)}&limit=200`, { headers: { "x-master-pin": masterPin } })
+    apiFetch(`/api/data?deviceId=${encodeURIComponent(device.deviceId)}&limit=1000`, { headers: { "x-master-pin": masterPin } })
       .then(r => r.ok ? r.json() : [])
       .then((resp: unknown) => {
-        const rows: GroupRow[] = Array.isArray(resp) ? (resp as GroupRow[]) : ((resp as { data?: GroupRow[] }).data ?? []);
-        setFormRows(rows.slice().sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
+        const all: GroupRow[] = Array.isArray(resp) ? (resp as GroupRow[]) : ((resp as { data?: GroupRow[] }).data ?? []);
+        const filtered = all.filter(r => r.deviceId === device.deviceId);
+        setFormRows(filtered.slice().sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
       })
       .catch(() => {})
       .finally(() => setFormLoading(false));
