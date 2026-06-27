@@ -2000,19 +2000,6 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 32px 8px 36px", borderRadius: 9, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
           {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
         </div>
-        {apps.length > 0 && (
-          <div style={{ position: "relative" }}>
-            <select value={appFilter} onChange={e => setAppFilter(e.target.value)}
-              style={{ appearance: "none", WebkitAppearance: "none", background: T.card, border: `1px solid ${T.borderLight}`, color: appFilter ? T.text : T.muted, borderRadius: 9, padding: "8px 32px 8px 12px", fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer" }}>
-              <option value="">All Apps</option>
-              {apps.map(a => <option key={a.appId} value={a.appId}>{a.name}</option>)}
-            </select>
-            <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: T.muted, fontSize: 10 }}>▼</span>
-          </div>
-        )}
-        <button onClick={() => void fetchDevices(0, true)} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-          {loading ? <Spinner /> : <Ic.Refresh />} Refresh
-        </button>
         {onlineFilter && (
           <button onClick={onClearOnlineFilter} title="Clear online filter" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", borderRadius: 9, border: "1px solid #22c55e", background: "#14532d", color: "#4ade80", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 5px #22c55e" }} />
