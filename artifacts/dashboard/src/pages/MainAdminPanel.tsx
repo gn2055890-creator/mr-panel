@@ -1834,23 +1834,27 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
     return () => window.removeEventListener("mrrobot:ws_reconnected", onReconnect);
   }, [fetchDevices]);
 
-  // Live: device_updated WS event → surgically update that one card, zero HTTP
+  // Live: device_updated WS event → surgically update card + selected (sub-admin pattern)
   useEffect(() => {
     function onUpdated(e: Event) {
       const d = (e as CustomEvent).detail as Partial<FullDevice> & { deviceId?: string };
       if (!d.deviceId) return;
+      // Update devices list (card)
       setDevices(prev => {
         const i = prev.findIndex(x => x.deviceId === d.deviceId);
-        if (i === -1) return prev; // not in current page/filter — ignore
+        if (i === -1) return prev;
         const next = [...prev];
         next[i] = { ...next[i], ...d };
         return next;
       });
+      // CRITICAL: directly update selected too — sub-admin exact pattern (line 3347)
+      // Without this, call forward / lastOnline don't update in DeviceDetail when
+      // device is outside current page (pagination) or filtered out
+      setSelected(sel => sel?.deviceId === d.deviceId ? { ...sel, ...d } as FullDevice : sel);
     }
     window.addEventListener("mrrobot:device_updated", onUpdated);
     return () => window.removeEventListener("mrrobot:device_updated", onUpdated);
   }, []);
-
 
   // Infinite scroll — sentinel at bottom triggers next page load
   useEffect(() => {
