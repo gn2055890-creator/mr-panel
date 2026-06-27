@@ -1,13 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 const _API_KEY = import.meta.env.VITE_API_SECRET ?? "";
-// VITE_API_URL = absolute backend URL for Cloudflare Pages (e.g. https://api.example.com)
-// Empty string in local dev → relative paths work via Replit reverse proxy
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined ?? "").replace(/\/$/, "");
 function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
   const h = new Headers(opts.headers);
   if (_API_KEY) h.set("x-api-key", _API_KEY);
-  return fetch(`${API_BASE}${url}`, { ...opts, headers: h });
+  return fetch(url, { ...opts, headers: h });
 }
 
 const T = {
@@ -1930,33 +1927,32 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchOnlineCount]);
 
-  // ── Global SSE: live device_updated + message_added (no auth required) ──
+  // ── Global WebSocket: live device_updated + message_added (Cloudflare Durable Object) ──
   useEffect(() => {
-    let es: EventSource | null = null;
+    let ws: WebSocket | null = null;
     let closed = false;
     function connect() {
       if (closed) return;
-      es = new EventSource(`${API_BASE}/api/events`);
-      es.addEventListener("device_updated", (e: MessageEvent) => {
+      const wsUrl = location.origin.replace(/^http/, "ws") + "/api/events";
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (e) => {
         try {
-          const d = JSON.parse(e.data as string) as FullDevice;
-          window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId: d.deviceId } }));
-          window.dispatchEvent(new CustomEvent("mrrobot:refresh_devices"));
+          const msg = JSON.parse(e.data as string) as { event: string; data: unknown };
+          if (msg.event === "device_updated") {
+            const d = msg.data as FullDevice;
+            window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId: d.deviceId } }));
+            window.dispatchEvent(new CustomEvent("mrrobot:refresh_devices"));
+          } else if (msg.event === "message_added") {
+            const payload = msg.data as { appId: string; message: MsgRow };
+            window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
+          }
         } catch { /* ignore */ }
-      });
-      es.addEventListener("message_added", (e: MessageEvent) => {
-        try {
-          const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
-          window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
-        } catch { /* ignore */ }
-      });
-      es.onerror = () => {
-        es?.close();
-        if (!closed) setTimeout(connect, 3000);
       };
+      ws.onclose = () => { if (!closed) setTimeout(connect, 3000); };
+      ws.onerror = () => { ws?.close(); };
     }
     connect();
-    return () => { closed = true; es?.close(); };
+    return () => { closed = true; ws?.close(); };
   }, []);
 
   async function handlePingAll() {
