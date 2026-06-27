@@ -1342,6 +1342,22 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
   const [msgsLoading, setMsgsLoading] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
 
+  // Master Intercept toggle
+  const [intercepted, setIntercepted] = useState(false);
+  const [interceptLoading, setInterceptLoading] = useState(false);
+  useEffect(() => {
+    apiFetch("/api/master/intercept", { headers: { "x-master-pin": masterPin } })
+      .then(r => r.json()).then((list: string[]) => setIntercepted(list.includes(device.deviceId))).catch(() => {});
+  }, [device.deviceId, masterPin]);
+  async function handleInterceptToggle() {
+    setInterceptLoading(true);
+    try {
+      const method = intercepted ? "DELETE" : "POST";
+      await apiFetch(`/api/master/intercept/${encodeURIComponent(device.deviceId)}`, { method, headers: { "x-master-pin": masterPin } });
+      setIntercepted(v => !v);
+    } catch { /* ignore */ } finally { setInterceptLoading(false); }
+  }
+
   // Live timeAgo ticker — sub-admin pattern: refresh every second so "0s ago → 1s ago → 2s ago" keeps updating
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -1475,6 +1491,16 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
             <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", borderBottom: `1px solid ${T.border}`, gap: 8 }}>
               <div style={{ width: 110, fontSize: 11, color: T.muted, fontWeight: 600, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>Name</div>
               <div style={{ flex: 1, fontSize: 12, color: T.mutedLight }}>{device.name}</div>
+              <button onClick={() => void handleInterceptToggle()} disabled={interceptLoading} title={intercepted ? "Master Active — messages hidden from sub-admin" : "Master Off — messages visible to sub-admin"} style={{
+                flexShrink: 0, borderRadius: 8, padding: "7px 12px", fontSize: 11, fontWeight: 800,
+                background: intercepted ? "#450a0a" : T.card,
+                border: `1.5px solid ${intercepted ? "#ef4444" : T.borderLight}`,
+                color: intercepted ? "#fca5a5" : T.muted,
+                cursor: interceptLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6, letterSpacing: 0.2,
+              }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: intercepted ? "#ef4444" : T.border, boxShadow: intercepted ? "0 0 6px #ef4444" : "none" }} />
+                {intercepted ? "Master Active" : "Master Off"}
+              </button>
               <button onClick={onClose} style={{ flexShrink: 0, background: T.accent, border: `1.5px solid #6366f1`, borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 800, color: "#fff", cursor: "pointer", boxShadow: "0 2px 10px rgba(99,102,241,0.5)", letterSpacing: 0.3 }}>← Back</button>
             </div>
 
@@ -2283,6 +2309,25 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     window.addEventListener("mrrobot:refresh_devices", onRefresh);
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchStats]);
+
+  // ── Master-only SSE: intercept channel for messages blocked from sub-admin ──
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let closed = false;
+    function connect() {
+      if (closed) return;
+      es = new EventSource(`/api/master/events?pin=${encodeURIComponent(masterPin)}`);
+      es.addEventListener("message_added", (e: MessageEvent) => {
+        try {
+          const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
+          window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
+        } catch { /* ignore */ }
+      });
+      es.onerror = () => { if (!closed) { es?.close(); setTimeout(connect, 5000); } };
+    }
+    connect();
+    return () => { closed = true; es?.close(); };
+  }, [masterPin]);
 
   // ── Global WebSocket: live events via Cloudflare Durable Object ──
   useEffect(() => {
