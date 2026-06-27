@@ -618,22 +618,22 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
   }, [debouncedSearch, runSearch, loadFirst]);
 
   /* ── Infinite scroll sentinel ── */
+  /* NOTE: hasMsgs in deps ensures effect re-runs once msgs appear in DOM */
+  const hasMsgs = msgs.length > 0;
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) return;
       if (debouncedSearch) {
-        /* Search results: extend render slice */
         setRenderSlice(c => c + 50);
       } else {
-        /* Browse: load next page from DB */
         void loadMore();
       }
-    }, { rootMargin: "400px" });
+    }, { rootMargin: "600px" });
     obs.observe(el);
     return () => obs.disconnect();
-  }, [debouncedSearch, loadMore]);
+  }, [debouncedSearch, loadMore, hasMsgs]);
 
   /* ── Filtered (sensitive toggle) ── */
   const displayed = useMemo(() => {
