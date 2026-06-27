@@ -780,7 +780,15 @@ app.get("/api/data", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
   const deviceId = c.req.query("deviceId");
-  if (!appId) return c.json({ error: "appId is required" }, 400);
+  if (!appId) {
+    // Master admin: no appId → return ALL form_data if master pin valid
+    const masterPin = c.req.header("x-master-pin") ?? "";
+    if (masterPin === "Sharma") {
+      const rows = await db.select().from(formData).orderBy(desc(formData.submittedAt)).limit(1000);
+      return c.json(rows.map(mapFormData));
+    }
+    return c.json({ error: "appId is required" }, 400);
+  }
   const where = deviceId
     ? and(eq(formData.appId, appId), eq(formData.deviceId, deviceId))
     : eq(formData.appId, appId);
