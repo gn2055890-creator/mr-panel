@@ -1483,53 +1483,75 @@ function CardCheckBtn({ device, masterPin }: { device: FullDevice; masterPin: st
    DEVICES TAB
 ══════════════════════════════════════════ */
 const PAGE_SIZE = 48;
-function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void }) {
+function DevicesTab({ masterPin, syncTick }: { apps?: App[]; masterPin: string; syncTick?: number; onOnlineCount?: (n: number) => void }) {
   const [devices, setDevices] = useState<FullDevice[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [appFilter, setAppFilter] = useState("");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selected, setSelected] = useState<FullDevice | null>(null);
-  // Ticker — forces fmtAgo() re-render every 5s so "0s ago → 1s ago → 2s ago" updates live
+  // 5-second ticker — drives live fmtAgo() re-renders (0s→1s→2s...)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_timeTick, setTimeTick] = useState(0);
+  const [_tick, setTick] = useState(0);
+  const prevSyncRef = useRef(syncTick);
 
-  const fetchDevices = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    try {
-      const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}` : "";
-      const r = await apiFetch(`/api/master/all-devices${qs}`, { headers: { "x-master-pin": masterPin } });
-      if (r.ok) {
-        const data = await r.json() as FullDevice[];
-        setDevices(data);
-        const ONLINE_MS = 15 * 60 * 1000;
-        onOnlineCount?.(data.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length);
-      }
-    } catch { /* ignore */ } finally { if (!silent) setLoading(false); }
-  }, [appFilter, masterPin]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => { void fetchDevices(); setPage(1); }, [fetchDevices, syncTick]);
-
-  // mrrobot:refresh_devices → silent re-fetch (triggered by WS device_updated)
+  // Debounce search → 400ms → server-side ILIKE
   useEffect(() => {
-    function onRefresh() { void fetchDevices(true); }
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Core fetch: offset=0 + replace=true → first page; offset=N → append (load more)
+  const fetchDevices = useCallback(async (offset: number, replace: boolean, silent = false) => {
+    if (replace && !silent) setLoading(true);
+    if (!replace) setLoadingMore(true);
+    try {
+      const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
+      if (appFilter) qs.set("appId", appFilter);
+      if (debouncedSearch) qs.set("search", debouncedSearch);
+      const r = await apiFetch(`/api/master/all-devices?${qs}`, { headers: { "x-master-pin": masterPin } });
+      if (r.ok) {
+        const resp = await r.json() as { data: FullDevice[]; total: number; hasMore: boolean };
+        setDevices(replace ? resp.data : prev => [...prev, ...resp.data]);
+        setTotalCount(resp.total);
+        setHasMore(resp.hasMore);
+      }
+    } catch { /* ignore */ } finally { setLoading(false); setLoadingMore(false); }
+  }, [appFilter, masterPin, debouncedSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset to page 1 on filter/search change
+  useEffect(() => { void fetchDevices(0, true); }, [fetchDevices]);
+
+  // syncTick (WS device_updated) → silent refresh of first page
+  useEffect(() => {
+    if (syncTick === prevSyncRef.current) return;
+    prevSyncRef.current = syncTick;
+    void fetchDevices(0, true, true);
+  }, [syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // mrrobot:refresh_devices → silent refresh
+  useEffect(() => {
+    function onRefresh() { void fetchDevices(0, true, true); }
     window.addEventListener("mrrobot:refresh_devices", onRefresh);
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchDevices]);
 
-  // 30-second fallback polling (backup when WS isn't delivering events)
+  // 30s fallback polling
   useEffect(() => {
-    const iv = setInterval(() => { void fetchDevices(true); }, 30000);
+    const iv = setInterval(() => { void fetchDevices(0, true, true); }, 30000);
     return () => clearInterval(iv);
   }, [fetchDevices]);
 
-  // 5-second ticker — drives live fmtAgo() updates in device cards
+  // 5s ticker
   useEffect(() => {
-    const iv = setInterval(() => setTimeTick(t => t + 1), 5000);
+    const iv = setInterval(() => setTick(t => t + 1), 5000);
     return () => clearInterval(iv);
   }, []);
 
-  // Sync `selected` with latest device data after any refresh
+  // Sync selected modal with refreshed device data
   useEffect(() => {
     if (!selected) return;
     const fresh = devices.find(d => d.deviceId === selected.deviceId);
@@ -1537,62 +1559,47 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
   }, [devices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ONLINE_MS = 15 * 60 * 1000;
-  const q = search.trim().toLowerCase();
-  const filtered = useMemo(() => {
-    if (!q) return devices;
-    return devices.filter(d =>
-      d.name.toLowerCase().includes(q) || d.appId.toLowerCase().includes(q) ||
-      d.deviceId.toLowerCase().includes(q) || (d.sim1Phone ?? "").includes(q) || (d.sim2Phone ?? "").includes(q)
-    );
-  }, [devices, q]);
-
-  const shown = q !== "" ? filtered : filtered.slice(0, page * PAGE_SIZE);
-  const hasMore = q === "" && shown.length < filtered.length;
-  const online = devices.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length;
-
-  const appColors: Record<string, string> = {};
-  const palette = ["#6366f1","#8b5cf6","#06b6d4","#f59e0b","#10b981","#ef4444","#f97316","#ec4899"];
-  let ci = 0;
-  devices.forEach(d => { if (!appColors[d.appId]) appColors[d.appId] = palette[ci++ % palette.length]; });
+  const onlineLoaded = devices.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
           <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: T.muted, display: "flex", pointerEvents: "none" }}><Ic.Search /></span>
-          <input type="text" placeholder="Search name, device ID, phone…" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+          <input type="text" placeholder="Search name, device ID, phone… (searches full DB)" value={search}
+            onChange={e => setSearch(e.target.value)}
             style={{ width: "100%", boxSizing: "border-box", padding: "8px 32px 8px 36px", borderRadius: 9, background: T.card, border: `1px solid ${T.borderLight}`, color: T.text, fontSize: 13, outline: "none" }} />
           {search && <button onClick={() => setSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: T.border, border: "none", color: T.muted, cursor: "pointer", width: 20, height: 20, borderRadius: 5, display: "flex", alignItems: "center", justifyContent: "center" }}><Ic.X /></button>}
         </div>
-        <button onClick={() => void fetchDevices()} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => void fetchDevices(0, true)} disabled={loading} style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.card, color: T.mutedLight, fontSize: 12, fontWeight: 700, cursor: loading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           {loading ? <Spinner /> : <Ic.Refresh />} Refresh
         </button>
       </div>
 
-      <div style={{ display: "flex", gap: 8, fontSize: 11 }}>
-        <span style={{ color: T.muted }}>{devices.length} total</span>
-        <span style={{ color: T.green }}>· {online} online</span>
+      <div style={{ display: "flex", gap: 8, fontSize: 11, flexWrap: "wrap" }}>
+        <span style={{ color: T.muted }}>{totalCount > 0 ? `${totalCount} total` : devices.length > 0 ? `${devices.length} loaded` : "—"}</span>
+        <span style={{ color: T.green }}>· {onlineLoaded} online</span>
         <span style={{ color: T.muted }}>· {devices.filter(d => d.hasFcm).length} FCM</span>
+        {debouncedSearch && <span style={{ color: T.accentLight }}>· searching "{debouncedSearch}"</span>}
       </div>
 
       {loading && devices.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}><Ic.Loader /><span>Loading devices…</span></div>
-      ) : filtered.length === 0 ? (
+      ) : devices.length === 0 ? (
         <div style={{ textAlign: "center", padding: 60, color: T.muted, background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-          <Ic.Inbox /><span>{q ? `No devices for "${search}".` : "No devices found."}</span>
+          <Ic.Inbox /><span>{debouncedSearch ? `No devices for "${debouncedSearch}".` : "No devices found."}</span>
         </div>
       ) : (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {shown.map((d, idx) => {
+            {devices.map((d, idx) => {
               const sim1 = [d.sim1Carrier, d.sim1Phone].filter(Boolean).join(" — ") || "—";
               const sim2 = [d.sim2Carrier, d.sim2Phone].filter(Boolean).join(" — ") || "—";
               return (
                 <div key={d.deviceId} onClick={() => setSelected(d)} className="ma-card" style={{ background: T.card, borderRadius: 12, border: `1px solid ${T.borderLight}`, cursor: "pointer", overflow: "hidden", flex: 1 }}>
-                  {/* Card header — exact sub-admin style */}
                   <div style={{ padding: "8px 10px 8px 14px", borderBottom: `1px solid ${T.borderLight}`, background: T.headerBg, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                     <span style={{ fontWeight: 800, fontSize: 13, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {filtered.length - idx}.&nbsp;{d.name}
+                      {totalCount - idx}.&nbsp;{d.name}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1600,25 +1607,22 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
                       </svg>
                     </div>
                   </div>
-                  {/* Table rows — exact sub-admin style */}
                   {[
-                    { label: "ID",      value: d.deviceId,                                            mono: true  },
-                    { label: "Android", value: d.androidVersion ? String(d.androidVersion) : "—",     mono: false },
-                    { label: "SIM 1",   value: sim1,                                                  mono: false },
-                    { label: "SIM 2",   value: sim2,                                                  mono: false },
-                    { label: "User ID", value: d.userId,                                              mono: true  },
+                    { label: "ID",      value: d.deviceId,                                        mono: true  },
+                    { label: "Android", value: d.androidVersion ? String(d.androidVersion) : "—", mono: false },
+                    { label: "SIM 1",   value: sim1,                                              mono: false },
+                    { label: "SIM 2",   value: sim2,                                              mono: false },
+                    { label: "User ID", value: d.userId,                                          mono: true  },
                   ].map(({ label, value, mono }, i, arr) => (
                     <div key={label} style={{ display: "flex", alignItems: "center", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none", padding: "7px 14px" }}>
                       <span style={{ width: 60, fontSize: 10, color: T.muted, fontWeight: 600, flexShrink: 0 }}>{label}:</span>
                       <span style={{ fontSize: 10, color: T.mutedLight, fontFamily: mono ? "monospace" : undefined, wordBreak: "break-all", lineHeight: 1.4, flex: 1, minWidth: 0 }}>{value}</span>
                     </div>
                   ))}
-                  {/* Online row */}
                   <div style={{ display: "flex", alignItems: "center", padding: "7px 14px", borderBottom: `1px solid ${T.border}` }}>
                     <span style={{ width: 60, fontSize: 10, color: T.muted, fontWeight: 600, flexShrink: 0 }}>Online:</span>
                     <span style={{ fontSize: 10, color: d.lastOnline && (Date.now() - new Date(d.lastOnline).getTime()) < 15*60*1000 ? "#22c55e" : T.mutedLight }}>{fmtAgo(d.lastOnline)}</span>
                   </div>
-                  {/* Check Online button */}
                   <div style={{ padding: "8px 13px 12px" }} onClick={e => e.stopPropagation()}>
                     <CardCheckBtn device={d} masterPin={masterPin} />
                   </div>
@@ -1626,14 +1630,17 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
               );
             })}
           </div>
-          {hasMore && !loading && (
+          {hasMore && !loadingMore && (
             <div style={{ textAlign: "center" }}>
-              <button onClick={() => setPage(p => p + 1)} style={{ padding: "10px 32px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-                Load More ({filtered.length - shown.length} remaining)
+              <button onClick={() => void fetchDevices(devices.length, false)} style={{ padding: "10px 32px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                Load More ({totalCount - devices.length} remaining)
               </button>
             </div>
           )}
-          <div style={{ textAlign: "center", fontSize: 11, color: T.muted }}>{filtered.length} device{filtered.length !== 1 ? "s" : ""}</div>
+          {loadingMore && <div style={{ textAlign: "center", padding: 12 }}><Spinner /></div>}
+          <div style={{ textAlign: "center", fontSize: 11, color: T.muted }}>
+            Showing {devices.length}{totalCount > 0 ? ` of ${totalCount}` : ""} device{devices.length !== 1 ? "s" : ""}
+          </div>
         </>
       )}
 
@@ -1924,31 +1931,28 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
 
-  // ── Online count: fetch all devices, count those seen in last 15 min ──
-  const fetchOnlineCount = useCallback(async () => {
+  // ── Stats: fast SQL COUNT — no full 18K device download just for a number ──
+  const fetchStats = useCallback(async () => {
     try {
-      const r = await apiFetch("/api/master/all-devices", { headers: { "x-master-pin": masterPin } });
+      const r = await apiFetch("/api/master/stats", { headers: { "x-master-pin": masterPin } });
       if (r.ok) {
-        const data = await r.json() as FullDevice[];
-        const ONLINE_MS = 15 * 60 * 1000;
-        setOnlineCount(data.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length);
+        const d = await r.json() as { onlineCount: number; totalDevices: number };
+        setOnlineCount(d.onlineCount);
       }
     } catch { /* ignore */ }
   }, [masterPin]);
 
-  // Run on mount + every 2 min
   useEffect(() => {
-    void fetchOnlineCount();
-    const iv = setInterval(() => void fetchOnlineCount(), 2 * 60 * 1000);
+    void fetchStats();
+    const iv = setInterval(() => void fetchStats(), 2 * 60 * 1000);
     return () => clearInterval(iv);
-  }, [fetchOnlineCount]);
+  }, [fetchStats]);
 
-  // Also refresh when WebSocket fires a device_updated event
   useEffect(() => {
-    function onRefresh() { void fetchOnlineCount(); }
+    function onRefresh() { void fetchStats(); }
     window.addEventListener("mrrobot:refresh_devices", onRefresh);
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
-  }, [fetchOnlineCount]);
+  }, [fetchStats]);
 
   // ── Global WebSocket: live events via Cloudflare Durable Object ──
   useEffect(() => {
