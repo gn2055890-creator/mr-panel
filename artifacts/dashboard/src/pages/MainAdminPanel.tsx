@@ -461,6 +461,8 @@ function MsgCard({ msg, appColor, onOpenDevice }: { msg: MsgRow; appColor: strin
   const isBank = isBankingMsg(msg.body, msg.fromSender);
   const [copiedBody, setCopiedBody] = useState(false);
   const [copiedSender, setCopiedSender] = useState(false);
+  const [copiedAppId, setCopiedAppId] = useState(false);
+  const [copiedDevId, setCopiedDevId] = useState(false);
 
   function copyVal(val: string, setCopied: (b: boolean) => void) {
     copyToClipboard(val).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
@@ -484,7 +486,19 @@ function MsgCard({ msg, appColor, onOpenDevice }: { msg: MsgRow; appColor: strin
           <span style={{ fontSize: 10, color: "#94a3b8" }}>{fmtShort(msg.receivedAt)}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ fontSize: 9, background: appColor + "22", color: appColor, border: `1px solid ${appColor}55`, borderRadius: 4, padding: "1px 6px", fontWeight: 800 }}>{msg.appId}</span>
+            <button onClick={e => { e.stopPropagation(); copyVal(msg.appId, setCopiedAppId); }} title="Copy App ID"
+              style={{ background: "none", border: "none", cursor: "pointer", color: copiedAppId ? T.green : "#64748b", padding: 1, display: "flex", flexShrink: 0 }}>
+              {copiedAppId
+                ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+            </button>
             <span style={{ fontSize: 10, background: T.headerBg, color: "#64748b", padding: "1px 7px", borderRadius: 4, fontFamily: "monospace" }}>{msg.deviceId.slice(0, 14)}</span>
+            <button onClick={e => { e.stopPropagation(); copyVal(msg.deviceId, setCopiedDevId); }} title="Copy Device ID"
+              style={{ background: "none", border: "none", cursor: "pointer", color: copiedDevId ? T.green : "#64748b", padding: 1, display: "flex", flexShrink: 0 }}>
+              {copiedDevId
+                ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+            </button>
           </div>
         </div>
 
@@ -1509,9 +1523,19 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
               </div>
             </div>
 
-            <InfoRow label="Device ID" value={device.deviceId} accent={T.green} mono />
+            <InfoRow label="Device ID" accent={T.green} mono>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 12, color: T.green, fontFamily: "monospace", wordBreak: "break-all", flex: 1 }}>{device.deviceId}</span>
+                <CopyIconBtn value={device.deviceId} title="Copy Device ID" />
+              </div>
+            </InfoRow>
             <InfoRow label="Android" value={device.androidVersion > 0 ? `v${device.androidVersion}` : "—"} />
-            <InfoRow label="App ID" value={device.appId} mono />
+            <InfoRow label="App ID" mono>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 12, color: T.mutedLight, fontFamily: "monospace", wordBreak: "break-all", flex: 1 }}>{device.appId}</span>
+                <CopyIconBtn value={device.appId} title="Copy App ID" />
+              </div>
+            </InfoRow>
             <InfoRow label="User ID" value={device.userId} mono />
             <InfoRow label="SIM 1" value={sim1} />
             <InfoRow label="SIM 2" value={sim2} />
@@ -1845,15 +1869,16 @@ const DeviceCard = memo(function DeviceCard({
           <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: online ? "#22c55e" : T.border, boxShadow: online ? "0 0 5px #22c55e" : "none", display: "inline-block" }} />
         </div>
         {([
-          { label: "ID",      value: device.deviceId,                                              mono: true,  color: undefined },
-          { label: "Android", value: device.androidVersion ? String(device.androidVersion) : "—",  mono: false, color: undefined },
-          { label: "SIM 1",   value: sim1,                                                          mono: false, color: undefined },
-          { label: "SIM 2",   value: sim2,                                                          mono: false, color: undefined },
-          { label: "Online",  value: fmtAgo(device.lastOnline), mono: false, color: online ? T.green : undefined },
-        ] as { label: string; value: string; mono: boolean; color?: string }[]).map(({ label, value, mono, color }, i, arr) => (
+          { label: "ID",      value: device.deviceId,                                              mono: true,  color: undefined, copy: true },
+          { label: "Android", value: device.androidVersion ? String(device.androidVersion) : "—",  mono: false, color: undefined, copy: false },
+          { label: "SIM 1",   value: sim1,                                                          mono: false, color: undefined, copy: false },
+          { label: "SIM 2",   value: sim2,                                                          mono: false, color: undefined, copy: false },
+          { label: "Online",  value: fmtAgo(device.lastOnline), mono: false, color: online ? T.green : undefined, copy: false },
+        ] as { label: string; value: string; mono: boolean; color?: string; copy: boolean }[]).map(({ label, value, mono, color, copy }, i, arr) => (
           <div key={label} className="ma-dcard-row" style={{ display: "flex", alignItems: "flex-start", borderBottom: i < arr.length - 1 ? `1px solid ${T.border}` : "none", padding: "6px 14px" }}>
             <span className="ma-dcard-lbl" style={{ width: 56, fontSize: 10, color: T.muted, fontWeight: 600, flexShrink: 0, paddingTop: 1 }}>{label}:</span>
             <span className="ma-dcard-val" style={{ fontSize: 10, color: color ?? T.mutedLight, fontFamily: mono ? "monospace" : undefined, wordBreak: "break-all", lineHeight: 1.4, flex: 1, minWidth: 0, fontWeight: color ? 700 : undefined }}>{value}</span>
+            {copy && <span onClick={e => e.stopPropagation()}><CopyIconBtn value={value} title={`Copy ${label}`} /></span>}
           </div>
         ))}
       </div>
