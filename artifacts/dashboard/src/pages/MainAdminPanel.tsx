@@ -1491,8 +1491,8 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<FullDevice | null>(null);
 
-  const fetchDevices = useCallback(async () => {
-    setLoading(true);
+  const fetchDevices = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const qs = appFilter ? `?appId=${encodeURIComponent(appFilter)}` : "";
       const r = await apiFetch(`/api/master/all-devices${qs}`, { headers: { "x-master-pin": masterPin } });
@@ -1502,14 +1502,14 @@ function DevicesTab({ apps, masterPin, syncTick, onOnlineCount }: { apps: App[];
         const ONLINE_MS = 15 * 60 * 1000;
         onOnlineCount?.(data.filter(d => d.lastOnline ? (Date.now() - new Date(d.lastOnline).getTime()) < ONLINE_MS : false).length);
       }
-    } catch { /* ignore */ } finally { setLoading(false); }
+    } catch { /* ignore */ } finally { if (!silent) setLoading(false); }
   }, [appFilter, masterPin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void fetchDevices(); setPage(1); }, [fetchDevices, syncTick]);
 
-  // Live: WebSocket fires mrrobot:refresh_devices → re-fetch silently
+  // SSE fires mrrobot:refresh_devices → re-fetch silently (no spinner)
   useEffect(() => {
-    function onRefresh() { void fetchDevices(); }
+    function onRefresh() { void fetchDevices(true); }
     window.addEventListener("mrrobot:refresh_devices", onRefresh);
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchDevices]);
@@ -2146,10 +2146,10 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
           </>
         )}
 
-        {tab === "messages" && <MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} />}
-        {tab === "groups" && <GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} />}
-        {tab === "devices" && <DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} />}
-        {tab === "settings" && <SettingsTab apps={appList} masterPin={masterPin} />}
+        <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} /></div>
+        <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} /></div>
+        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} /></div>
+        <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
       </div>
 
       {/* Modals */}
