@@ -1292,9 +1292,13 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     if (!dpAppFilter || !dpNewPin || dpNewPin.length < 4) { setDpMsg("PIN must be at least 4 characters"); return; }
     setDpState("busy"); setDpMsg("");
     try {
-      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpNewPin, currentPin: dpHasPin ? dpCurrentPin : undefined }) });
+      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/set-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-master-pin": masterPin },
+        body: JSON.stringify({ pin: dpNewPin }),
+      });
       if (!r.ok) { const j = await r.json() as { error?: string }; setDpMsg(j.error ?? "Failed"); return; }
-      setDpHasPin(true); setDpMsg("PIN set successfully!"); setDpNewPin(""); setDpCurrentPin("");
+      setDpHasPin(true); setDpMsg("PIN set successfully!"); setDpNewPin("");
     } catch { setDpMsg("Network error"); } finally { setDpState("idle"); }
   }
 
@@ -1302,10 +1306,12 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     if (!dpAppFilter) return;
     setDpState("busy"); setDpMsg("");
     try {
-      const pinToUse = dpCurrentPin || dpNewPin;
-      if (!pinToUse) { setDpMsg("Enter PIN to toggle"); setDpState("idle"); return; }
-      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pinToUse }) });
-      if (!r.ok) { const j = await r.json() as { error?: string }; setDpMsg(j.error ?? "Wrong PIN"); return; }
+      const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-master-pin": masterPin },
+        body: JSON.stringify({}),
+      });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setDpMsg(j.error ?? "Failed"); return; }
       const j = await r.json() as { enabled: boolean };
       setDpEnabled(j.enabled); setDpMsg(`Delete protection ${j.enabled ? "enabled" : "disabled"}.`);
     } catch { setDpMsg("Network error"); } finally { setDpState("idle"); }
@@ -1370,27 +1376,23 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
         </div>
         {dpApp && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {dpHasPin && (
-              <div>
-                <FieldLabel>Current PIN (to toggle or change)</FieldLabel>
-                <input type="password" placeholder="Current protection PIN" value={dpCurrentPin} onChange={e => setDpCurrentPin(e.target.value)} style={{ ...inpBase, fontSize: 13 }} />
-              </div>
-            )}
+            <div style={{ fontSize: 11, color: T.muted, background: T.accentGlow, border: `1px solid ${T.accent}33`, borderRadius: 8, padding: "7px 11px" }}>
+              Master admin can toggle or change PIN for any app without entering the current PIN.
+            </div>
             <div>
               <FieldLabel>{dpHasPin ? "New PIN (optional — to change)" : "Set Protection PIN"}</FieldLabel>
               <input type="password" placeholder={dpHasPin ? "New PIN (min 4 chars)" : "Set PIN (min 4 chars)"} value={dpNewPin} onChange={e => setDpNewPin(e.target.value)} style={{ ...inpBase, fontSize: 13 }} />
             </div>
-            {dpMsg && <div style={{ fontSize: 12, color: dpMsg.includes("success") ? T.green : T.red, background: (dpMsg.includes("success") ? T.green : T.red) + "15", borderRadius: 8, padding: "7px 11px" }}>{dpMsg}</div>}
+            {dpMsg && <div style={{ fontSize: 12, color: dpMsg.includes("success") || dpMsg.includes("enabled") || dpMsg.includes("disabled") ? T.green : T.red, background: (dpMsg.includes("success") || dpMsg.includes("enabled") || dpMsg.includes("disabled") ? T.green : T.red) + "15", borderRadius: 8, padding: "7px 11px" }}>{dpMsg}</div>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => void setDeleteProtectionPin()} disabled={dpState === "busy" || !dpNewPin} style={{ flex: 1, padding: "9px 0", borderRadius: 9, background: dpNewPin ? "linear-gradient(135deg,#5254d4,#7c3aed)" : T.border, border: "none", color: dpNewPin ? "#fff" : T.muted, fontWeight: 700, cursor: dpNewPin ? "pointer" : "default", fontSize: 12 }}>
                 {dpState === "busy" ? "Saving…" : dpHasPin ? "Change PIN" : "Set PIN"}
               </button>
-              {dpHasPin && (
-                <button onClick={() => void toggleDeleteProtection()} disabled={dpState === "busy"} style={{ flex: 1, padding: "9px 0", borderRadius: 9, background: dpEnabled ? T.red + "18" : T.green + "18", border: `1px solid ${dpEnabled ? T.red + "44" : T.green + "44"}`, color: dpEnabled ? T.red : T.green, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
-                  {dpEnabled ? "Disable" : "Enable"}
-                </button>
-              )}
+              <button onClick={() => void toggleDeleteProtection()} disabled={dpState === "busy" || !dpHasPin} style={{ flex: 1, padding: "9px 0", borderRadius: 9, background: dpEnabled ? T.red + "18" : T.green + "18", border: `1px solid ${dpEnabled ? T.red + "44" : T.green + "44"}`, color: dpEnabled ? T.red : T.green, fontWeight: 700, cursor: dpHasPin ? "pointer" : "default", fontSize: 12, opacity: dpHasPin ? 1 : 0.5 }}>
+                {dpEnabled ? "Disable" : "Enable"}
+              </button>
             </div>
+            {!dpHasPin && <div style={{ fontSize: 11, color: T.muted, textAlign: "center" }}>Set a PIN first to enable/disable protection</div>}
           </div>
         )}
       </div>
