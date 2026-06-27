@@ -1890,6 +1890,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [pingResult, setPingResult] = useState<{ ok: number; fail: number } | null>(null);
   const [onlineCount, setOnlineCount] = useState(0);
   const [syncTick, setSyncTick] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
   const sortedApps = [...appList].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const fetchApps = useCallback(async () => {
@@ -1927,7 +1928,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchOnlineCount]);
 
-  // ── Global WebSocket: live device_updated + message_added (Cloudflare Durable Object) ──
+  // ── Global WebSocket: live events via Cloudflare Durable Object ──
   useEffect(() => {
     let ws: WebSocket | null = null;
     let closed = false;
@@ -1935,21 +1936,24 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       if (closed) return;
       const wsUrl = location.origin.replace(/^http/, "ws") + "/api/events";
       ws = new WebSocket(wsUrl);
+      ws.onopen = () => { setWsConnected(true); };
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as { event: string; data: unknown };
           if (msg.event === "device_updated") {
-            const d = msg.data as FullDevice;
-            window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId: d.deviceId } }));
+            const d = msg.data as { deviceId?: string };
+            const deviceId = d.deviceId ?? "";
+            window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: { deviceId } }));
             window.dispatchEvent(new CustomEvent("mrrobot:refresh_devices"));
+            setSyncTick(t => t + 1);
           } else if (msg.event === "message_added") {
             const payload = msg.data as { appId: string; message: MsgRow };
             window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
           }
         } catch { /* ignore */ }
       };
-      ws.onclose = () => { if (!closed) setTimeout(connect, 3000); };
-      ws.onerror = () => { ws?.close(); };
+      ws.onclose = () => { setWsConnected(false); if (!closed) setTimeout(connect, 3000); };
+      ws.onerror = () => { setWsConnected(false); ws?.close(); };
     }
     connect();
     return () => { closed = true; ws?.close(); };
@@ -2061,10 +2065,10 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: onlineCount > 0 ? "#22c55e" : T.muted, display: "inline-block", boxShadow: onlineCount > 0 ? "0 0 5px #22c55e" : "none" }} />
             {onlineCount} /15m
           </span>
-          {/* Connected */}
-          <span className="ma-hide-mob" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#14532d", border: "1px solid #22c55e", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: "#4ade80", flexShrink: 0 }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block", boxShadow: "0 0 5px #22c55e" }} />
-            Connected
+          {/* WS Connection status */}
+          <span className="ma-hide-mob" style={{ display: "inline-flex", alignItems: "center", gap: 5, background: wsConnected ? "#14532d" : T.card, border: `1px solid ${wsConnected ? "#22c55e" : T.borderLight}`, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: wsConnected ? "#4ade80" : T.muted, flexShrink: 0 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: wsConnected ? "#22c55e" : T.muted, display: "inline-block", boxShadow: wsConnected ? "0 0 5px #22c55e" : "none" }} />
+            {wsConnected ? "Live" : "Connecting…"}
           </span>
           <div style={{ flex: 1 }} />
           {/* Sync */}
