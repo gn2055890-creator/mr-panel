@@ -2159,43 +2159,6 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
         </button>
       </div>
 
-      {/* ── Admin Sessions (per-app) ── */}
-      <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Admin Sessions</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => void fetchSessions()} disabled={sessLoading} style={{ padding: "5px 12px", borderRadius: 8, background: T.border, border: `1px solid ${T.borderLight}`, color: T.mutedLight, fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
-              {sessLoading ? <Spinner size={10} /> : <Ic.Refresh />} Refresh
-            </button>
-            {sessions.length > 0 && (
-              <button onClick={() => void logoutAll()} disabled={logoutingAll} style={{ padding: "5px 12px", borderRadius: 8, background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                {logoutingAll ? "…" : "Logout All"}
-              </button>
-            )}
-          </div>
-        </div>
-        <div style={{ marginBottom: 10 }}>
-          <AppSelector apps={apps} value={sessAppFilter} onChange={v => { setSessAppFilter(v); }} allLabel="— Select App —" />
-        </div>
-        {sessions.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "20px 0", color: T.muted, fontSize: 12 }}>No active sessions</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {sessions.map(s => (
-              <div key={s.id} style={{ background: T.inputBg, borderRadius: 9, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 2 }}>{s.device}</div>
-                  <div style={{ fontSize: 10, color: T.muted }}>{s.ip} · {fmtAgo(s.loginTime)}</div>
-                </div>
-                <button onClick={() => void logoutSession(s.id)} disabled={logoutingId === s.id} style={{ padding: "5px 10px", borderRadius: 7, background: T.red + "18", border: `1px solid ${T.red}44`, color: T.red, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                  {logoutingId === s.id ? <Spinner size={10} /> : <Ic.LogOut />}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
     </div>
   );
 }
