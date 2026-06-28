@@ -2388,7 +2388,15 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [deleteGateShow, setDeleteGateShow] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
   const [showViewPin, setShowViewPin] = useState(false);
-  const [tabsUnlocked, setTabsUnlocked] = useState(false);
+  const [tabsUnlocked, setTabsUnlockedRaw] = useState(() => localStorage.getItem("mr_nav_unlocked") === "1");
+  const setTabsUnlocked = (v: boolean | ((p: boolean) => boolean)) => {
+    setTabsUnlockedRaw(prev => {
+      const next = typeof v === "function" ? v(prev) : v;
+      if (next) localStorage.setItem("mr_nav_unlocked", "1");
+      else localStorage.removeItem("mr_nav_unlocked");
+      return next;
+    });
+  };
   const [navPassState, setNavPassState] = useState<"idle"|"asking"|"err">("idle");
   const [navPass, setNavPass] = useState("");
   const navPassRef = useRef<HTMLInputElement>(null);
