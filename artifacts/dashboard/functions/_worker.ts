@@ -648,11 +648,22 @@ app.post("/api/apps", async (c) => {
 
 app.patch("/api/apps/:appId", async (c) => {
   const db = getDb(c.env);
-  const body = await c.req.json() as { name?: string; pin?: string; status?: string; };
+  const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; };
   const patch: Partial<typeof apps.$inferInsert> = {};
   if (body.name !== undefined) patch.name = body.name;
-  if (body.pin !== undefined) patch.pin = body.pin;
   if (body.status !== undefined) patch.status = body.status;
+
+  // Changing PIN requires currentPin verified server-side (prevents API key theft attack)
+  if (body.pin !== undefined) {
+    const isMaster = (c.req.header("x-master-pin") ?? "") === "Sharma";
+    if (!isMaster) {
+      const [existing] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
+      if (!existing) return c.json({ error: "App not found" }, 404);
+      if (!body.currentPin) return c.json({ error: "currentPin required to change PIN" }, 400);
+      if (body.currentPin !== existing.pin) return c.json({ error: "Wrong current PIN" }, 401);
+    }
+    patch.pin = body.pin;
+  }
 
   if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
   const [row] = await db.update(apps).set(patch).where(eq(apps.appId, c.req.param("appId"))).returning();
