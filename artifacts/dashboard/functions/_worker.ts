@@ -1205,10 +1205,27 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 }
 
 
+const _masterPinAttempts = { count: 0, lockedUntil: 0 };
 app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
-  if (body.pin !== await getMasterPin(c.env)) return c.json({ error: "Wrong Master PIN" }, 401);
+  const now2 = Date.now();
+  if (_masterPinAttempts.lockedUntil > now2) {
+    const mins = Math.ceil((_masterPinAttempts.lockedUntil - now2) / 60_000);
+    return c.json({ error: `Too many wrong attempts. Try again in ${mins} min.` }, 429);
+  }
+  const correctPin = await getMasterPin(c.env);
+  if (body.pin !== correctPin) {
+    _masterPinAttempts.count += 1;
+    if (_masterPinAttempts.count >= 5) {
+      _masterPinAttempts.lockedUntil = now2 + 30 * 60_000;
+      _masterPinAttempts.count = 0;
+      return c.json({ error: "Too many wrong attempts. Locked for 30 min." }, 429);
+    }
+    const left = 5 - _masterPinAttempts.count;
+    return c.json({ error: `Wrong Master PIN. ${left} attempt${left===1?"":"s"} left.` }, 401);
+  }
+  _masterPinAttempts.count = 0; _masterPinAttempts.lockedUntil = 0;
   return c.json({ ok: true });
 });
 
@@ -1512,9 +1529,15 @@ app.post("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const ua = c.req.header("user-agent") ?? "";
   const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = "";
-  try { const body = await c.req.json() as { appId?: string }; appId = body.appId ?? ""; } catch {}
-  // Dedupe: if a session from the same browser+IP+appId already exists, reuse it
+  let appId = ""; let pin = "";
+  try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; pin = body.pin ?? ""; } catch {}
+  if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
+  const db = getDb(c.env);
+  const [appRow] = await db.select({ pin: apps.pin, status: apps.status })
+    .from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!appRow || appRow.status !== "active" || appRow.pin !== pin) {
+    return c.json({ error: "Invalid PIN" }, 401);
+  }
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
     [ua, ip, appId],
