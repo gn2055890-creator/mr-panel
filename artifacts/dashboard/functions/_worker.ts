@@ -1155,11 +1155,16 @@ let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
 async function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
   if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
-  const sql = neon(env.NEON_DATABASE_URL);
-  const rows = await sql(`SELECT value FROM settings WHERE key = 'master_pin' LIMIT 1`) as Array<{ value: string }>;
-  const pin = rows[0]?.value ?? "Sharma";
-  _masterPinCache = { value: pin, ts: now };
-  return pin;
+  try {
+    const sql = neon(env.NEON_DATABASE_URL);
+    const rows = await sql(`SELECT value FROM settings WHERE key = 'master_pin' LIMIT 1`) as Array<{ value: string }>;
+    const pin = (rows[0]?.value ?? "").trim() || "1975";
+    _masterPinCache = { value: pin, ts: now };
+    return pin;
+  } catch (err) {
+    console.error("[getMasterPin] DB error:", err);
+    return _masterPinCache.value || "1975";
+  }
 }
 
 // ------- MASTER ADMIN (PIN from settings table) -------
@@ -1169,6 +1174,17 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
   if (pin !== await getMasterPin(c.env)) return c.json({ error: "Wrong Master PIN" }, 401);
   return null;
 }
+
+
+// ── Temporary debug: tells what getMasterPin returns without exposing full PIN ──
+app.post("/api/debug/pin-meta", async (c) => {
+  try {
+    const pin = await getMasterPin(c.env);
+    return c.json({ len: pin.length, starts: pin.slice(0, 2), isNumeric: /^\d+$/.test(pin) });
+  } catch (err) {
+    return c.json({ error: String(err) }, 500);
+  }
+});
 
 app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
