@@ -2880,6 +2880,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
     e.preventDefault();
     setLoading(true); setErr("");
     try {
+      // Step 1: verify PIN
       const r = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin }),
@@ -2887,19 +2888,31 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         const apiErr = (j as { error?: string }).error ?? "";
+        // Show exact API message (includes lockout countdown, attempts left, etc.)
         setErr(
           apiErr.includes("expired") || apiErr.includes("Licence") ? "Login restricted. Please contact admin." :
           apiErr.includes("disabled") ? "Login restricted. Please contact admin." :
+          apiErr.includes("Too many") ? apiErr :
+          apiErr.includes("attempt") ? apiErr :
           "Wrong PIN. Try again."
         );
         setPin(""); return;
       }
-      const sessR = await apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId, pin }) }).catch(() => null);
-      if (sessR?.ok) {
-        const { sessionId } = await sessR.json();
-        localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
+
+      // Step 2: create session — required for data access
+      const sessR = await apiFetch("/api/admin/sessions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appId, pin }),
+      }).catch(() => null);
+
+      if (!sessR || !sessR.ok) {
+        setErr("Login failed. Please try again.");
+        return;
       }
-      // Save auth to localStorage — persists across tabs and browser restarts
+      const { sessionId } = await sessR.json();
+      localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
+
+      // Both steps passed — set auth
       localStorage.setItem(`mrrobot_auth_${appId}`, "1");
       onAuth();
     } catch { setErr("Network error. Try again."); }
@@ -3087,6 +3100,16 @@ export default function WebDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Stale-session guard: if marked authed but no session token → force re-login
+  useEffect(() => {
+    const hasSession = !!localStorage.getItem(`mrrobot_session_id_${appId}`);
+    if (!hasSession) {
+      localStorage.removeItem(`mrrobot_auth_${appId}`);
+      setAuthed(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
   }, [appId]);
@@ -3263,6 +3286,11 @@ export default function WebDashboard() {
       const h: HeadersInit = silent ? { "x-silent": "1" } : {};
       // Single /api/init call — replaces 3 parallel requests → 1 round-trip to DB
       const initRes = await apiFetch(`/api/init?appId=${appId}&limit=${FIRST_PAGE}`, { headers: h, signal: controller.signal });
+      if (initRes.status === 401) {
+        localStorage.removeItem(`mrrobot_auth_${appId}`);
+        localStorage.removeItem(`mrrobot_session_id_${appId}`);
+        setAuthed(false); return;
+      }
       if (!initRes.ok) throw new Error("API error");
       const { devices: d, messages: firstM, formData: f, totalMessages: totalM } = await initRes.json() as { devices: DbDevice[]; messages: DbMessage[]; formData: DbFormData[]; totalMessages?: number };
       if (totalM != null) setTotalMsgCount(totalM);
