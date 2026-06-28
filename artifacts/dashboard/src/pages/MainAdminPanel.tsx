@@ -131,7 +131,7 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
 function PinCopyBtn({ value }: { value: string }) {
   const [state, setState] = useState<"idle"|"asking"|"copied">("idle");
   const [pass, setPass] = useState(""); const [err, setErr] = useState("");
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   function open(e: React.MouseEvent) { e.stopPropagation(); setState("asking"); setPass(""); setErr(""); setTimeout(() => inputRef.current?.focus(), 50); }
   function cancel(e: React.MouseEvent) { e.stopPropagation(); setState("idle"); setPass(""); setErr(""); }
   function submit(e: React.FormEvent) {
