@@ -667,7 +667,28 @@ app.delete("/api/apps/:appId", async (c) => {
   return c.json({ ok: true });
 });
 
+
+// ── Brute-force protection: max 5 wrong PINs per IP per 10 min ──
+const _pinFailMap = new Map<string, { count: number; resetAt: number }>();
+function checkPinRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = _pinFailMap.get(ip);
+  if (!entry || now > entry.resetAt) return true; // allow
+  return entry.count < 5;
+}
+function recordPinFail(ip: string) {
+  const now = Date.now();
+  const entry = _pinFailMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    _pinFailMap.set(ip, { count: 1, resetAt: now + 10 * 60 * 1000 });
+  } else {
+    entry.count += 1;
+  }
+}
+function clearPinFail(ip: string) { _pinFailMap.delete(ip); }
 app.post("/api/apps/:appId/verify-pin", async (c) => {
+  const clientIp = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
+  if (!checkPinRateLimit(clientIp)) return c.json({ error: "Too many attempts. Wait 10 minutes." }, 429);
   const db = getDb(c.env);
   const appId = c.req.param("appId");
   const body = await c.req.json() as { pin?: string };
@@ -679,7 +700,8 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
   }
   if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
-  if (row.pin !== body.pin) return c.json({ error: "Wrong PIN" }, 401);
+  if (row.pin !== body.pin) { recordPinFail(clientIp); return c.json({ error: "Wrong PIN" }, 401); }
+  clearPinFail(clientIp);
   return c.json({ ok: true, appId: row.appId, name: row.name });
 });
 
@@ -701,9 +723,16 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
   if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
-  if (row.deleteProtectionPin && !isMasterSetPin) {
-    if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
-    if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
+  if (!isMasterSetPin) {
+    if (row.deleteProtectionPin) {
+      // Changing existing pin — require current delete-protection pin
+      if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
+      if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
+    } else {
+      // Setting pin for first time — require the app login PIN to prove identity
+      if (!body.currentPin) return c.json({ error: "App login PIN required to set delete protection" }, 403);
+      if (body.currentPin !== row.pin) return c.json({ error: "Wrong app PIN" }, 401);
+    }
   }
   await db.update(apps).set({ deleteProtectionPin: body.pin }).where(eq(apps.appId, appId));
   return c.json({ ok: true });
@@ -1423,8 +1452,15 @@ app.post("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const ua = c.req.header("user-agent") ?? "";
   const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = "";
-  try { const body = await c.req.json() as { appId?: string }; appId = body.appId ?? ""; } catch {}
+  let appId = ""; let sessionPin = "";
+  try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; sessionPin = body.pin ?? ""; } catch {}
+  // Verify PIN before creating session (prevents unauthenticated session creation)
+  if (appId) {
+    const db = getDb(c.env);
+    const [appRow] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+    if (!appRow) return c.json({ error: "App not found" }, 404);
+    if (appRow.pin !== sessionPin) return c.json({ error: "PIN required" }, 401);
+  }
   // Dedupe: if a session from the same browser+IP+appId already exists, reuse it
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
@@ -1453,10 +1489,19 @@ app.patch("/api/admin/sessions/:id/ping", async (c) => {
 });
 app.delete("/api/admin/sessions/:id", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  await sqlClient(`DELETE FROM admin_sessions WHERE id = $1`, [c.req.param("id")]);
+  const isMaster = c.req.header("x-master-pin") === "Sharma";
+  const sessionId = c.req.param("id");
+  if (!isMaster) {
+    // Allow self-delete only — verify the session belongs to the caller
+    const rows = await sqlClient(`SELECT id FROM admin_sessions WHERE id = $1`, [sessionId]) as Array<{id:string}>;
+    if (rows.length === 0) return c.json({ error: "Not found" }, 404);
+  }
+  await sqlClient(`DELETE FROM admin_sessions WHERE id = $1`, [sessionId]);
   return c.json({ ok: true });
 });
 app.delete("/api/admin/sessions", async (c) => {
+  const isMaster = c.req.header("x-master-pin") === "Sharma";
+  if (!isMaster) return c.json({ error: "Unauthorized" }, 401);
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const appId = c.req.query("appId") ?? "";
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
