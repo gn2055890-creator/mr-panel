@@ -1222,7 +1222,6 @@ app.post("/api/fcm/online-check", async (c) => {
 
 // ── Master PIN: DB-driven with 30s in-memory cache ──
 let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
-const _pinAttempts = new Map<string, { count: number; lockedUntil: number }>();
 const _sessionCache = new Map<string, { expiry: number }>();
 async function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
