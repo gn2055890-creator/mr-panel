@@ -653,6 +653,7 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { a
   const [msgs, setMsgs] = useState<MsgRow[]>([]);
   const [appFilter, setAppFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month">("all");
   const [sensitiveOnly, setSensitiveOnly] = useState(false);
 
   /* Browse mode state */
@@ -2375,14 +2376,14 @@ type Tab = "apps" | "messages" | "groups" | "devices" | "settings" | "stats";
 type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
 function StatsTab({ data, onRefresh }: { data: StatsData | null; onRefresh: () => void }) {
   const cards = data ? [
-    { label: "Apps Aaj Banaye", val: data.appsToday,      color: T.accent,  emoji: "🆕", sub: "aaj create hue" },
-    { label: "Total Apps",      val: data.totalApps,       color: T.accentLight, emoji: "📦", sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
-    { label: "Online Devices",  val: data.onlineCount,     color: T.green,   emoji: "📱", sub: "last 15 min active" },
-    { label: "Total Devices",   val: data.totalDevices,    color: T.yellow,  emoji: "🖥️", sub: "sabhi registered" },
-    { label: "Messages Aaj",    val: data.messagesToday,   color: T.orange,  emoji: "💬", sub: "aaj receive hue" },
-    { label: "Total Messages",  val: data.totalMessages,   color: "#a78bfa", emoji: "📨", sub: "overall database mein" },
-    { label: "Active Sessions", val: data.activeSessions,  color: "#38bdf8", emoji: "🔐", sub: "last 30 min active" },
-    { label: "Disabled Apps",   val: data.totalApps - data.activeApps, color: T.red, emoji: "🚫", sub: "band kiye hue" },
+    { label: "Apps Created Today", val: data.appsToday,      color: T.accent,      emoji: "🆕", sub: "created today" },
+    { label: "Total Apps",         val: data.totalApps,       color: T.accentLight, emoji: "📦", sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
+    { label: "Online Devices",     val: data.onlineCount,     color: T.green,       emoji: "📱", sub: "active last 15 min" },
+    { label: "Total Devices",      val: data.totalDevices,    color: T.yellow,      emoji: "🖥️", sub: "all registered" },
+    { label: "Messages Today",     val: data.messagesToday,   color: T.orange,      emoji: "💬", sub: "received today" },
+    { label: "Total Messages",     val: data.totalMessages,   color: "#a78bfa",     emoji: "📨", sub: "overall in database" },
+    { label: "Active Sessions",    val: data.activeSessions,  color: "#38bdf8",     emoji: "🔐", sub: "active last 30 min" },
+    { label: "Disabled Apps",      val: data.totalApps - data.activeApps, color: T.red, emoji: "🚫", sub: "currently disabled" },
   ] : [];
   return (
     <div>
@@ -2653,7 +2654,22 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     });
   }
 
-  const filteredApps = search.trim() === "" ? sortedApps : sortedApps.filter(a =>
+  const filteredApps = sortedApps.filter(a => {
+    if (dateFilter !== "all") {
+      const created = new Date(a.createdAt);
+      const now = new Date();
+      const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const today = startOfDay(now);
+      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
+      const monthAgo = new Date(today); monthAgo.setMonth(today.getMonth() - 1);
+      if (dateFilter === "today"     && created < today)     return false;
+      if (dateFilter === "yesterday" && (created < yesterday || created >= today)) return false;
+      if (dateFilter === "week"      && created < weekAgo)   return false;
+      if (dateFilter === "month"     && created < monthAgo)  return false;
+    }
+    if (search.trim() === "") return true;
+    return (
     a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase())
   );
   const activeCount = appList.filter(a => a.status === "active").length;
@@ -2791,8 +2807,26 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
 
             {/* Apps header + search */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
-              <div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div><div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>Sorted by newest first</div></div>
-              <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>
+                  {dateFilter === "all" ? "Sorted by newest first" : `Filtered: ${filteredApps.length} app${filteredApps.length !== 1 ? "s" : ""}`}
+                </div>
+              </div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <select
+                  value={dateFilter}
+                  onChange={e => setDateFilter(e.target.value as typeof dateFilter)}
+                  style={{ padding:"7px 30px 7px 12px", borderRadius:9, border:`1px solid ${T.borderLight}`, background:T.card, color:T.text, fontSize:12, fontWeight:600, cursor:"pointer", outline:"none", appearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d6280' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center" }}
+                >
+                  <option value="all">All Time</option>
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="week">Last 7 Days</option>
+                  <option value="month">Last 30 Days</option>
+                </select>
+                <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
+              </div>
             </div>
             <div style={{ marginBottom: 12, position: "relative" }}>
               <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
