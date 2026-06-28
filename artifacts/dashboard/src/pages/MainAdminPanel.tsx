@@ -425,7 +425,7 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           <div style={{ background: T.inputBg, borderRadius: 9, padding: "7px 10px", border: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>PIN</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{app.pin}</span>
+              <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{"•".repeat(app.pin?.length ?? 4)}</span>
               <CopyBtn value={app.pin} label="PIN" />
             </div>
           </div>
@@ -435,7 +435,7 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           <span style={{ flex: 1 }} />
           {app.deleteProtectionPin ? (
             <>
-              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>{app.deleteProtectionPin}</span>
+              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>{"•".repeat(app.deleteProtectionPin?.length ?? 4)}</span>
               <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border: `1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}` }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
             </>
           ) : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Not set</span>}
