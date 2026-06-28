@@ -2339,14 +2339,14 @@ type Tab = "apps" | "messages" | "groups" | "devices" | "settings" | "stats";
 type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
 function StatsTab({ data, onRefresh }: { data: StatsData | null; onRefresh: () => void }) {
   const cards = data ? [
-    { label: "Apps Created Today", val: data.appsToday,      color: T.accent,      emoji: "🆕", sub: "created today" },
-    { label: "Total Apps",         val: data.totalApps,       color: T.accentLight, emoji: "📦", sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
-    { label: "Online Devices",     val: data.onlineCount,     color: T.green,       emoji: "📱", sub: "active last 15 min" },
-    { label: "Total Devices",      val: data.totalDevices,    color: T.yellow,      emoji: "🖥️", sub: "all registered" },
-    { label: "Messages Today",     val: data.messagesToday,   color: T.orange,      emoji: "💬", sub: "received today" },
-    { label: "Total Messages",     val: data.totalMessages,   color: "#a78bfa",     emoji: "📨", sub: "overall in database" },
-    { label: "Active Sessions",    val: data.activeSessions,  color: "#38bdf8",     emoji: "🔐", sub: "active last 30 min" },
-    { label: "Disabled Apps",      val: data.totalApps - data.activeApps, color: T.red, emoji: "🚫", sub: "currently disabled" },
+    { label: "Apps Created Today", val: data.appsToday,      color: T.accent,      icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>, sub: "created today" },
+    { label: "Total Apps",         val: data.totalApps,       color: T.accentLight, icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>, sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
+    { label: "Online Devices",     val: data.onlineCount,     color: T.green,       icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1" fill="currentColor"/></svg>, sub: "active last 15 min" },
+    { label: "Total Devices",      val: data.totalDevices,    color: T.yellow,      icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>, sub: "all registered" },
+    { label: "Messages Today",     val: data.messagesToday,   color: T.orange,      icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, sub: "received today" },
+    { label: "Total Messages",     val: data.totalMessages,   color: "#a78bfa",     icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>, sub: "overall in database" },
+    { label: "Active Sessions",    val: data.activeSessions,  color: "#38bdf8",     icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>, sub: "active last 30 min" },
+    { label: "Disabled Apps",      val: data.totalApps - data.activeApps, color: T.red, icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>, sub: "currently disabled" },
   ] : [];
   return (
     <div>
@@ -2366,10 +2366,10 @@ function StatsTab({ data, onRefresh }: { data: StatsData | null; onRefresh: () =
       ) : (
         <>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginBottom:24 }}>
-            {cards.map(({ label, val, color, emoji, sub }) => (
+            {cards.map(({ label, val, color, icon, sub }) => (
               <div key={label} style={{ background:T.card, borderRadius:14, padding:"18px 18px 14px", border:`1px solid ${T.borderLight}`, position:"relative", overflow:"hidden" }}>
                 <div style={{ position:"absolute", top:-12, right:-12, width:70, height:70, borderRadius:"50%", background:color+"12", pointerEvents:"none" }} />
-                <div style={{ fontSize:26, marginBottom:8 }}>{emoji}</div>
+                <div style={{ color, marginBottom:8, display:"flex", alignItems:"center" }}>{icon}</div>
                 <div style={{ fontSize:34, fontWeight:900, color, lineHeight:1, marginBottom:4 }}>{val.toLocaleString("en-IN")}</div>
                 <div style={{ fontSize:12, fontWeight:700, color:T.mutedLight, marginBottom:2 }}>{label}</div>
                 <div style={{ fontSize:10, color:T.muted }}>{sub}</div>
@@ -2652,7 +2652,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     { id: "groups",   label: "Groups"   },
     { id: "devices",  label: "Devices"  },
     { id: "settings", label: "Settings" },
-    { id: "stats",    label: "📊 Stats"  },
+    { id: "stats",    label: "Stats"  },
   ];
 
   return (
