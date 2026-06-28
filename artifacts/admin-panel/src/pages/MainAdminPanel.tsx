@@ -127,32 +127,18 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
   );
 }
 
-/* ── PIN Copy Button — requires "vicky" password ── */
+/* ── PIN Copy Button — direct copy, no password ── */
 function PinCopyBtn({ value }: { value: string }) {
-  const [state, setState] = useState<"idle"|"asking"|"copied">("idle");
-  const [pass, setPass] = useState(""); const [err, setErr] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  function open(e: React.MouseEvent) { e.stopPropagation(); setState("asking"); setPass(""); setErr(""); setTimeout(() => inputRef.current?.focus(), 50); }
-  function cancel(e: React.MouseEvent) { e.stopPropagation(); setState("idle"); setPass(""); setErr(""); }
-  function submit(e: React.FormEvent) {
-    e.preventDefault(); e.stopPropagation();
-    if (pass === "vicky") {
-      copyToClipboard(value).then(() => { setState("copied"); setTimeout(() => setState("idle"), 2000); });
-    } else { setErr("Galat password"); setPass(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  const [copied, setCopied] = useState(false);
+  function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    copyToClipboard(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
-  if (state === "copied") return (
+  if (copied) return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, background: T.green + "18", border: `1px solid ${T.green}60`, color: T.green, fontSize: 11, fontWeight: 600 }}><Ic.Check /> Copied</span>
   );
-  if (state === "asking") return (
-    <form onSubmit={submit} onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 5, position: "relative" }}>
-      <input ref={inputRef} type="password" value={pass} onChange={e => { setPass(e.target.value); setErr(""); }} placeholder="password" style={{ width: 90, padding: "3px 8px", borderRadius: 6, border: `1px solid ${err ? "#ef4444" : T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 11, outline: "none" }} />
-      <button type="submit" style={{ padding: "3px 8px", borderRadius: 6, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>OK</button>
-      <button type="button" onClick={cancel} style={{ padding: "3px 6px", borderRadius: 6, background: T.border, border: `1px solid ${T.borderLight}`, color: T.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
-      {err && <span style={{ position: "absolute", top: "100%", left: 0, fontSize: 10, color: "#ef4444", whiteSpace: "nowrap", marginTop: 2 }}>{err}</span>}
-    </form>
-  );
   return (
-    <button onClick={open} title="Copy PIN" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, whiteSpace: "nowrap" }}>
+    <button onClick={handleClick} title="Copy PIN" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, whiteSpace: "nowrap" }}>
       <Ic.Copy />PIN
     </button>
   );
