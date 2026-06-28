@@ -1176,16 +1176,6 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 }
 
 
-// ── Temporary debug: tells what getMasterPin returns without exposing full PIN ──
-app.post("/api/debug/pin-meta", async (c) => {
-  try {
-    const pin = await getMasterPin(c.env);
-    return c.json({ len: pin.length, starts: pin.slice(0, 2), isNumeric: /^\d+$/.test(pin) });
-  } catch (err) {
-    return c.json({ error: String(err) }, 500);
-  }
-});
-
 app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
