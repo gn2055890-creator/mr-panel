@@ -2388,6 +2388,10 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [deleteGateShow, setDeleteGateShow] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
   const [showViewPin, setShowViewPin] = useState(false);
+  const [tabsUnlocked, setTabsUnlocked] = useState(false);
+  const [navPassState, setNavPassState] = useState<"idle"|"asking"|"err">("idle");
+  const [navPass, setNavPass] = useState("");
+  const navPassRef = useRef<HTMLInputElement>(null);
   const [editApp, setEditApp] = useState<App | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -2648,24 +2652,39 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
             <Ic.Wifi /> <span className="ma-hide-mob">{pingBusy ? `${pingDone}/${pingTotal}…` : "Ping All"}</span>
           </button>
           {/* PIN + Logout */}
+          {/* Nav unlock button */}
+          {navPassState === "asking" ? (
+            <form onSubmit={e => { e.preventDefault(); if (navPass === "verma") { setTabsUnlocked(t => !t); setNavPassState("idle"); setNavPass(""); } else { setNavPassState("err"); setNavPass(""); setTimeout(() => navPassRef.current?.focus(), 30); } }} style={{ display: "inline-flex", alignItems: "center", gap: 4, position: "relative", flexShrink: 0 }}>
+              <input ref={navPassRef} autoFocus type="password" value={navPass} onChange={e => { setNavPass(e.target.value); setNavPassState("asking"); }} placeholder="password" style={{ width: 80, padding: "3px 7px", borderRadius: 6, border: `1px solid ${navPassState === "err" ? "#ef4444" : T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 11, outline: "none" }} />
+              <button type="submit" style={{ padding: "3px 7px", borderRadius: 6, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>OK</button>
+              <button type="button" onClick={() => { setNavPassState("idle"); setNavPass(""); }} style={{ padding: "3px 5px", borderRadius: 6, background: T.border, border: `1px solid ${T.borderLight}`, color: T.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
+              {navPassState === "err" && <span style={{ position: "absolute", top: "100%", left: 0, fontSize: 10, color: "#ef4444", whiteSpace: "nowrap", marginTop: 2 }}>Galat password</span>}
+            </form>
+          ) : (
+            <button onClick={() => { setNavPassState("asking"); setNavPass(""); setTimeout(() => navPassRef.current?.focus(), 50); }} title={tabsUnlocked ? "Nav hide karo" : "Nav show karo"} style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${tabsUnlocked ? T.accent + "60" : T.borderLight}`, background: tabsUnlocked ? T.accent + "22" : T.card, color: tabsUnlocked ? T.accentLight : T.muted, flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">{tabsUnlocked ? <><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></> : <><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></>}</svg>
+            </button>
+          )}
           <button onClick={() => setShowViewPin(true)} title="View Master PIN" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Eye /></button>
           <button onClick={() => setShowChangePin(true)} title="Change PIN" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Key /></button>
           <button onClick={onLogout} title="Logout" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#f87171", flexShrink: 0 }}><Ic.LogOut /></button>
         </div>
-        {/* Tabs row — flat underline style */}
-        <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", padding: "0 12px", borderTop: `1px solid ${T.border}`, overflowX: "auto" }}>
-          {TABS.map(t => (
-            <button key={t.id} className="ma-tab-btn" onClick={() => changeTab(t.id)} style={{
-              padding: "10px 16px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500,
-              color: tab === t.id ? T.accentLight : T.muted,
-              border: "none", borderBottom: `2px solid ${tab === t.id ? T.accent : "transparent"}`,
-              background: "transparent", cursor: "pointer", transition: "color 0.15s", whiteSpace: "nowrap",
-              marginBottom: -1,
-            }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Tabs row — hidden by default, shown after "verma" password */}
+        {tabsUnlocked && (
+          <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", padding: "0 12px", borderTop: `1px solid ${T.border}`, overflowX: "auto" }}>
+            {TABS.map(t => (
+              <button key={t.id} className="ma-tab-btn" onClick={() => changeTab(t.id)} style={{
+                padding: "10px 16px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500,
+                color: tab === t.id ? T.accentLight : T.muted,
+                border: "none", borderBottom: `2px solid ${tab === t.id ? T.accent : "transparent"}`,
+                background: "transparent", cursor: "pointer", transition: "color 0.15s", whiteSpace: "nowrap",
+                marginBottom: -1,
+              }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Main content */}
