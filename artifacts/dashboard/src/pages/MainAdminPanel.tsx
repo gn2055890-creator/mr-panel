@@ -2369,7 +2369,71 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
 /* ══════════════════════════════════════════
    MAIN DASHBOARD
 ══════════════════════════════════════════ */
-type Tab = "apps" | "messages" | "groups" | "devices" | "settings";
+type Tab = "apps" | "messages" | "groups" | "devices" | "settings" | "stats";
+
+/* ── Stats Tab ── */
+type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
+function StatsTab({ data, onRefresh }: { data: StatsData | null; onRefresh: () => void }) {
+  const cards = data ? [
+    { label: "Apps Aaj Banaye", val: data.appsToday,      color: T.accent,  emoji: "🆕", sub: "aaj create hue" },
+    { label: "Total Apps",      val: data.totalApps,       color: T.accentLight, emoji: "📦", sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
+    { label: "Online Devices",  val: data.onlineCount,     color: T.green,   emoji: "📱", sub: "last 15 min active" },
+    { label: "Total Devices",   val: data.totalDevices,    color: T.yellow,  emoji: "🖥️", sub: "sabhi registered" },
+    { label: "Messages Aaj",    val: data.messagesToday,   color: T.orange,  emoji: "💬", sub: "aaj receive hue" },
+    { label: "Total Messages",  val: data.totalMessages,   color: "#a78bfa", emoji: "📨", sub: "overall database mein" },
+    { label: "Active Sessions", val: data.activeSessions,  color: "#38bdf8", emoji: "🔐", sub: "last 30 min active" },
+    { label: "Disabled Apps",   val: data.totalApps - data.activeApps, color: T.red, emoji: "🚫", sub: "band kiye hue" },
+  ] : [];
+  return (
+    <div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+        <div>
+          <div style={{ fontSize:16, fontWeight:800, color:T.text }}>System Statistics</div>
+          <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
+            {data ? `Last updated: ${data.fetchedAt}` : "Loading…"}
+          </div>
+        </div>
+        <button onClick={onRefresh} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:9, background:T.card, border:`1px solid ${T.borderLight}`, color:T.mutedLight, fontSize:12, fontWeight:700, cursor:"pointer" }}>
+          <Ic.Refresh /> Refresh
+        </button>
+      </div>
+      {!data ? (
+        <div style={{ textAlign:"center", padding:60, color:T.muted }}><Ic.Loader /></div>
+      ) : (
+        <>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginBottom:24 }}>
+            {cards.map(({ label, val, color, emoji, sub }) => (
+              <div key={label} style={{ background:T.card, borderRadius:14, padding:"18px 18px 14px", border:`1px solid ${T.borderLight}`, position:"relative", overflow:"hidden" }}>
+                <div style={{ position:"absolute", top:-12, right:-12, width:70, height:70, borderRadius:"50%", background:color+"12", pointerEvents:"none" }} />
+                <div style={{ fontSize:26, marginBottom:8 }}>{emoji}</div>
+                <div style={{ fontSize:34, fontWeight:900, color, lineHeight:1, marginBottom:4 }}>{val.toLocaleString("en-IN")}</div>
+                <div style={{ fontSize:12, fontWeight:700, color:T.mutedLight, marginBottom:2 }}>{label}</div>
+                <div style={{ fontSize:10, color:T.muted }}>{sub}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ background:T.card, borderRadius:14, padding:"18px 20px", border:`1px solid ${T.borderLight}` }}>
+            <div style={{ fontSize:13, fontWeight:800, color:T.text, marginBottom:14 }}>Quick Summary</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+              {[
+                { label:"App Activation Rate", val: data.totalApps > 0 ? Math.round((data.activeApps/data.totalApps)*100) : 0, suffix:"%", color:T.green },
+                { label:"Device Online Rate",  val: data.totalDevices > 0 ? Math.round((data.onlineCount/data.totalDevices)*100) : 0, suffix:"%", color:T.accent },
+                { label:"Avg Messages/Device", val: data.totalDevices > 0 ? Math.round(data.totalMessages/data.totalDevices) : 0, suffix:" msgs", color:T.yellow },
+              ].map(({ label, val, suffix, color }) => (
+                <div key={label} style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                  <span style={{ fontSize:12, color:T.muted }}>{label}</span>
+                  <span style={{ fontSize:14, fontWeight:800, color }}>{val}{suffix}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 
 function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; onLogout: () => void; onPinChanged: (p: string) => void }) {
   const [tab, setTab] = useState<Tab>(() => {
@@ -2417,6 +2481,8 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [pingTotal, setPingTotal] = useState(0);
   const [pingResult, setPingResult] = useState<{ ok: number; fail: number } | null>(null);
   const [onlineCount, setOnlineCount] = useState(0);
+  type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
+  const [statsData, setStatsData] = useState<StatsData | null>(null);
   const [syncTick, setSyncTick] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [jumpDeviceId, setJumpDeviceId] = useState<string | null>(null);
@@ -2443,8 +2509,9 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     try {
       const r = await apiFetch("/api/master/stats", { headers: { "x-master-pin": masterPin } });
       if (r.ok) {
-        const d = await r.json() as { onlineCount: number; totalDevices: number };
+        const d = await r.json() as { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number };
         setOnlineCount(d.onlineCount);
+        setStatsData({ ...d, fetchedAt: new Date().toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:true }) });
       }
     } catch { /* ignore */ }
   }, [masterPin]);
@@ -2598,6 +2665,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     { id: "groups",   label: "Groups"   },
     { id: "devices",  label: "Devices"  },
     { id: "settings", label: "Settings" },
+    { id: "stats",    label: "📊 Stats"  },
   ];
 
   return (
@@ -2755,6 +2823,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
         <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
+        {tab === "stats" && <StatsTab data={statsData} onRefresh={() => void fetchStats()} />}
       </div>
 
       {/* Create App Password Gate */}
