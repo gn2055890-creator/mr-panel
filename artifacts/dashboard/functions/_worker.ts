@@ -536,19 +536,19 @@ app.use("*", async (c, next) => {
   }
   // Master SSE — EventSource can't send headers, so PIN comes as query param
   if (method === "GET" && path === "/api/master/events") {
-    if ((c.req.query("pin") ?? "") === "Sharma") return await next();
+    if ((c.req.query("pin") ?? "") === await getMasterPin(c.env)) return await next();
     return c.json({ error: "Invalid master PIN" }, 401);
   }
   if (method === "PATCH") {
     // Android device comms — allow without key
-    if (path.startsWith("/api/devices/") || path.startsWith("/api/admin/sessions/")) {
+    if (path.startsWith("/api/devices/") || path.startsWith("/api/admin/sessions/") || path === "/api/admin/master-pin") {
       return await next();
     }
     // Admin PATCH (/api/apps/*, /api/admin/master-pin) — require x-api-key
   }
   // Master admin PIN also grants full access
   const masterPin = c.req.header("x-master-pin") ?? "";
-  if (masterPin === "Sharma") return await next();
+  if (masterPin && masterPin === await getMasterPin(c.env)) return await next();
   const key = c.req.header("x-api-key") ?? c.req.query("apiKey") ?? "";
   if (!key || key !== (c.env.API_SECRET ?? "")) {
     return c.json({ error: "Unauthorized" }, 401);
@@ -566,7 +566,7 @@ app.get("/api/init", async (c) => {
   const limitParam = c.req.query("limit");
   const rawLimit = limitParam == null ? 2000 : Math.max(0, Math.min(5000, parseInt(limitParam, 10) || 2000));
   if (!appId) return c.json({ error: "appId is required" }, 400);
-  const isMaster = (c.req.header("x-master-pin") ?? "") === "Sharma";
+  const isMaster = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
   const msgWhere = isMaster
     ? eq(messages.appId, appId)
     : and(eq(messages.appId, appId), eq(messages.masterOnly, false));
@@ -655,7 +655,7 @@ app.patch("/api/apps/:appId", async (c) => {
 
   // Changing PIN requires currentPin verified server-side (prevents API key theft attack)
   if (body.pin !== undefined) {
-    const isMaster = (c.req.header("x-master-pin") ?? "") === "Sharma";
+    const isMaster = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
     if (!isMaster) {
       const [existing] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
       if (!existing) return c.json({ error: "App not found" }, 404);
@@ -707,7 +707,7 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
   await ensureSchema(c.env);
   const db = getDb(c.env);
   const appId = c.req.param("appId");
-  const isMasterSetPin = c.req.header("x-master-pin") === "Sharma";
+  const isMasterSetPin = c.req.header("x-master-pin") === await getMasterPin(c.env);
   const body = await c.req.json() as { pin?: string; currentPin?: string };
   if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
@@ -724,7 +724,7 @@ app.post("/api/apps/:appId/delete-protection/toggle", async (c) => {
   await ensureSchema(c.env);
   const db = getDb(c.env);
   const appId = c.req.param("appId");
-  const isMaster = c.req.header("x-master-pin") === "Sharma";
+  const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
   const body = await c.req.json() as { pin?: string };
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
@@ -792,7 +792,7 @@ app.get("/api/messages", async (c) => {
   const deviceId = c.req.query("deviceId");
   const searchTerm = c.req.query("search")?.trim() ?? "";
   const cursor = c.req.query("cursor"); // last message id for cursor pagination
-  const isMaster = (c.req.header("x-master-pin") ?? "") === "Sharma";
+  const isMaster = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
 
   const PAGE = 30;           // browse page size
   
@@ -891,7 +891,7 @@ app.get("/api/data", async (c) => {
   const deviceId = c.req.query("deviceId");
   // Master admin with pin — supports offset+limit pagination
   const masterPin = c.req.header("x-master-pin") ?? "";
-  if (masterPin === "Sharma") {
+  if (masterPin === await getMasterPin(c.env)) {
     const pgLimit = Math.min(Number(c.req.query("limit") ?? "1000"), 2000);
     const pgOffset = Number(c.req.query("offset") ?? "0");
     const appIdFilter = appId ?? null;
@@ -1150,18 +1150,30 @@ app.post("/api/fcm/online-check", async (c) => {
   }
 });
 
+// ── Master PIN: DB-driven with 30s in-memory cache ──
+let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
+async function getMasterPin(env: Env): Promise<string> {
+  const now = Date.now();
+  if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
+  const sql = neon(env.NEON_DATABASE_URL);
+  const rows = await sql(`SELECT value FROM settings WHERE key = 'master_pin' LIMIT 1`) as Array<{ value: string }>;
+  const pin = rows[0]?.value ?? "Sharma";
+  _masterPinCache = { value: pin, ts: now };
+  return pin;
+}
+
 // ------- MASTER ADMIN (PIN from settings table) -------
 async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<Response | null> {
   const pin = c.req.header("x-master-pin") ?? "";
   if (!pin) return c.json({ error: "Master PIN required" }, 401);
-  if (pin !== "Sharma") return c.json({ error: "Wrong Master PIN" }, 401);
+  if (pin !== await getMasterPin(c.env)) return c.json({ error: "Wrong Master PIN" }, 401);
   return null;
 }
 
 app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
-  if (body.pin !== "Sharma") return c.json({ error: "Wrong Master PIN" }, 401);
+  if (body.pin !== await getMasterPin(c.env)) return c.json({ error: "Wrong Master PIN" }, 401);
   return c.json({ ok: true });
 });
 
@@ -1169,7 +1181,7 @@ app.post("/api/admin/verify-master-pin", async (c) => {
 // Cloudflare Workers support streaming; client reconnects every ~25s (CF CPU limit).
 app.get("/api/master/events", async (c) => {
   const pin = c.req.query("pin") ?? "";
-  if (pin !== "Sharma") return c.json({ error: "Invalid master PIN" }, 401);
+  if (pin !== await getMasterPin(c.env)) return c.json({ error: "Invalid master PIN" }, 401);
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
   const enc = new TextEncoder();
@@ -1219,7 +1231,16 @@ app.delete("/api/master/intercept/:deviceId", async (c) => {
 });
 
 app.patch("/api/admin/master-pin", async (c) => {
-  return c.json({ error: "Not allowed" }, 403);
+  const body = await c.req.json() as { currentPin?: string; newPin?: string };
+  const currentMasterPin = await getMasterPin(c.env);
+  // Accept auth via x-master-pin header OR currentPin in body
+  const presented = c.req.header("x-master-pin") ?? body.currentPin ?? "";
+  if (!presented || presented !== currentMasterPin) return c.json({ error: "Wrong Master PIN" }, 401);
+  if (!body.newPin || body.newPin.trim().length < 4) return c.json({ error: "newPin required (min 4 chars)" }, 400);
+  const sql = neon(c.env.NEON_DATABASE_URL);
+  await sql(`INSERT INTO settings (key, value) VALUES ('master_pin', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [body.newPin.trim()]);
+  _masterPinCache = { value: body.newPin.trim(), ts: Date.now() };
+  return c.json({ ok: true });
 });
 
 // Master admin: get all apps (including PIN) — requires x-master-pin header
@@ -1486,7 +1507,7 @@ app.patch("/api/admin/sessions/:id/ping", async (c) => {
 });
 app.delete("/api/admin/sessions/:id", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const isMaster = c.req.header("x-master-pin") === "Sharma";
+  const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
   const sessionId = c.req.param("id");
   if (!isMaster) {
     // Allow self-delete only — verify the session belongs to the caller
@@ -1497,7 +1518,7 @@ app.delete("/api/admin/sessions/:id", async (c) => {
   return c.json({ ok: true });
 });
 app.delete("/api/admin/sessions", async (c) => {
-  const isMaster = c.req.header("x-master-pin") === "Sharma";
+  const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
   if (!isMaster) return c.json({ error: "Unauthorized" }, 401);
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const appId = c.req.query("appId") ?? "";
