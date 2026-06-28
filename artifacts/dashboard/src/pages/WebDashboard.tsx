@@ -2875,6 +2875,19 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
   const [newPin, setNewPin] = useState("");
   const [newPin2, setNewPin2] = useState("");
   const [msg, setMsg] = useState("");
+  const [lockSecs, setLockSecs] = useState(0);
+
+  // Live countdown timer when locked
+  useEffect(() => {
+    if (lockSecs <= 0) return;
+    const t = setInterval(() => {
+      setLockSecs(prev => {
+        if (prev <= 1) { clearInterval(t); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [lockSecs > 0]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -2888,11 +2901,18 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         const apiErr = (j as { error?: string }).error ?? "";
-        // Show exact API message (includes lockout countdown, attempts left, etc.)
+        if (r.status === 429) {
+          // Parse seconds from "Try again in X sec." or "Locked for 2 min."
+          const secMatch = apiErr.match(/(\d+)\s*sec/);
+          const minMatch = apiErr.match(/(\d+)\s*min/);
+          const secs = secMatch ? parseInt(secMatch[1]) : minMatch ? parseInt(minMatch[1]) * 60 : 120;
+          setLockSecs(secs);
+          setErr("");
+          setPin(""); return;
+        }
         setErr(
           apiErr.includes("expired") || apiErr.includes("Licence") ? "Login restricted. Please contact admin." :
           apiErr.includes("disabled") ? "Login restricted. Please contact admin." :
-          apiErr.includes("Too many") ? apiErr :
           apiErr.includes("attempt") ? apiErr :
           "Wrong PIN. Try again."
         );
@@ -3031,13 +3051,28 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
                   placeholder="Enter PIN" autoFocus style={inputStyle}
                 />
               </div>
-              {err && <div style={{ color: "#f87171", fontSize: 12, textAlign: "center", fontWeight: 600 }}>{err}</div>}
+              {lockSecs > 0 && (
+                <div style={{ background: "#1c1c1e", border: "1.5px solid #ef4444", borderRadius: 10, padding: "12px 16px", textAlign: "center" }}>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#ef4444", letterSpacing: 2 }}>
+                    🔒 {String(Math.floor(lockSecs / 60)).padStart(2, "0")}:{String(lockSecs % 60).padStart(2, "0")}
+                  </div>
+                  <div style={{ color: "#f87171", fontSize: 12, marginTop: 4, fontWeight: 600 }}>
+                    Too many wrong attempts — account locked
+                  </div>
+                  <div style={{ color: "#9ca3af", fontSize: 11, marginTop: 2 }}>
+                    Try again after countdown ends
+                  </div>
+                </div>
+              )}
+              {lockSecs === 0 && err && <div style={{ color: "#f87171", fontSize: 12, textAlign: "center", fontWeight: 600 }}>{err}</div>}
               {msg && <div style={{ color: "#4ade80", fontSize: 12, textAlign: "center", fontWeight: 600 }}>{msg}</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                <button type="submit" style={{
-                  flex: 1, background: isZT ? "#1d4ed8" : t.accent, color: "#fff", border: "none",
-                  borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                }}>Sign In</button>
+                <button type="submit" disabled={loading || lockSecs > 0} style={{
+                  flex: 1, background: lockSecs > 0 ? "#374151" : isZT ? "#1d4ed8" : t.accent,
+                  color: lockSecs > 0 ? "#6b7280" : "#fff", border: "none",
+                  borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 700,
+                  cursor: lockSecs > 0 ? "not-allowed" : "pointer",
+                }}>{lockSecs > 0 ? `Locked (${String(Math.floor(lockSecs/60)).padStart(2,"0")}:${String(lockSecs%60).padStart(2,"0")})` : "Sign In"}</button>
                 <button type="button" onClick={() => { setMode("change"); setErr(""); setMsg(""); }} style={{
                   flex: 1, background: "transparent", color: isZT ? "#1d4ed8" : "#94a3b8", border: isZT ? "1.5px solid #bfdbfe" : "1.5px solid #334155",
                   borderRadius: 10, padding: "13px", fontSize: 14, fontWeight: 600, cursor: "pointer",
