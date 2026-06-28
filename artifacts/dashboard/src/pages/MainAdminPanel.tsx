@@ -249,7 +249,6 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
 
 /* ── Change Master PIN Modal ── */
 function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; onClose: () => void; onChanged: (p: string) => void }) {
-  const [currentPin, setCurrentPin] = useState(masterPin);
   const [newPin, setNewPin] = useState(""); const [newPin2, setNewPin2] = useState("");
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
   async function handleSubmit(e: React.FormEvent) {
@@ -258,7 +257,7 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
     if (newPin !== newPin2) { setErr("PINs do not match"); return; }
     setErr(""); setLoading(true);
     try {
-      const r = await apiFetch("/api/admin/master-pin", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPin, newPin }) });
+      const r = await apiFetch("/api/admin/master-pin", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPin: masterPin, newPin }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onChanged(newPin);
     } catch { setErr("Network error"); } finally { setLoading(false); }
@@ -267,7 +266,7 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
     <Modal onClose={onClose} maxWidth={380}>
       <ModalHeader title="Change Master PIN" icon={<Ic.Key />} onClose={onClose} />
       <form onSubmit={handleSubmit}>
-        {[{ label: "Current PIN", val: currentPin, set: setCurrentPin }, { label: "New PIN", val: newPin, set: setNewPin }, { label: "Confirm New PIN", val: newPin2, set: setNewPin2 }].map(({ label, val, set }) => (
+        {[{ label: "New PIN", val: newPin, set: setNewPin }, { label: "Confirm New PIN", val: newPin2, set: setNewPin2 }].map(({ label, val, set }) => (
           <div key={label} style={{ marginBottom: 12 }}><FieldLabel>{label}</FieldLabel><input type="password" value={val} onChange={e => set(e.target.value)} style={inpBase} /></div>
         ))}
         {err && <ErrBanner msg={err} />}
@@ -276,6 +275,48 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
           <button type="submit" disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Saving…" : "Change PIN"}</button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/* ── View Master PIN Modal ── */
+function ViewPinModal({ masterPin, onClose }: { masterPin: string; onClose: () => void }) {
+  const [pass, setPass] = useState(""); const [revealed, setRevealed] = useState(false);
+  const [err, setErr] = useState(""); const [showRevealed, setShowRevealed] = useState(false);
+  const HARDCODED = "vicky";
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (pass === HARDCODED) { setRevealed(true); setErr(""); }
+    else { setErr("Galat password. Dobara try karo."); setPass(""); }
+  }
+  return (
+    <Modal onClose={onClose} maxWidth={360}>
+      <ModalHeader title="View Master PIN" icon={<Ic.Eye />} onClose={onClose} />
+      {!revealed ? (
+        <form onSubmit={handleSubmit}>
+          <p style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Master PIN dekhne ke liye password enter karo.</p>
+          <FieldLabel>Password</FieldLabel>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Password enter karo" autoFocus style={inpBase} />
+          {err && <ErrBanner msg={err} />}
+          <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={!pass} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: pass ? "linear-gradient(135deg,#5254d4,#7c3aed)" : T.borderLight, border: "none", color: pass ? "#fff" : T.muted, fontWeight: 700, cursor: pass ? "pointer" : "default", fontSize: 13 }}>Dekho</button>
+          </div>
+        </form>
+      ) : (
+        <div>
+          <p style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Yeh hai aapka current Master PIN:</p>
+          <div style={{ background: T.bg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 800, color: T.accentLight, letterSpacing: 4 }}>
+              {showRevealed ? masterPin : "•".repeat(masterPin.length)}
+            </span>
+            <button type="button" onClick={() => setShowRevealed(v => !v)} style={{ background: "none", border: "none", color: showRevealed ? T.accentLight : T.muted, cursor: "pointer", display: "flex", alignItems: "center", padding: 4 }}>
+              {showRevealed ? <Ic.EyeOff /> : <Ic.Eye />}
+            </button>
+          </div>
+          <button onClick={onClose} style={{ width: "100%", marginTop: 18, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Close</button>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -2292,6 +2333,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [deleteGateError, setDeleteGateError] = useState("");
   const [deleteGateShow, setDeleteGateShow] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
+  const [showViewPin, setShowViewPin] = useState(false);
   const [editApp, setEditApp] = useState<App | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -2552,6 +2594,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
             <Ic.Wifi /> <span className="ma-hide-mob">{pingBusy ? `${pingDone}/${pingTotal}…` : "Ping All"}</span>
           </button>
           {/* PIN + Logout */}
+          <button onClick={() => setShowViewPin(true)} title="View Master PIN" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Eye /></button>
           <button onClick={() => setShowChangePin(true)} title="Change PIN" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Key /></button>
           <button onClick={onLogout} title="Logout" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#f87171", flexShrink: 0 }}><Ic.LogOut /></button>
         </div>
@@ -2712,6 +2755,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
 
       {/* Modals */}
       {showCreate && <CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={a => { setAppList(prev => [a, ...prev]); setShowCreate(false); }} />}
+      {showViewPin && <ViewPinModal masterPin={masterPin} onClose={() => setShowViewPin(false)} />}
       {showChangePin && <ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />}
       {editApp && <EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />}
       {renewConfirmApp && <RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />}
