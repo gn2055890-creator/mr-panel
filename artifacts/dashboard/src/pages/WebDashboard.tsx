@@ -2917,7 +2917,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
       if (newPin !== newPin2) { setErr("PINs do not match."); return; }
       await apiFetch(`/api/apps/${appId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: newPin }),
+        body: JSON.stringify({ pin: newPin, currentPin: oldPin }),
       });
       setMsg("PIN changed! Please log in.");
       setMode("login");
@@ -3117,7 +3117,6 @@ export default function WebDashboard() {
   // 2 consecutive 404s required to ignore transient network errors.
   useEffect(() => {
     if (!authed) return;
-    if (new URLSearchParams(window.location.search).get("autoAuth") === "1") return;
     let misses = 0;
     async function pingSession() {
       const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
