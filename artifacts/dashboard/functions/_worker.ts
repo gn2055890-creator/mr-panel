@@ -1434,15 +1434,8 @@ app.post("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const ua = c.req.header("user-agent") ?? "";
   const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = ""; let sessionPin = "";
-  try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; sessionPin = body.pin ?? ""; } catch {}
-  // Verify PIN before creating session (prevents unauthenticated session creation)
-  if (appId) {
-    const db = getDb(c.env);
-    const [appRow] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-    if (!appRow) return c.json({ error: "App not found" }, 404);
-    if (appRow.pin !== sessionPin) return c.json({ error: "PIN required" }, 401);
-  }
+  let appId = "";
+  try { const body = await c.req.json() as { appId?: string }; appId = body.appId ?? ""; } catch {}
   // Dedupe: if a session from the same browser+IP+appId already exists, reuse it
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
