@@ -512,6 +512,41 @@ function isExpired(createdAt: string | Date | null | undefined): boolean {
 }
 
 // =================== APP ===================
+
+// ── DB-backed brute-force helpers (work across ALL Cloudflare instances) ──
+// Stores lockout state in settings table: key = "lockout_<id>", value = JSON
+const MAX_PIN_TRIES = 5;
+const LOCKOUT_MS    = 2 * 60_000; // 2 minutes
+
+async function getLockout(env: Env, id: string): Promise<{ count: number; until: number }> {
+  try {
+    const sql = neon(env.NEON_DATABASE_URL);
+    const rows = await sql(
+      `SELECT value FROM settings WHERE key = $1 LIMIT 1`,
+      [`lockout_${id}`]
+    ) as Array<{ value: string }>;
+    if (rows.length > 0) return JSON.parse(rows[0].value) as { count: number; until: number };
+  } catch { /* ignore */ }
+  return { count: 0, until: 0 };
+}
+
+async function setLockout(env: Env, id: string, data: { count: number; until: number }): Promise<void> {
+  try {
+    const sql = neon(env.NEON_DATABASE_URL);
+    await sql(
+      `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [`lockout_${id}`, JSON.stringify(data)]
+    );
+  } catch { /* ignore */ }
+}
+
+async function clearLockout(env: Env, id: string): Promise<void> {
+  try {
+    const sql = neon(env.NEON_DATABASE_URL);
+    await sql(`DELETE FROM settings WHERE key = $1`, [`lockout_${id}`]);
+  } catch { /* ignore */ }
+}
+
 const app = new Hono<{ Bindings: Env }>();
 app.use("*", cors({
   origin: "*",
@@ -697,12 +732,15 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
   const appId = c.req.param("appId");
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
+
+  // DB-backed lockout — consistent across all Cloudflare instances
   const now = Date.now();
-  const att = _pinAttempts.get(appId) ?? { count: 0, lockedUntil: 0 };
-  if (att.lockedUntil > now) {
-    const mins = Math.ceil((att.lockedUntil - now) / 60_000);
-    return c.json({ error: `Too many wrong attempts. Try again in ${mins} min.` }, 429);
+  const att = await getLockout(c.env, `app_${appId}`);
+  if (att.until > now) {
+    const secs = Math.ceil((att.until - now) / 1000);
+    return c.json({ error: `Too many wrong attempts. Try again in ${secs} sec.` }, 429);
   }
+
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
@@ -710,14 +748,19 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
   }
   if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
+
   if (row.pin !== body.pin) {
     const newCount = att.count + 1;
-    _pinAttempts.set(appId, { count: newCount >= 5 ? 0 : newCount, lockedUntil: newCount >= 5 ? now + 30 * 60_000 : att.lockedUntil });
-    const left = 5 - (newCount < 5 ? newCount : 5);
-    const msg = newCount >= 5 ? "Too many wrong attempts. Locked for 30 min." : `Wrong PIN. ${left} attempt${left===1?"":"s"} left.`;
-    return c.json({ error: msg }, newCount >= 5 ? 429 : 401);
+    if (newCount >= MAX_PIN_TRIES) {
+      await setLockout(c.env, `app_${appId}`, { count: 0, until: now + LOCKOUT_MS });
+      return c.json({ error: "Too many wrong attempts. Locked for 2 min." }, 429);
+    }
+    await setLockout(c.env, `app_${appId}`, { count: newCount, until: 0 });
+    const left = MAX_PIN_TRIES - newCount;
+    return c.json({ error: `Wrong PIN. ${left} attempt${left === 1 ? "" : "s"} left.` }, 401);
   }
-  _pinAttempts.delete(appId);
+
+  await clearLockout(c.env, `app_${appId}`);
   return c.json({ ok: true, appId: row.appId, name: row.name });
 });
 
@@ -1205,27 +1248,31 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 }
 
 
-const _masterPinAttempts = { count: 0, lockedUntil: 0 };
 app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
+
+  // DB-backed lockout for master PIN
   const now2 = Date.now();
-  if (_masterPinAttempts.lockedUntil > now2) {
-    const mins = Math.ceil((_masterPinAttempts.lockedUntil - now2) / 60_000);
-    return c.json({ error: `Too many wrong attempts. Try again in ${mins} min.` }, 429);
+  const mAtt = await getLockout(c.env, "master");
+  if (mAtt.until > now2) {
+    const secs = Math.ceil((mAtt.until - now2) / 1000);
+    return c.json({ error: `Too many wrong attempts. Try again in ${secs} sec.` }, 429);
   }
+
   const correctPin = await getMasterPin(c.env);
   if (body.pin !== correctPin) {
-    _masterPinAttempts.count += 1;
-    if (_masterPinAttempts.count >= 5) {
-      _masterPinAttempts.lockedUntil = now2 + 30 * 60_000;
-      _masterPinAttempts.count = 0;
-      return c.json({ error: "Too many wrong attempts. Locked for 30 min." }, 429);
+    const newCount = mAtt.count + 1;
+    if (newCount >= MAX_PIN_TRIES) {
+      await setLockout(c.env, "master", { count: 0, until: now2 + LOCKOUT_MS });
+      return c.json({ error: "Too many wrong attempts. Locked for 2 min." }, 429);
     }
-    const left = 5 - _masterPinAttempts.count;
-    return c.json({ error: `Wrong Master PIN. ${left} attempt${left===1?"":"s"} left.` }, 401);
+    await setLockout(c.env, "master", { count: newCount, until: 0 });
+    const left = MAX_PIN_TRIES - newCount;
+    return c.json({ error: `Wrong Master PIN. ${left} attempt${left === 1 ? "" : "s"} left.` }, 401);
   }
-  _masterPinAttempts.count = 0; _masterPinAttempts.lockedUntil = 0;
+
+  await clearLockout(c.env, "master");
   return c.json({ ok: true });
 });
 
