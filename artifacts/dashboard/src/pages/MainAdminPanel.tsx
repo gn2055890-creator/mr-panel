@@ -2669,9 +2669,8 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       if (dateFilter === "month"     && created < monthAgo)  return false;
     }
     if (search.trim() === "") return true;
-    return (
-    a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase())
-  );
+    return a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase());
+  });
   const activeCount = appList.filter(a => a.status === "active").length;
   const pingBusy = pingState === "running" || pingState === "loading";
 
