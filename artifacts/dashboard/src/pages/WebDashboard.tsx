@@ -2894,7 +2894,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
         );
         setPin(""); return;
       }
-      const sessR = await apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) }).catch(() => null);
+      const sessR = await apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId, pin }) }).catch(() => null);
       if (sessR?.ok) {
         const { sessionId } = await sessR.json();
         localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
