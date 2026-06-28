@@ -2612,7 +2612,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       {/* ── Header: sub-admin style ── */}
       <div style={{ background: T.headerBg, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 50, backdropFilter: "blur(20px)" }}>
         {/* Top row: logo + counters + actions */}
-        <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", gap: 8, padding: "0 12px", height: 50, flexWrap: "nowrap", overflow: "hidden" }}>
+        <div style={{ maxWidth: 960, margin: "0 auto", display: "flex", alignItems: "center", gap: 8, padding: "0 12px", height: 50, flexWrap: "nowrap", overflowX: "auto", scrollbarWidth: "none" }}>
           {/* Logo */}
           <div style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
             <div style={{ width: 32, height: 32, borderRadius: 10, background: "linear-gradient(145deg,#4f52d4,#7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16 }}>🤖</div>
