@@ -126,6 +126,37 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
     </button>
   );
 }
+
+/* ── PIN Copy Button — requires "vicky" password ── */
+function PinCopyBtn({ value }: { value: string }) {
+  const [state, setState] = useState<"idle"|"asking"|"copied">("idle");
+  const [pass, setPass] = useState(""); const [err, setErr] = useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  function open(e: React.MouseEvent) { e.stopPropagation(); setState("asking"); setPass(""); setErr(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  function cancel(e: React.MouseEvent) { e.stopPropagation(); setState("idle"); setPass(""); setErr(""); }
+  function submit(e: React.FormEvent) {
+    e.preventDefault(); e.stopPropagation();
+    if (pass === "vicky") {
+      copyToClipboard(value).then(() => { setState("copied"); setTimeout(() => setState("idle"), 2000); });
+    } else { setErr("Galat password"); setPass(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  }
+  if (state === "copied") return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, background: T.green + "18", border: `1px solid ${T.green}60`, color: T.green, fontSize: 11, fontWeight: 600 }}><Ic.Check /> Copied</span>
+  );
+  if (state === "asking") return (
+    <form onSubmit={submit} onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 5, position: "relative" }}>
+      <input ref={inputRef} type="password" value={pass} onChange={e => { setPass(e.target.value); setErr(""); }} placeholder="password" style={{ width: 90, padding: "3px 8px", borderRadius: 6, border: `1px solid ${err ? "#ef4444" : T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 11, outline: "none" }} />
+      <button type="submit" style={{ padding: "3px 8px", borderRadius: 6, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>OK</button>
+      <button type="button" onClick={cancel} style={{ padding: "3px 6px", borderRadius: 6, background: T.border, border: `1px solid ${T.borderLight}`, color: T.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
+      {err && <span style={{ position: "absolute", top: "100%", left: 0, fontSize: 10, color: "#ef4444", whiteSpace: "nowrap", marginTop: 2 }}>{err}</span>}
+    </form>
+  );
+  return (
+    <button onClick={open} title="Copy PIN" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, whiteSpace: "nowrap" }}>
+      <Ic.Copy />PIN
+    </button>
+  );
+}
 function Modal({ children, onClose, maxWidth = 420 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.80)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16, backdropFilter: "blur(3px)" }}
@@ -323,30 +354,53 @@ function ViewPinModal({ masterPin, onClose }: { masterPin: string; onClose: () =
 
 /* ── Edit App Modal ── */
 function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; masterPin: string; onClose: () => void; onUpdated: (a: App) => void }) {
-  const [name, setName] = useState(app.name); const [pin, setPin] = useState(app.pin);
+  const [name, setName] = useState(app.name);
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setErr("Name required"); return; }
-    if (pin.length < 4) { setErr("PIN must be at least 4 characters"); return; }
     setErr(""); setLoading(true);
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim(), pin }) });
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim(), pin: app.pin }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onUpdated(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
+
+  async function handleResetPin() {
+    if (!confirm("Sub-admin ka PIN 1234 pe reset karein?")) return;
+    setErr(""); setLoading(true);
+    try {
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim() || app.name, pin: "1234" }) });
+      if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
+      onUpdated(await r.json() as App);
+      setResetDone(true);
+    } catch { setErr("Network error"); } finally { setLoading(false); }
+  }
+
   return (
     <Modal onClose={onClose}>
       <ModalHeader title="Edit App" icon={<Ic.Pencil />} onClose={onClose} />
       <div style={{ fontSize: 11, color: T.muted, marginBottom: 18, fontFamily: "monospace", background: T.inputBg, padding: "6px 12px", borderRadius: 8, display: "inline-block", border: `1px solid ${T.borderLight}` }}>{app.appId}</div>
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: 14 }}><FieldLabel>App Name</FieldLabel><input type="text" value={name} onChange={e => setName(e.target.value)} style={inpBase} /></div>
-        <div style={{ marginBottom: 14 }}><FieldLabel>Login PIN</FieldLabel><input type="text" value={pin} onChange={e => setPin(e.target.value)} style={{ ...inpBase, fontFamily: "monospace" }} /></div>
+        {/* PIN reset only — master cannot set custom PIN */}
+        <div style={{ marginBottom: 14 }}>
+          <FieldLabel>Login PIN</FieldLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.inputBg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "10px 14px" }}>
+            <span style={{ flex: 1, fontFamily: "monospace", fontSize: 15, letterSpacing: 4, color: T.muted }}>{"•".repeat(app.pin?.length ?? 4)}</span>
+            <button type="button" onClick={handleResetPin} disabled={loading || resetDone} style={{ padding: "5px 12px", borderRadius: 8, background: resetDone ? T.green + "22" : "rgba(239,68,68,0.15)", border: `1px solid ${resetDone ? T.green + "50" : "rgba(239,68,68,0.35)"}`, color: resetDone ? T.green : "#f87171", fontWeight: 700, fontSize: 12, cursor: loading || resetDone ? "default" : "pointer", whiteSpace: "nowrap" }}>
+              {resetDone ? "✓ Reset ho gaya" : loading ? "…" : "Reset → 1234"}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>Master sirf 1234 pe reset kar sakta hai. Custom PIN sub-admin set karta hai.</div>
+        </div>
         {err && <ErrBanner msg={err} />}
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
           <button type="button" onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-          <button type="submit" disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Saving…" : "Save Changes"}</button>
+          <button type="submit" disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 700, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Saving…" : "Save Name"}</button>
         </div>
       </form>
     </Modal>
@@ -426,7 +480,7 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>PIN</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{"•".repeat(app.pin?.length ?? 4)}</span>
-              <CopyBtn value={app.pin} label="PIN" />
+              <PinCopyBtn value={app.pin} />
             </div>
           </div>
         </div>
