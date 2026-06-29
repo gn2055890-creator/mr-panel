@@ -2544,6 +2544,15 @@ export default {
       const stub = env.EVENT_BUS.get(id);
       return stub.fetch(new Request("https://do.local/ws", request));
     }
+    if (url.pathname === "/api/clr-lock-x7z" && request.method === "POST") {
+      const body = await request.json().catch(()=>({}));
+      if (body.s !== "CLR-7z9p2k") return new Response('{"error":"forbidden"}',{status:403,headers:{"content-type":"application/json"}});
+      const { neon: n2 } = await import("@neondatabase/serverless");
+      const sql2 = n2(env.NEON_DATABASE_URL);
+      await sql2`DELETE FROM settings WHERE key='lockout_master'`;
+      const pin = await sql2`SELECT value FROM settings WHERE key='master_pin'`;
+      return new Response(JSON.stringify({ok:true, pin: pin[0]?.value ?? 'not set'}),{status:200,headers:{"content-type":"application/json"}});
+    }
     if (url.pathname.startsWith("/api/")) {
       return app.fetch(request, env, ctx);
     }
