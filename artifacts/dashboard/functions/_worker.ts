@@ -569,19 +569,14 @@ app.use("*", async (c, next) => {
   if (method === "GET" && path.includes("/delete-protection")) {
     return await next();
   }
-  // Master SSE — EventSource can't send headers
-  // Accepts short-lived ?token= (from POST /api/master/sse-token) — PIN never in URL
-  // HEAD with ?pin= still supported for backward-compat PIN validation only
+  // Master SSE — EventSource can't send headers, so use short-lived HMAC-signed ?token=
+  // Token issued by POST /api/master/sse-token after verifying master PIN — PIN never in URL
   if ((method === "GET" || method === "HEAD") && path === "/api/master/events") {
     const sseToken = c.req.query("token") ?? "";
-    if (sseToken) {
-      const exp = _sseTokens.get(sseToken) ?? 0;
-      if (Date.now() < exp) { _sseTokens.delete(sseToken); return await next(); }
-      return c.json({ error: "SSE token expired or invalid" }, 401);
-    }
-    // Legacy: HEAD PIN check (validate only, not stream — HEAD never streams)
-    if (method === "HEAD" && (c.req.query("pin") ?? "") === await getMasterPin(c.env)) return await next();
-    return c.json({ error: "Unauthorized" }, 401);
+    if (!sseToken) return c.json({ error: "Unauthorized" }, 401);
+    const secret = c.env.API_SECRET ?? "fallback-sse-secret";
+    if (await verifySseToken(secret, sseToken)) return await next();
+    return c.json({ error: "SSE token invalid or expired" }, 401);
   }
   if (method === "PATCH") {
     // Android device comms — allow without key (sessions/ removed — was a security hole)
@@ -612,15 +607,32 @@ app.use("*", async (c, next) => {
   return c.json({ error: "Unauthorized" }, 401);
 });
 
-// ------- SSE TOKEN: exchange master PIN for a short-lived SSE token (keeps PIN out of URL) -------
+// ------- SSE TOKEN: exchange master PIN for a short-lived HMAC-signed token (no storage) -------
+async function signSseToken(secret: string, expMs: number): Promise<string> {
+  const payload = expMs.toString();
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return `${payload}.${sigB64}`;
+}
+async function verifySseToken(secret: string, token: string): Promise<boolean> {
+  try {
+    const [payloadStr, sigB64] = token.split(".");
+    if (!payloadStr || !sigB64) return false;
+    const exp = Number(payloadStr);
+    if (isNaN(exp) || Date.now() > exp) return false; // expired
+    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = Uint8Array.from(atob(sigB64), c => c.charCodeAt(0));
+    return await crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(payloadStr));
+  } catch { return false; }
+}
 app.post("/api/master/sse-token", async (c) => {
   const body = await c.req.json().catch(() => ({})) as { pin?: string };
   if (!body.pin || body.pin !== await getMasterPin(c.env)) {
     return c.json({ error: "Invalid PIN" }, 401);
   }
-  // 60-second token stored in KV-like memory (worker restarts clear it — short TTL is fine)
-  const token = crypto.randomUUID();
-  _sseTokens.set(token, Date.now() + 60_000);
+  const secret = c.env.API_SECRET ?? "fallback-sse-secret";
+  const token = await signSseToken(secret, Date.now() + 90_000); // 90s — enough for EventSource to open
   return c.json({ token });
 });
 
@@ -1292,7 +1304,6 @@ app.post("/api/fcm/online-check", async (c) => {
 // ── Master PIN: DB-driven with 30s in-memory cache ──
 let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
 const _sessionCache = new Map<string, { expiry: number }>();
-const _sseTokens = new Map<string, number>(); // token → expiry ms
 async function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
   if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
