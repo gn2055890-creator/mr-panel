@@ -598,7 +598,7 @@ app.use("*", async (c, next) => {
   // Master admin PIN also grants full access
   const masterPin = c.req.header("x-master-pin") ?? "";
   if (masterPin && masterPin === await getMasterPin(c.env)) return await next();
-  const key = c.req.header("x-api-key") ?? c.req.query("apiKey") ?? "";
+  const key = c.req.header("x-api-key") ?? ""; // apiKey query param removed (URLs are logged/leaked)
   if (!key || key !== (c.env.API_SECRET ?? "")) {
     return c.json({ error: "Unauthorized" }, 401);
   }
