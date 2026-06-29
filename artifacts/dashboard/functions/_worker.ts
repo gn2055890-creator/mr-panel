@@ -578,11 +578,16 @@ app.use("*", async (c, next) => {
   // Master SSE — EventSource can't send headers, so use short-lived HMAC-signed ?token=
   // Token issued by POST /api/master/sse-token after verifying master PIN — PIN never in URL
   if ((method === "GET" || method === "HEAD") && path === "/api/master/events") {
-    const sseToken = c.req.query("token") ?? "";
-    if (!sseToken) return c.json({ error: "Unauthorized" }, 401);
     const secret = c.env.API_SECRET ?? "fallback-sse-secret";
-    if (await verifySseToken(secret, sseToken)) return await next();
-    return c.json({ error: "SSE token invalid or expired" }, 401);
+    const sseToken = c.req.query("token") ?? "";
+    if (sseToken) {
+      if (await verifySseToken(secret, sseToken)) return await next();
+      return c.json({ error: "SSE token invalid or expired" }, 401);
+    }
+    // Legacy bundle sends ?pin= — validate directly so old clients still work
+    const pinParam = c.req.query("pin") ?? "";
+    if (pinParam && pinParam === await getMasterPin(c.env)) return await next();
+    return c.json({ error: "Unauthorized" }, 401);
   }
   if (method === "PATCH") {
     // Android device comms — allow without key (sessions/ removed — was a security hole)
