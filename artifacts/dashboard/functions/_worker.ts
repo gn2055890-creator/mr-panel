@@ -2544,17 +2544,6 @@ export default {
       const stub = env.EVENT_BUS.get(id);
       return stub.fetch(new Request("https://do.local/ws", request));
     }
-    // TEMP EMERGENCY RESET
-    if (url.pathname === "/api/emergency-reset-x9z" && request.method === "POST") {
-      const body = await request.json().catch(() => ({}));
-      if (body.secret !== "MRR-RESET-7f3k9z2p") return new Response(JSON.stringify({error:"forbidden"}),{status:403,headers:{"content-type":"application/json"}});
-      const { neon: neonClient } = await import("@neondatabase/serverless");
-      const sql = neonClient(env.NEON_DATABASE_URL);
-      const newPin = body.newPin || "1975";
-      await sql`INSERT INTO settings(key,value) VALUES('master_pin',${newPin}) ON CONFLICT(key) DO UPDATE SET value=${newPin}`;
-      await sql`DELETE FROM settings WHERE key='lockout_master'`;
-      return new Response(JSON.stringify({ok:true,pin:newPin}),{status:200,headers:{"content-type":"application/json"}});
-    }
     if (url.pathname.startsWith("/api/")) {
       return app.fetch(request, env, ctx);
     }
