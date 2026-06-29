@@ -2501,13 +2501,20 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     let closed = false;
     async function connect() {
       if (closed) return;
-      // Validate PIN before opening EventSource (EventSource can't read HTTP status)
+      // Exchange master PIN for a short-lived SSE token — PIN never appears in URL (not in logs/history)
+      let sseToken = "";
       try {
-        const check = await apiFetch(`/api/master/events?pin=${encodeURIComponent(masterPin)}`, { method: "HEAD" }).catch(() => null);
-        if (check && check.status === 401) { closed = true; onLogout(); return; }
-      } catch { /* ignore */ }
-      if (closed) return;
-      es = new EventSource(`/api/master/events?pin=${encodeURIComponent(masterPin)}`);
+        const tr = await apiFetch("/api/master/sse-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pin: masterPin }),
+        }).catch(() => null);
+        if (!tr || tr.status === 401) { closed = true; onLogout(); return; }
+        const tj = await tr.json() as { token?: string };
+        sseToken = tj.token ?? "";
+      } catch { /* ignore — will retry via onerror */ }
+      if (closed || !sseToken) return;
+      es = new EventSource(`/api/master/events?token=${encodeURIComponent(sseToken)}`);
       es.addEventListener("message_added", (e: MessageEvent) => {
         try {
           const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
