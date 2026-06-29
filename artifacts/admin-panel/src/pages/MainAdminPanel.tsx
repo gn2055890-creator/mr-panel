@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 
-// API key removed — x-api-key was in JS bundle (extractable via browser DevTools)
+const _API_KEY = import.meta.env.VITE_API_SECRET ?? "";
 function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
   const h = new Headers(opts.headers);
-  // x-api-key removed from frontend — master PIN sent per-request
+  if (_API_KEY) h.set("x-api-key", _API_KEY);
   return fetch(url, { ...opts, headers: h });
 }
 
@@ -127,18 +127,32 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
   );
 }
 
-/* ── PIN Copy Button — direct copy, no password ── */
+/* ── PIN Copy Button — requires "vicky" password ── */
 function PinCopyBtn({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  function handleClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    copyToClipboard(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  const [state, setState] = useState<"idle"|"asking"|"copied">("idle");
+  const [pass, setPass] = useState(""); const [err, setErr] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  function open(e: React.MouseEvent) { e.stopPropagation(); setState("asking"); setPass(""); setErr(""); setTimeout(() => inputRef.current?.focus(), 50); }
+  function cancel(e: React.MouseEvent) { e.stopPropagation(); setState("idle"); setPass(""); setErr(""); }
+  function submit(e: React.FormEvent) {
+    e.preventDefault(); e.stopPropagation();
+    if (pass === "vicky") {
+      copyToClipboard(value).then(() => { setState("copied"); setTimeout(() => setState("idle"), 2000); });
+    } else { setErr("Galat password"); setPass(""); setTimeout(() => inputRef.current?.focus(), 50); }
   }
-  if (copied) return (
+  if (state === "copied") return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, background: T.green + "18", border: `1px solid ${T.green}60`, color: T.green, fontSize: 11, fontWeight: 600 }}><Ic.Check /> Copied</span>
   );
+  if (state === "asking") return (
+    <form onSubmit={submit} onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center", gap: 5, position: "relative" }}>
+      <input ref={inputRef} type="password" value={pass} onChange={e => { setPass(e.target.value); setErr(""); }} placeholder="password" style={{ width: 90, padding: "3px 8px", borderRadius: 6, border: `1px solid ${err ? "#ef4444" : T.borderLight}`, background: T.inputBg, color: T.text, fontSize: 11, outline: "none" }} />
+      <button type="submit" style={{ padding: "3px 8px", borderRadius: 6, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>OK</button>
+      <button type="button" onClick={cancel} style={{ padding: "3px 6px", borderRadius: 6, background: T.border, border: `1px solid ${T.borderLight}`, color: T.muted, fontSize: 11, cursor: "pointer" }}>✕</button>
+      {err && <span style={{ position: "absolute", top: "100%", left: 0, fontSize: 10, color: "#ef4444", whiteSpace: "nowrap", marginTop: 2 }}>{err}</span>}
+    </form>
+  );
   return (
-    <button onClick={handleClick} title="Copy PIN" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, whiteSpace: "nowrap" }}>
+    <button onClick={open} title="Copy PIN" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 11, fontWeight: 600, gap: 5, whiteSpace: "nowrap" }}>
       <Ic.Copy />PIN
     </button>
   );
@@ -296,22 +310,44 @@ function ChangePinModal({ masterPin, onClose, onChanged }: { masterPin: string; 
   );
 }
 
-/* ── View Master PIN Modal — direct, no password ── */
+/* ── View Master PIN Modal ── */
 function ViewPinModal({ masterPin, onClose }: { masterPin: string; onClose: () => void }) {
-  const [showRevealed, setShowRevealed] = useState(false);
+  const [pass, setPass] = useState(""); const [revealed, setRevealed] = useState(false);
+  const [err, setErr] = useState(""); const [showRevealed, setShowRevealed] = useState(false);
+  const HARDCODED = "vicky";
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (pass === HARDCODED) { setRevealed(true); setErr(""); }
+    else { setErr("Galat password. Dobara try karo."); setPass(""); }
+  }
   return (
     <Modal onClose={onClose} maxWidth={360}>
       <ModalHeader title="View Master PIN" icon={<Ic.Eye />} onClose={onClose} />
-      <p style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Current Master PIN:</p>
-      <div style={{ background: T.bg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <span style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 800, color: T.accentLight, letterSpacing: 4 }}>
-          {showRevealed ? masterPin : "•".repeat(masterPin.length)}
-        </span>
-        <button type="button" onClick={() => setShowRevealed(v => !v)} style={{ background: "none", border: "none", color: showRevealed ? T.accentLight : T.muted, cursor: "pointer", display: "flex", alignItems: "center", padding: 4 }}>
-          {showRevealed ? <Ic.EyeOff /> : <Ic.Eye />}
-        </button>
-      </div>
-      <button onClick={onClose} style={{ width: "100%", marginTop: 18, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Close</button>
+      {!revealed ? (
+        <form onSubmit={handleSubmit}>
+          <p style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Master PIN dekhne ke liye password enter karo.</p>
+          <FieldLabel>Password</FieldLabel>
+          <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Password enter karo" autoFocus style={inpBase} />
+          {err && <ErrBanner msg={err} />}
+          <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+            <button type="button" onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
+            <button type="submit" disabled={!pass} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: pass ? "linear-gradient(135deg,#5254d4,#7c3aed)" : T.borderLight, border: "none", color: pass ? "#fff" : T.muted, fontWeight: 700, cursor: pass ? "pointer" : "default", fontSize: 13 }}>Dekho</button>
+          </div>
+        </form>
+      ) : (
+        <div>
+          <p style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Yeh hai aapka current Master PIN:</p>
+          <div style={{ background: T.bg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 800, color: T.accentLight, letterSpacing: 4 }}>
+              {showRevealed ? masterPin : "•".repeat(masterPin.length)}
+            </span>
+            <button type="button" onClick={() => setShowRevealed(v => !v)} style={{ background: "none", border: "none", color: showRevealed ? T.accentLight : T.muted, cursor: "pointer", display: "flex", alignItems: "center", padding: 4 }}>
+              {showRevealed ? <Ic.EyeOff /> : <Ic.Eye />}
+            </button>
+          </div>
+          <button onClick={onClose} style={{ width: "100%", marginTop: 18, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Close</button>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -2198,7 +2234,7 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     if (!sessAppFilter) return;
     setSessLoading(true);
     try {
-      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { headers: { "x-master-pin": masterPin } });
+      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`);
       if (r.ok) setSessions(await r.json() as SessionRow[]);
     } catch { /* ignore */ } finally { setSessLoading(false); }
   }, [sessAppFilter]);
@@ -2208,7 +2244,7 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
   async function logoutSession(id: string) {
     setLogoutingId(id);
     try {
-      await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
+      await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE" });
       setSessions(prev => prev.filter(s => s.id !== id));
     } catch { /* ignore */ } finally { setLogoutingId(null); }
   }
@@ -2217,7 +2253,7 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
     if (!sessAppFilter) return;
     setLogoutingAll(true);
     try {
-      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
+      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { method: "DELETE" });
       setSessions([]);
     } catch { /* ignore */ } finally { setLogoutingAll(false); }
   }
@@ -2333,71 +2369,7 @@ function SettingsTab({ apps, masterPin }: { apps: App[]; masterPin: string }) {
 /* ══════════════════════════════════════════
    MAIN DASHBOARD
 ══════════════════════════════════════════ */
-type Tab = "apps" | "messages" | "groups" | "devices" | "settings" | "stats";
-
-/* ── Stats Tab ── */
-type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
-function StatsTab({ data, onRefresh }: { data: StatsData | null; onRefresh: () => void }) {
-  const cards = data ? [
-    { label: "Apps Created Today", val: data.appsToday,      color: T.accent,      emoji: "🆕", sub: "created today" },
-    { label: "Total Apps",         val: data.totalApps,       color: T.accentLight, emoji: "📦", sub: `${data.activeApps} active · ${data.totalApps - data.activeApps} disabled` },
-    { label: "Online Devices",     val: data.onlineCount,     color: T.green,       emoji: "📱", sub: "active last 15 min" },
-    { label: "Total Devices",      val: data.totalDevices,    color: T.yellow,      emoji: "🖥️", sub: "all registered" },
-    { label: "Messages Today",     val: data.messagesToday,   color: T.orange,      emoji: "💬", sub: "received today" },
-    { label: "Total Messages",     val: data.totalMessages,   color: "#a78bfa",     emoji: "📨", sub: "overall in database" },
-    { label: "Active Sessions",    val: data.activeSessions,  color: "#38bdf8",     emoji: "🔐", sub: "active last 30 min" },
-    { label: "Disabled Apps",      val: data.totalApps - data.activeApps, color: T.red, emoji: "🚫", sub: "currently disabled" },
-  ] : [];
-  return (
-    <div>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
-        <div>
-          <div style={{ fontSize:16, fontWeight:800, color:T.text }}>System Statistics</div>
-          <div style={{ fontSize:11, color:T.muted, marginTop:2 }}>
-            {data ? `Last updated: ${data.fetchedAt}` : "Loading…"}
-          </div>
-        </div>
-        <button onClick={onRefresh} style={{ display:"flex", alignItems:"center", gap:6, padding:"8px 14px", borderRadius:9, background:T.card, border:`1px solid ${T.borderLight}`, color:T.mutedLight, fontSize:12, fontWeight:700, cursor:"pointer" }}>
-          <Ic.Refresh /> Refresh
-        </button>
-      </div>
-      {!data ? (
-        <div style={{ textAlign:"center", padding:60, color:T.muted }}><Ic.Loader /></div>
-      ) : (
-        <>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))", gap:12, marginBottom:24 }}>
-            {cards.map(({ label, val, color, emoji, sub }) => (
-              <div key={label} style={{ background:T.card, borderRadius:14, padding:"18px 18px 14px", border:`1px solid ${T.borderLight}`, position:"relative", overflow:"hidden" }}>
-                <div style={{ position:"absolute", top:-12, right:-12, width:70, height:70, borderRadius:"50%", background:color+"12", pointerEvents:"none" }} />
-                <div style={{ fontSize:26, marginBottom:8 }}>{emoji}</div>
-                <div style={{ fontSize:34, fontWeight:900, color, lineHeight:1, marginBottom:4 }}>{val.toLocaleString("en-IN")}</div>
-                <div style={{ fontSize:12, fontWeight:700, color:T.mutedLight, marginBottom:2 }}>{label}</div>
-                <div style={{ fontSize:10, color:T.muted }}>{sub}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ background:T.card, borderRadius:14, padding:"18px 20px", border:`1px solid ${T.borderLight}` }}>
-            <div style={{ fontSize:13, fontWeight:800, color:T.text, marginBottom:14 }}>Quick Summary</div>
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {[
-                { label:"App Activation Rate", val: data.totalApps > 0 ? Math.round((data.activeApps/data.totalApps)*100) : 0, suffix:"%", color:T.green },
-                { label:"Device Online Rate",  val: data.totalDevices > 0 ? Math.round((data.onlineCount/data.totalDevices)*100) : 0, suffix:"%", color:T.accent },
-                { label:"Avg Messages/Device", val: data.totalDevices > 0 ? Math.round(data.totalMessages/data.totalDevices) : 0, suffix:" msgs", color:T.yellow },
-              ].map(({ label, val, suffix, color }) => (
-                <div key={label} style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                  <span style={{ fontSize:12, color:T.muted }}>{label}</span>
-                  <span style={{ fontSize:14, fontWeight:800, color }}>{val}{suffix}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-
+type Tab = "apps" | "messages" | "groups" | "devices" | "settings";
 
 function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; onLogout: () => void; onPinChanged: (p: string) => void }) {
   const [tab, setTab] = useState<Tab>(() => {
@@ -2440,14 +2412,11 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const [renewId, setRenewId] = useState<string | null>(null);
   const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
-  const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month">("all");
   const [pingState, setPingState] = useState<"idle" | "loading" | "running" | "done" | "err">("idle");
   const [pingDone, setPingDone] = useState(0);
   const [pingTotal, setPingTotal] = useState(0);
   const [pingResult, setPingResult] = useState<{ ok: number; fail: number } | null>(null);
   const [onlineCount, setOnlineCount] = useState(0);
-  type StatsData = { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number; fetchedAt:string };
-  const [statsData, setStatsData] = useState<StatsData | null>(null);
   const [syncTick, setSyncTick] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
   const [jumpDeviceId, setJumpDeviceId] = useState<string | null>(null);
@@ -2463,10 +2432,9 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const fetchApps = useCallback(async () => {
     try {
       const r = await apiFetch("/api/master/apps", { headers: { "x-master-pin": masterPin } });
-      if (r.status === 401) { onLogout(); return; }
       if (r.ok) setAppList(await r.json() as App[]);
     } catch { /* ignore */ } finally { setAppsLoading(false); }
-  }, [masterPin, onLogout]);
+  }, [masterPin]);
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
 
@@ -2474,14 +2442,12 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   const fetchStats = useCallback(async () => {
     try {
       const r = await apiFetch("/api/master/stats", { headers: { "x-master-pin": masterPin } });
-      if (r.status === 401) { onLogout(); return; }
       if (r.ok) {
-        const d = await r.json() as { onlineCount:number; totalDevices:number; totalApps:number; activeApps:number; appsToday:number; totalMessages:number; messagesToday:number; activeSessions:number };
+        const d = await r.json() as { onlineCount: number; totalDevices: number };
         setOnlineCount(d.onlineCount);
-        setStatsData({ ...d, fetchedAt: new Date().toLocaleTimeString("en-IN", { hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:true }) });
       }
     } catch { /* ignore */ }
-  }, [masterPin, onLogout]);
+  }, [masterPin]);
 
   useEffect(() => {
     void fetchStats();
@@ -2495,33 +2461,26 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     return () => window.removeEventListener("mrrobot:refresh_devices", onRefresh);
   }, [fetchStats]);
 
-  // ── Master-only SSE: intercept channel for messages blocked from sub-admin ──
+  // ── Master-only SSE: intercept channel — PIN never in URL, uses HMAC token ──
   useEffect(() => {
     let es: EventSource | null = null;
     let closed = false;
     async function connect() {
       if (closed) return;
-      // Exchange master PIN for a short-lived SSE token — PIN never appears in URL (not in logs/history)
-      let sseToken = "";
       try {
-        const tr = await apiFetch("/api/master/sse-token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pin: masterPin }),
-        }).catch(() => null);
-        if (!tr || tr.status === 401) { closed = true; onLogout(); return; }
-        const tj = await tr.json() as { token?: string };
-        sseToken = tj.token ?? "";
-      } catch { /* ignore — will retry via onerror */ }
-      if (closed || !sseToken) return;
-      es = new EventSource(`/api/master/events?token=${encodeURIComponent(sseToken)}`);
-      es.addEventListener("message_added", (e: MessageEvent) => {
-        try {
-          const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
-          window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
-        } catch { /* ignore */ }
-      });
-      es.onerror = () => { if (!closed) { es?.close(); setTimeout(connect, 5000); } };
+        const tr = await apiFetch("/api/master/sse-token", { method: "POST", headers: { "x-master-pin": masterPin } });
+        if (!tr.ok) { if (!closed) setTimeout(connect, 5000); return; }
+        const { token } = await tr.json() as { token: string };
+        if (closed) return;
+        es = new EventSource(`/api/master/events?token=${encodeURIComponent(token)}`);
+        es.addEventListener("message_added", (e: MessageEvent) => {
+          try {
+            const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
+            window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
+          } catch { /* ignore */ }
+        });
+        es.onerror = () => { if (!closed) { es?.close(); setTimeout(connect, 5000); } };
+      } catch { if (!closed) setTimeout(connect, 5000); }
     }
     connect();
     return () => { closed = true; es?.close(); };
@@ -2610,7 +2569,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   async function logoutAll(app: App) {
     if (!confirm(`Logout all active sessions for "${app.name}"?`)) return;
     setLogoutAllId(app.appId);
-    try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } }); }
+    try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE" }); }
     catch { /* ignore */ } finally { setLogoutAllId(null); }
   }
 
@@ -2633,23 +2592,9 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     });
   }
 
-  const filteredApps = sortedApps.filter(a => {
-    if (dateFilter !== "all") {
-      const created = new Date(a.createdAt);
-      const now = new Date();
-      const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      const today = startOfDay(now);
-      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-      const weekAgo = new Date(today); weekAgo.setDate(today.getDate() - 6);
-      const monthAgo = new Date(today); monthAgo.setMonth(today.getMonth() - 1);
-      if (dateFilter === "today"     && created < today)     return false;
-      if (dateFilter === "yesterday" && (created < yesterday || created >= today)) return false;
-      if (dateFilter === "week"      && created < weekAgo)   return false;
-      if (dateFilter === "month"     && created < monthAgo)  return false;
-    }
-    if (search.trim() === "") return true;
-    return a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase());
-  });
+  const filteredApps = search.trim() === "" ? sortedApps : sortedApps.filter(a =>
+    a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
   const activeCount = appList.filter(a => a.status === "active").length;
   const pingBusy = pingState === "running" || pingState === "loading";
 
@@ -2659,7 +2604,6 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
     { id: "groups",   label: "Groups"   },
     { id: "devices",  label: "Devices"  },
     { id: "settings", label: "Settings" },
-    { id: "stats",    label: "📊 Stats"  },
   ];
 
   return (
@@ -2785,26 +2729,8 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
 
             {/* Apps header + search */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div>
-                <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>
-                  {dateFilter === "all" ? "Sorted by newest first" : `Filtered: ${filteredApps.length} app${filteredApps.length !== 1 ? "s" : ""}`}
-                </div>
-              </div>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <select
-                  value={dateFilter}
-                  onChange={e => setDateFilter(e.target.value as typeof dateFilter)}
-                  style={{ padding:"7px 30px 7px 12px", borderRadius:9, border:`1px solid ${T.borderLight}`, background:T.card, color:T.text, fontSize:12, fontWeight:600, cursor:"pointer", outline:"none", appearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d6280' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center" }}
-                >
-                  <option value="all">All Time</option>
-                  <option value="today">Today</option>
-                  <option value="yesterday">Yesterday</option>
-                  <option value="week">Last 7 Days</option>
-                  <option value="month">Last 30 Days</option>
-                </select>
-                <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
-              </div>
+              <div><div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div><div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>Sorted by newest first</div></div>
+              <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
             </div>
             <div style={{ marginBottom: 12, position: "relative" }}>
               <span style={{ position: "absolute", left: 13, top: "50%", transform: "translateY(-50%)", color: T.muted, pointerEvents: "none", display: "flex" }}><Ic.Search /></span>
@@ -2835,7 +2761,6 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
         <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} /></div>
-        {tab === "stats" && <StatsTab data={statsData} onRefresh={() => void fetchStats()} />}
       </div>
 
       {/* Create App Password Gate */}
