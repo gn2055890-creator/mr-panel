@@ -2499,7 +2499,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
   useEffect(() => {
     let es: EventSource | null = null;
     let closed = false;
-    async async function connect() {
+    async function connect() {
       if (closed) return;
       try {
         // Exchange master PIN for short-lived HMAC token — PIN never in URL
