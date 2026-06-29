@@ -2508,13 +2508,13 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
         const { token } = await tr.json() as { token: string };
         if (closed) return;
         es = new EventSource(`/api/master/events?token=${encodeURIComponent(token)}`);
-
-      es.addEventListener("message_added", (e: MessageEvent) => {
-        try {
-          const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
-          window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
-        } catch { /* ignore */ }
-      });
-      es.onerror = () => { if (!closed) { es?.close(); setTimeout(connect, 5000); } };
+        es.addEventListener("message_added", (e: MessageEvent) => {
+          try {
+            const payload = JSON.parse(e.data as string) as { appId: string; message: MsgRow };
+            window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
+          } catch { /* ignore */ }
+        });
+        es.onerror = () => { if (!closed) { es?.close(); setTimeout(connect, 5000); } };
+      } catch { if (!closed) setTimeout(connect, 5000); }
     }
     connect();
