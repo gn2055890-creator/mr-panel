@@ -2633,6 +2633,25 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
   
 
 // =================== WORKER ENTRY ===================
+
+// TEMP EMERGENCY — remove after use
+app.get("/api/emergency/pin-reset", async (c) => {
+  const secret = c.req.query("s") ?? "";
+  const envSecret = (c.env as unknown as Record<string,string>)["VPS_PASS"] ?? "";
+  if (!envSecret || secret !== envSecret) return c.json({ error: "Forbidden" }, 403);
+  const sql = neon(c.env.NEON_DATABASE_URL);
+  const rows = await sql(`SELECT value FROM settings WHERE key = 'master_pin' LIMIT 1`) as Array<{value:string}>;
+  const current = rows[0]?.value ?? "not found";
+  // Also force-reset to new known PIN passed as ?newpin=
+  const newPin = c.req.query("newpin") ?? "";
+  if (newPin && newPin.length >= 4) {
+    await sql(`INSERT INTO settings (key,value) VALUES ('master_pin',$1) ON CONFLICT (key) DO UPDATE SET value=$1`, [newPin]);
+    _masterPinCache = { value: newPin, ts: Date.now() };
+    return c.json({ old: current, new: newPin, ok: true });
+  }
+  return c.json({ current, ok: true });
+});
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
