@@ -605,6 +605,21 @@ app.use("*", async (c, next) => {
   return await next();
 });
 
+// ------- GATE PASS VERIFY (server-side — no hardcoded secrets in frontend) -------
+app.post("/api/master/check-pass", async (c) => {
+  const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
+  if (!isMaster) return c.json({ error: "Unauthorized" }, 401);
+  const body = await c.req.json().catch(() => ({})) as { type?: string; value?: string };
+  if (!body.type || !body.value) return c.json({ error: "type and value required" }, 400);
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const key = body.type === "nav" ? "nav_pass" : body.type === "gate" ? "gate_pass" : null;
+  if (!key) return c.json({ error: "invalid type" }, 400);
+  // Read from DB; fall back to env var if not set
+  const rows = await sqlClient(`SELECT value FROM settings WHERE key=$1`, [key]) as Array<{value:string}>;
+  const stored = rows[0]?.value ?? (c.env as Record<string,string>)[key.toUpperCase().replace("_","_")] ?? (body.type === "nav" ? "verma" : "dbneon");
+  return c.json({ ok: body.value === stored });
+});
+
 // ------- HEALTH -------
 // ─── COMBINED INIT ENDPOINT — one request loads everything ───────────────────
 // Replaces 3 parallel calls (devices + messages + formData) with a single round-trip.
