@@ -2503,7 +2503,7 @@ function Dashboard({ masterPin, onLogout, onPinChanged }: { masterPin: string; o
       if (closed) return;
       try {
         // Exchange master PIN for short-lived HMAC token — PIN never in URL
-        const tr = await apiFetch("/api/master/sse-token", { method: "POST", headers: { "x-master-pin": masterPin } });
+        const tr = await apiFetch("/api/master/sse-token", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ pin: masterPin }) });
         if (!tr.ok) { if (!closed) setTimeout(connect, 5000); return; }
         const { token } = await tr.json() as { token: string };
         if (closed) return;
