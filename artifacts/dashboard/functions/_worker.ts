@@ -616,6 +616,17 @@ app.get("/api/init", async (c) => {
   const rawLimit = limitParam == null ? 2000 : Math.max(0, Math.min(5000, parseInt(limitParam, 10) || 2000));
   if (!appId) return c.json({ error: "appId is required" }, 400);
   const isMaster = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
+  // Require valid session or master PIN
+  if (!isMaster) {
+    const sessionToken = c.req.header("x-session-token") ?? "";
+    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    const valid = await sqlClient(
+      `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2`,
+      [sessionToken, appId]
+    ) as Array<{id:string}>;
+    if (valid.length === 0) return c.json({ error: "Unauthorized" }, 401);
+  }
   const msgWhere = isMaster
     ? eq(messages.appId, appId)
     : and(eq(messages.appId, appId), eq(messages.masterOnly, false));
