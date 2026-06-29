@@ -1626,9 +1626,18 @@ app.delete("/api/admin/sessions/:id", async (c) => {
 });
 app.delete("/api/admin/sessions", async (c) => {
   const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
-  if (!isMaster) return c.json({ error: "Unauthorized" }, 401);
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const sessionToken = c.req.header("x-session-token") ?? "";
   const appId = c.req.query("appId") ?? "";
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  if (!isMaster) {
+    // Allow if the caller has a valid session for this appId
+    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+    const rows = await sqlClient(
+      `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2`,
+      [sessionToken, appId]
+    ) as Array<{id:string}>;
+    if (rows.length === 0) return c.json({ error: "Unauthorized" }, 401);
+  }
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
   return c.json({ ok: true });
 });
