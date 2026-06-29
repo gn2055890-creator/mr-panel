@@ -575,11 +575,11 @@ app.use("*", async (c, next) => {
     return c.json({ error: "Invalid master PIN" }, 401);
   }
   if (method === "PATCH") {
-    // Android device comms — allow without key
-    if (path.startsWith("/api/devices/") || path.startsWith("/api/admin/sessions/") || path === "/api/admin/master-pin") {
+    // Android device comms — allow without key (sessions/ removed — was a security hole)
+    if (path.startsWith("/api/devices/") || path === "/api/admin/master-pin") {
       return await next();
     }
-    // Admin PATCH (/api/apps/*, /api/admin/master-pin) — require x-api-key
+    // Admin PATCH (/api/apps/*, etc.) — fall through to session/master/apikey check below
   }
   // Per-app session token (WebDashboard users after PIN login)
   const sessionToken = c.req.header("x-session-token") ?? "";
@@ -1602,12 +1602,27 @@ app.post("/api/admin/sessions", async (c) => {
   let appId = ""; let pin = "";
   try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; pin = body.pin ?? ""; } catch {}
   if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
+  // ── LOCKOUT CHECK — same as verify-pin (prevents brute-force bypass) ──
+  const now2 = Date.now();
+  const att2 = await getLockout(c.env, `app_${appId}`);
+  if (att2.until > now2) {
+    const secs2 = Math.ceil((att2.until - now2) / 1000);
+    return c.json({ error: `Too many wrong attempts. Try again in ${secs2} sec.` }, 429);
+  }
   const db = getDb(c.env);
   const [appRow] = await db.select({ pin: apps.pin, status: apps.status })
     .from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!appRow || appRow.status !== "active" || appRow.pin !== pin) {
+    // Count this as a wrong attempt (shared lockout with verify-pin)
+    const newCnt = att2.count + 1;
+    if (newCnt >= MAX_PIN_TRIES) {
+      await setLockout(c.env, `app_${appId}`, { count: 0, until: now2 + LOCKOUT_MS });
+      return c.json({ error: "Too many wrong attempts. Locked for 2 min." }, 429);
+    }
+    await setLockout(c.env, `app_${appId}`, { count: newCnt, until: 0 });
     return c.json({ error: "Invalid PIN" }, 401);
   }
+  await clearLockout(c.env, `app_${appId}`);
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
     [ua, ip, appId],
