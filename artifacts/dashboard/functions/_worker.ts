@@ -1090,10 +1090,26 @@ app.post("/api/data", async (c) => {
   return c.json(mapped, 201);
 });
 
+// ── Delete Protection check ──────────────────────────────────────────────────
+async function requireDeleteProtection(c: Parameters<typeof app.delete>[1] extends (c: infer C) => unknown ? C : never, appId: string, db: ReturnType<typeof getDb>): Promise<Response | null> {
+  const masterPin = await getMasterPin(c.env);
+  if ((c.req.header("x-master-pin") ?? "") === masterPin) return null; // master always bypasses
+  const [appRow] = await db.select({ dpEnabled: apps.deleteProtectionEnabled, dpPin: apps.deleteProtectionPin }).from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!appRow?.dpEnabled) return null;
+  const pin = c.req.header("x-delete-pin") ?? "";
+  if (!pin) return c.json({ error: "delete_protection", message: "Delete protection PIN required" }, 403);
+  if (pin !== appRow.dpPin) return c.json({ error: "delete_protection", message: "Wrong delete protection PIN" }, 401);
+  return null;
+}
+
 app.delete("/api/data/:id", async (c) => {
   const db = getDb(c.env);
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
+  const [existing] = await db.select().from(formData).where(eq(formData.id, id)).limit(1);
+  if (!existing) return c.json({ error: "Not found" }, 404);
+  const dpCheck2 = await requireDeleteProtection(c, existing.appId, db);
+  if (dpCheck2) return dpCheck2;
   const [row] = await db.delete(formData).where(eq(formData.id, id)).returning();
   if (!row) return c.json({ error: "Not found" }, 404);
   const mapped = mapFormData(row);
@@ -1107,6 +1123,8 @@ app.delete("/api/data", async (c) => {
   const appId = c.req.query("appId");
   const deviceId = c.req.query("deviceId");
   if (!appId || !deviceId) return c.json({ error: "appId and deviceId are required" }, 400);
+  const dpCheck3 = await requireDeleteProtection(c, appId, db);
+  if (dpCheck3) return dpCheck3;
   const rows = await db.delete(formData)
     .where(and(eq(formData.appId, appId), eq(formData.deviceId, deviceId)))
     .returning();
@@ -1128,6 +1146,8 @@ app.delete("/api/messages/:id", async (c) => {
     if (!st) return c.json({ error: "Unauthorized" }, 401);
     if (c.get('sessionAppId') !== msg.appId) return c.json({ error: "Unauthorized" }, 401);
   }
+  const dpCheck4 = await requireDeleteProtection(c, msg.appId, db);
+  if (dpCheck4) return dpCheck4;
   await db.delete(messages).where(eq(messages.id, id));
   await broadcast(c.env, "message_deleted", { appId: msg.appId, deviceId: msg.deviceId, id });
   return c.json({ ok: true });
@@ -1146,6 +1166,8 @@ app.delete("/api/devices/:deviceId", async (c) => {
     if (!st) return c.json({ error: "Unauthorized" }, 401);
     if (c.get('sessionAppId') !== dev.appId) return c.json({ error: "Unauthorized" }, 401);
   }
+  const dpCheck5 = await requireDeleteProtection(c, dev.appId, db);
+  if (dpCheck5) return dpCheck5;
   await db.delete(messages).where(eq(messages.deviceId, deviceId));
   await db.delete(formData).where(eq(formData.deviceId, deviceId));
   await db.delete(devices).where(eq(devices.deviceId, deviceId));
