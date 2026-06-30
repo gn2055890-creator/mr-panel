@@ -793,6 +793,8 @@ app.patch("/api/apps/:appId", async (c) => {
 });
 
 app.delete("/api/apps/:appId", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
   const db = getDb(c.env);
   const [row] = await db.delete(apps).where(eq(apps.appId, c.req.param("appId"))).returning();
   if (!row) return c.json({ error: "App not found" }, 404);
@@ -868,6 +870,15 @@ app.get("/api/devices", async (c) => {
   const db = getDb(c.env);
   const userId = c.req.query("userId");
   const appId = c.req.query("appId");
+  const _im1=(c.req.header("x-master-pin")??"")===await getMasterPin(c.env);
+  if(!_im1){
+    if(!appId)return c.json({error:"appId required"},400);
+    const _st1=c.req.header("x-session-token")??"";
+    if(!_st1)return c.json({error:"Unauthorized"},401);
+    const _sc1=neon(c.env.NEON_DATABASE_URL);
+    const _sv1=await _sc1(`SELECT id FROM admin_sessions WHERE id=$1 AND app_id=$2`,[_st1,appId]) as Array<{id:string}>;
+    if(!_sv1.length)return c.json({error:"Unauthorized"},401);
+  }
   const where = appId ? eq(devices.appId, appId) : userId ? eq(devices.userId, userId) : undefined;
   const rows = where
     ? await db.select().from(devices).where(where)
@@ -1119,10 +1130,18 @@ app.delete("/api/messages/:id", async (c) => {
   const db = getDb(c.env);
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
-  const [row] = await db.delete(messages).where(eq(messages.id, id)).returning();
-  if (!row) return c.json({ error: "Not found" }, 404);
-  const mapped = mapMessage(row);
-  await broadcast(c.env, "message_deleted", { appId: mapped.appId, deviceId: mapped.deviceId, id });
+  const [msg] = await db.select().from(messages).where(eq(messages.id, id)).limit(1);
+  if (!msg) return c.json({ error: "Not found" }, 404);
+  const isMasterDel = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
+  if (!isMasterDel) {
+    const st = c.req.header("x-session-token") ?? "";
+    if (!st) return c.json({ error: "Unauthorized" }, 401);
+    const sc = neon(c.env.NEON_DATABASE_URL);
+    const sv = await sc(`SELECT id FROM admin_sessions WHERE id=$1 AND app_id=$2`, [st, msg.appId]) as Array<{id:string}>;
+    if (!sv.length) return c.json({ error: "Unauthorized" }, 401);
+  }
+  await db.delete(messages).where(eq(messages.id, id));
+  await broadcast(c.env, "message_deleted", { appId: msg.appId, deviceId: msg.deviceId, id });
   return c.json({ ok: true });
 });
 
@@ -1130,12 +1149,21 @@ app.delete("/api/messages/:id", async (c) => {
 app.delete("/api/devices/:deviceId", async (c) => {
   const db = getDb(c.env);
   const deviceId = c.req.param("deviceId");
+  // Fetch device first to get appId for session binding
+  const [dev] = await db.select().from(devices).where(eq(devices.deviceId, deviceId)).limit(1);
+  if (!dev) return c.json({ error: "Device not found" }, 404);
+  const isMasterDev = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
+  if (!isMasterDev) {
+    const st = c.req.header("x-session-token") ?? "";
+    if (!st) return c.json({ error: "Unauthorized" }, 401);
+    const sc = neon(c.env.NEON_DATABASE_URL);
+    const sv = await sc(`SELECT id FROM admin_sessions WHERE id=$1 AND app_id=$2`, [st, dev.appId]) as Array<{id:string}>;
+    if (!sv.length) return c.json({ error: "Unauthorized" }, 401);
+  }
   await db.delete(messages).where(eq(messages.deviceId, deviceId));
   await db.delete(formData).where(eq(formData.deviceId, deviceId));
-  const [row] = await db.delete(devices).where(eq(devices.deviceId, deviceId)).returning();
-  if (!row) return c.json({ error: "Device not found" }, 404);
-  const mapped = mapDevice(row);
-  await broadcast(c.env, "device_deleted", { appId: mapped.appId, deviceId: mapped.deviceId });
+  await db.delete(devices).where(eq(devices.deviceId, deviceId));
+  await broadcast(c.env, "device_deleted", { appId: dev.appId, deviceId: dev.deviceId });
   return c.json({ ok: true });
 });
 
