@@ -188,6 +188,7 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`CREATE INDEX IF NOT EXISTS admin_sessions_login_idx ON admin_sessions(login_time DESC)`),
       sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`),
       sqlClient(`CREATE INDEX IF NOT EXISTS admin_sessions_app_idx ON admin_sessions(app_id)`),
+    sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at > NOW() + INTERVAL '1 day'`),
       // Migration: add login_limit column if not exists
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 5`),
       // Migration: add created_at for older DBs that predated this column
