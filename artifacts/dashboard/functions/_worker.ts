@@ -719,7 +719,7 @@ app.get("/api/apps", async (c) => {
     return c.json([mapApp(row)]);
   }
   // Master: return all apps (existing behaviour)
-  const rows = await db.select().from(apps).orderBy(asc(apps.createdAt));
+  const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
   for (const r of rows) {
     if (r.appId === DEFAULT_APP_ID && r.status !== "active") {
       await db.update(apps).set({ status: "active" }).where(eq(apps.appId, r.appId));
@@ -727,7 +727,7 @@ app.get("/api/apps", async (c) => {
       await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, r.appId));
     }
   }
-  const fresh = await db.select().from(apps).orderBy(asc(apps.createdAt));
+  const fresh = await db.select().from(apps).orderBy(desc(apps.createdAt));
   return c.json(fresh.map(mapApp));
 });
 
@@ -1427,7 +1427,7 @@ app.get("/api/master/apps", async (c) => {
   if (guard) return guard;
   const db = getDb(c.env);
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const rows = await db.select().from(apps).orderBy(asc(apps.createdAt));
+  const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
   // Count active sessions per app
   const sessionCounts = await sqlClient(
     `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '30 minutes' GROUP BY app_id`,
