@@ -2122,7 +2122,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [dpShowChangePinDialog, setDpShowChangePinDialog] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/apps/${appId}/delete-protection`)
+    fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store" })
       .then(r => r.json())
       .then((d: { enabled: boolean; hasPin: boolean }) => {
         setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true);
@@ -3261,7 +3261,7 @@ export default function WebDashboard() {
   // Without this, deleteProtEnabled stays false until the user visits Settings tab
   useEffect(() => {
     if (!authed) return;
-    apiFetch(`/api/apps/${appId}/delete-protection`)
+    apiFetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
       .then((d: { enabled?: boolean } | null) => { if (d != null) setDeleteProtEnabled(!!d.enabled); })
       .catch(() => {});
