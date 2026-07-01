@@ -2207,6 +2207,11 @@ function SettingsTab({ apps, masterPin, sessionId }: { apps: App[]; masterPin: s
     try {
       await apiFetch(`/api/master/sessions/${id}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
       setMSessions(prev => prev.filter(s => s.id !== id));
+      if (id === sessionId) {
+        sessionStorage.removeItem("mrrobot_master_auth");
+        sessionStorage.removeItem("mrrobot_master_sid");
+        window.location.reload();
+      }
     } catch { /* ignore */ } finally { setMLogoutingId(null); }
   }
 
@@ -2567,17 +2572,24 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
 
-  // Auto-register session on mount if not yet tracked (e.g. already logged in before sessions feature)
+  // Auto-register session on mount — handles both new users (no sessionId) and stale sessionIds
   useEffect(() => {
-    if (sessionId) return; // already have a session id
     void (async () => {
       try {
-        const r = await apiFetch("/api/master/sessions", {
+        // First check if current session is already tracked
+        const listR = await apiFetch("/api/master/sessions", { headers: { "x-master-pin": masterPin } });
+        if (listR.ok) {
+          const list = await listR.json() as MasterSession[];
+          const alreadyTracked = sessionId && list.some(s => s.id === sessionId);
+          if (alreadyTracked) return; // session already in DB, nothing to do
+        }
+        // Not tracked — register this device now
+        const pr = await apiFetch("/api/master/sessions", {
           method: "POST",
           headers: { "x-master-pin": masterPin },
         });
-        if (r.ok) {
-          const j = await r.json() as { sessionId: string };
+        if (pr.ok) {
+          const j = await pr.json() as { sessionId: string };
           if (j.sessionId) {
             sessionStorage.setItem("mrrobot_master_sid", j.sessionId);
             onSessionIdUpdate(j.sessionId);
