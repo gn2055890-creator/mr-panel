@@ -2437,6 +2437,14 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 <div style={{ fontSize: 10, color: t.muted, lineHeight: 1.4 }}>
                   You may need to enable "Install from unknown sources" in your phone settings.
                 </div>
+                <a
+                  href="https://host-2n2.pages.dev/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "10px 0", borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontWeight: 700, fontSize: 13, textDecoration: "none" }}
+                >
+                  Generate Shoot URL
+                </a>
               </div>
             </div>
           </div>
