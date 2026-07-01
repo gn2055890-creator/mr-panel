@@ -378,36 +378,85 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
 
 /* ── Renew Modal ── */
 function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPin: string; onClose: () => void; onRenewed: (a: App) => void }) {
-  const [loading, setLoading] = useState(false); const [err, setErr] = useState("");
-  const THIRTY_MS = 30 * 24 * 60 * 60 * 1000;
-  const oldExpiry = new Date(app.createdAt).getTime() + THIRTY_MS;
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [mode, setMode] = useState<"days" | "reset">("days");
+  const [days, setDays] = useState<1 | 2 | 3 | 30>(30);
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const oldCreated = new Date(app.createdAt).getTime();
+  const oldExpiry = oldCreated + 30 * DAY_MS;
   const isExpired = oldExpiry < Date.now();
-  const newExpiry = new Date(isExpired ? Date.now() + THIRTY_MS : oldExpiry + THIRTY_MS);
-  const newExpiryStr = newExpiry.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-  async function handleRenew() {
+  const computeNewExpiry = () => {
+    if (mode === "reset") return new Date(Date.now() + 30 * DAY_MS);
+    const base = isExpired ? Date.now() : oldExpiry;
+    return new Date(base + days * DAY_MS);
+  };
+  const newExpiryStr = computeNewExpiry().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const DAY_OPTS: (1 | 2 | 3 | 30)[] = [1, 2, 3, 30];
+  async function handleConfirm() {
     setLoading(true); setErr("");
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/renew`, { method: "POST", headers: { "x-master-pin": masterPin } });
+      const body = mode === "reset" ? { reset: true } : { days };
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/renew`, {
+        method: "POST",
+        headers: { "x-master-pin": masterPin, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onRenewed(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
+  const tabStyle = (active: boolean, color: string) => ({
+    flex: 1, padding: "9px 0", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer", border: "none",
+    background: active ? color : T.inputBg, color: active ? "#fff" : T.muted, transition: "all 0.15s",
+  } as React.CSSProperties);
+  const dayBtnStyle = (active: boolean) => ({
+    flex: 1, padding: "8px 0", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer",
+    border: `1px solid ${active ? T.green : T.borderLight}`,
+    background: active ? `${T.green}22` : T.inputBg, color: active ? T.green : T.muted, transition: "all 0.15s",
+  } as React.CSSProperties);
   return (
-    <Modal onClose={onClose} maxWidth={380}>
-      <ModalHeader title="Renew Licence +30 Days" icon={<Ic.CalendarPlus />} onClose={onClose} />
+    <Modal onClose={onClose} maxWidth={400}>
+      <ModalHeader title="Manage Licence" icon={<Ic.CalendarPlus />} onClose={onClose} />
       <div style={{ background: T.inputBg, borderRadius: 10, padding: "12px 14px", border: `1px solid ${T.green}30`, marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>App</div>
-        <div style={{ fontWeight: 800, fontSize: 14, color: T.text, marginBottom: 6 }}>{app.name}</div>
+        <div style={{ fontWeight: 800, fontSize: 14, color: T.text, marginBottom: 4 }}>{app.name}</div>
         <div style={{ fontFamily: "monospace", fontSize: 11, color: T.accentLight }}>{app.appId}</div>
       </div>
-      <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.7 }}>
-        {isExpired ? <><span style={{ color: T.red, fontWeight: 700 }}>Licence expired.</span> Fresh <b style={{ color: T.green }}>30-day</b> from today.</> : <>Extended by <b style={{ color: T.green }}>+30 days</b>.</>}<br />
-        New expiry: <b style={{ color: T.text }}>{newExpiryStr}</b>
+      {/* Mode tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button style={tabStyle(mode === "days", "#16a34a")} onClick={() => setMode("days")}>+ Extend Days</button>
+        <button style={tabStyle(mode === "reset", "#dc2626")} onClick={() => setMode("reset")}>Reset Licence</button>
       </div>
+      {mode === "days" ? (
+        <>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>Days to add:</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {DAY_OPTS.map(d => (
+              <button key={d} style={dayBtnStyle(days === d)} onClick={() => setDays(d)}>+{d} {d === 1 ? "Day" : "Days"}</button>
+            ))}
+          </div>
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.7 }}>
+            {isExpired ? <><span style={{ color: T.red, fontWeight: 700 }}>Licence expired.</span> Fresh <b style={{ color: T.green }}>+{days} day{days > 1 ? "s" : ""}</b> from today.</> : <>Extended by <b style={{ color: T.green }}>+{days} day{days > 1 ? "s" : ""}</b>.</>}
+            <br />New expiry: <b style={{ color: T.text }}>{newExpiryStr}</b>
+          </div>
+        </>
+      ) : (
+        <div style={{ background: "#dc262610", border: "1px solid #dc262640", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, color: "#f87171", fontSize: 13, marginBottom: 6 }}>Reset Licence to Today</div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.7 }}>
+            Created date will be set to <b style={{ color: T.text }}>today</b>.<br />
+            Licence will run fresh <b style={{ color: T.text }}>30 days</b> from now.<br />
+            New expiry: <b style={{ color: T.text }}>{newExpiryStr}</b>
+          </div>
+        </div>
+      )}
       {err && <ErrBanner msg={err} />}
       <div style={{ display: "flex", gap: 10 }}>
         <button onClick={onClose} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: T.border, border: `1px solid ${T.borderLight}`, color: T.text, fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Cancel</button>
-        <button onClick={handleRenew} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, background: "linear-gradient(135deg,#16a34a,#22c55e)", border: "none", color: "#fff", fontWeight: 800, cursor: loading ? "default" : "pointer", fontSize: 13 }}>{loading ? "Renewing…" : "Confirm +30 Days"}</button>
+        <button onClick={handleConfirm} disabled={loading} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "none", color: "#fff", fontWeight: 800, cursor: loading ? "default" : "pointer", fontSize: 13, background: mode === "reset" ? "linear-gradient(135deg,#b91c1c,#dc2626)" : "linear-gradient(135deg,#16a34a,#22c55e)" }}>
+          {loading ? "Please wait…" : mode === "reset" ? "Confirm Reset" : `Confirm +${days} Day${days > 1 ? "s" : ""}`}
+        </button>
       </div>
     </Modal>
   );
