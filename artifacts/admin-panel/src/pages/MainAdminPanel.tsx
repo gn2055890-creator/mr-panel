@@ -518,9 +518,6 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           <button onClick={() => onToggle(app)} disabled={togglingId === app.appId} title={isActive ? "Disable" : "Enable"} style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: isActive ? T.yellow + "14" : T.green + "14", border: `1.5px solid ${isActive ? T.yellow + "55" : T.green + "55"}`, color: isActive ? T.yellow : T.green, opacity: togglingId === app.appId ? 0.45 : 1, cursor: togglingId === app.appId ? "wait" : "pointer" }}>
             <Ic.Power />
           </button>
-          <button onClick={() => onDelete(app)} disabled={deletingId === app.appId} title="Delete App" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: T.red + "14", border: `1.5px solid ${T.red}44`, color: T.red, opacity: deletingId === app.appId ? 0.45 : 1, cursor: deletingId === app.appId ? "wait" : "pointer" }}>
-            <Ic.Trash />
-          </button>
         </div>
       </div>
     </div>
