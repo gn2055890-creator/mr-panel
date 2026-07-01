@@ -1699,11 +1699,20 @@ app.post("/api/master/apps/:appId/renew", async (c) => {
   if (appId === DEFAULT_APP_ID) return c.json({ error: "Cannot renew the default app" }, 400);
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
-  // +30 days: if already expired → fresh 30 from now; else add 30 to existing createdAt
-  const THIRTY_MS = 30 * 24 * 60 * 60 * 1000;
-  const oldCreated = new Date(row.createdAt).getTime();
-  const oldExpiry = oldCreated + THIRTY_MS;
-  const newCreatedAt = new Date(oldExpiry > Date.now() ? oldCreated + THIRTY_MS : Date.now());
+  const body = await c.req.json().catch(() => ({})) as { days?: number; reset?: boolean };
+  let newCreatedAt: Date;
+  if (body.reset) {
+    // Reset: set createdAt to NOW() — licence restarts fresh from today
+    newCreatedAt = new Date();
+  } else {
+    const days = [1, 2, 3, 30].includes(body.days ?? 30) ? (body.days ?? 30) : 30;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const PERIOD_MS = days * DAY_MS;
+    const oldCreated = new Date(row.createdAt).getTime();
+    const oldExpiry = oldCreated + 30 * DAY_MS;
+    // If expired: fresh N days from now; else add N days to existing createdAt
+    newCreatedAt = new Date(oldExpiry > Date.now() ? oldCreated + PERIOD_MS : Date.now());
+  }
   const [updated] = await db.update(apps)
     .set({ createdAt: newCreatedAt, status: "active" })
     .where(eq(apps.appId, appId)).returning();
