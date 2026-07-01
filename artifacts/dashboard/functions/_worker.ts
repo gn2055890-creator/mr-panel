@@ -1402,6 +1402,18 @@ app.post("/api/admin/verify-master-pin", async (c) => {
 });
 
 // ── Master Login Sessions ──
+// POST: register current session (for already-logged-in users)
+app.post("/api/master/sessions", async (c) => {
+  if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+  const sessionId = crypto.randomUUID();
+  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "";
+  const userAgent = c.req.header("user-agent") ?? "";
+  const sqlC = neon(c.env.NEON_DATABASE_URL);
+  await sqlC(`INSERT INTO master_sessions (id, ip, user_agent) VALUES ($1, $2, $3)`, [sessionId, ip, userAgent]);
+  await sqlC(`DELETE FROM master_sessions WHERE id NOT IN (SELECT id FROM master_sessions ORDER BY login_at DESC LIMIT 20)`).catch(() => {});
+  return c.json({ sessionId });
+});
+
 app.get("/api/master/sessions", async (c) => {
   if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
