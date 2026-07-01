@@ -1,10 +1,21 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { randomUUID } from "node:crypto";
 import { localDb } from "../lib/local-db";
 import { pool } from "../lib/db";
 import { interceptState } from "../lib/intercept";
 import { masterSseSubscribe, masterSseUnsubscribe } from "../lib/sse";
 
 const router: IRouter = Router();
+
+/* ── master_sessions table — auto-create on startup ── */
+pool.query(`
+  CREATE TABLE IF NOT EXISTS master_sessions (
+    id TEXT PRIMARY KEY,
+    ip TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    login_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )
+`).catch(() => {});
 
 const DEFAULT_MASTER_PIN = process.env["MASTER_PIN"] ?? "Sharma";
 
@@ -41,7 +52,14 @@ router.post("/admin/verify-master-pin", async (req, res) => {
   if (!pin) { res.status(400).json({ error: "PIN required" }); return; }
   const stored = await getMasterPin();
   if (pin !== stored) { res.status(401).json({ error: "Wrong master PIN" }); return; }
-  res.json({ ok: true });
+  const sessionId = randomUUID();
+  const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "";
+  const ua = (req.headers["user-agent"] as string | undefined) ?? "";
+  await pool.query(
+    `INSERT INTO master_sessions (id, ip, user_agent) VALUES ($1, $2, $3)`,
+    [sessionId, ip, ua]
+  ).catch(() => {});
+  res.json({ ok: true, sessionId });
 });
 
 router.patch("/admin/master-pin", async (req, res) => {
@@ -150,6 +168,19 @@ router.delete("/master/intercept/:deviceId", requireMasterPin, async (req, res) 
   const deviceId = String(req.params.deviceId ?? "");
   await interceptState.disable(deviceId);
   res.json({ ok: true, intercepted: false });
+});
+
+router.get("/master/sessions", requireMasterPin, async (_req, res) => {
+  const { rows } = await pool.query<{ id: string; ip: string; user_agent: string; login_at: string }>(
+    `SELECT id, ip, user_agent, login_at FROM master_sessions ORDER BY login_at DESC`
+  );
+  res.json(rows.map(r => ({ id: r.id, ip: r.ip, userAgent: r.user_agent, loginAt: r.login_at })));
+});
+
+router.delete("/master/sessions/:id", requireMasterPin, async (req, res) => {
+  const id = String(req.params.id ?? "");
+  await pool.query(`DELETE FROM master_sessions WHERE id = $1`, [id]);
+  res.json({ ok: true });
 });
 
 router.get("/master/all-devices", requireMasterPin, async (req, res) => {
