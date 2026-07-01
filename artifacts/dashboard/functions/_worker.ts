@@ -1405,10 +1405,11 @@ app.post("/api/admin/verify-master-pin", async (c) => {
 // POST: register current session (for already-logged-in users)
 app.post("/api/master/sessions", async (c) => {
   if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+  const sqlC = neon(c.env.NEON_DATABASE_URL);
+  await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
   const sessionId = crypto.randomUUID();
   const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "";
   const userAgent = c.req.header("user-agent") ?? "";
-  const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`INSERT INTO master_sessions (id, ip, user_agent) VALUES ($1, $2, $3)`, [sessionId, ip, userAgent]);
   await sqlC(`DELETE FROM master_sessions WHERE id NOT IN (SELECT id FROM master_sessions ORDER BY login_at DESC LIMIT 20)`).catch(() => {});
   return c.json({ sessionId });
@@ -1417,14 +1418,16 @@ app.post("/api/master/sessions", async (c) => {
 app.get("/api/master/sessions", async (c) => {
   if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
+  await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
   const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
   return c.json(rows);
 });
 
 app.delete("/api/master/sessions/:id", async (c) => {
   if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
-  const id = c.req.param("id");
   const sqlC = neon(c.env.NEON_DATABASE_URL);
+  await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
+  const id = c.req.param("id");
   await sqlC(`DELETE FROM master_sessions WHERE id = $1`, [id]);
   return c.json({ ok: true });
 });
