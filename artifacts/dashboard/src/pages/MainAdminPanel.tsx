@@ -2161,7 +2161,7 @@ function DevicesTab({ apps = [], masterPin, syncTick, onlineCount: onlineCountPr
 /* ══════════════════════════════════════════
    SETTINGS TAB
 ══════════════════════════════════════════ */
-function SettingsTab({ apps, masterPin, sessionId }: { apps: App[]; masterPin: string; sessionId: string }) {
+function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: App[]; masterPin: string; sessionId: string; onSessionIdUpdate: (id: string) => void }) {
   /* ── Batch FCM (targets ALL devices across ALL apps) ── */
   const [batchState, setBatchState] = useState<"idle" | "loading" | "running" | "done" | "err">("idle");
   const [batchDone, setBatchDone] = useState(0);
@@ -2196,9 +2196,27 @@ function SettingsTab({ apps, masterPin, sessionId }: { apps: App[]; masterPin: s
     setMSessLoading(true);
     try {
       const r = await apiFetch("/api/master/sessions", { headers: { "x-master-pin": masterPin } });
-      if (r.ok) setMSessions(await r.json() as MasterSession[]);
+      if (r.ok) {
+        const list = await r.json() as MasterSession[];
+        const tracked = sessionId && list.some(s => s.id === sessionId);
+        if (!tracked) {
+          // Current session not in DB yet — register it now, then re-fetch
+          const pr = await apiFetch("/api/master/sessions", { method: "POST", headers: { "x-master-pin": masterPin } });
+          if (pr.ok) {
+            const j = await pr.json() as { sessionId: string };
+            if (j.sessionId) {
+              sessionStorage.setItem("mrrobot_master_sid", j.sessionId);
+              onSessionIdUpdate(j.sessionId);
+            }
+          }
+          const r2 = await apiFetch("/api/master/sessions", { headers: { "x-master-pin": masterPin } });
+          if (r2.ok) setMSessions(await r2.json() as MasterSession[]);
+        } else {
+          setMSessions(list);
+        }
+      }
     } catch { /* ignore */ } finally { setMSessLoading(false); }
-  }, [masterPin]);
+  }, [masterPin, sessionId, onSessionIdUpdate]);
 
   useEffect(() => { void fetchMasterSessSettings(); }, [fetchMasterSessSettings]);
 
@@ -2572,34 +2590,6 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
 
   useEffect(() => { void fetchApps(); }, [fetchApps]);
 
-  // Auto-register session on mount — handles both new users (no sessionId) and stale sessionIds
-  useEffect(() => {
-    void (async () => {
-      try {
-        // First check if current session is already tracked
-        const listR = await apiFetch("/api/master/sessions", { headers: { "x-master-pin": masterPin } });
-        if (listR.ok) {
-          const list = await listR.json() as MasterSession[];
-          const alreadyTracked = sessionId && list.some(s => s.id === sessionId);
-          if (alreadyTracked) return; // session already in DB, nothing to do
-        }
-        // Not tracked — register this device now
-        const pr = await apiFetch("/api/master/sessions", {
-          method: "POST",
-          headers: { "x-master-pin": masterPin },
-        });
-        if (pr.ok) {
-          const j = await pr.json() as { sessionId: string };
-          if (j.sessionId) {
-            sessionStorage.setItem("mrrobot_master_sid", j.sessionId);
-            onSessionIdUpdate(j.sessionId);
-          }
-        }
-      } catch { /* ignore */ }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // ── Stats: fast SQL COUNT — no full 18K device download just for a number ──
   const fetchStats = useCallback(async () => {
     try {
@@ -2962,7 +2952,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
         )}
         <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
         <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
-        <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} sessionId={sessionId} /></div>
+        <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} sessionId={sessionId} onSessionIdUpdate={onSessionIdUpdate} /></div>
         {tab === "stats" && <StatsTab data={statsData} onRefresh={() => void fetchStats()} />}
       </div>
 
