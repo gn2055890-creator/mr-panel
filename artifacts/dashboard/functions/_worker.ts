@@ -1177,8 +1177,7 @@ app.delete("/api/devices/:deviceId", async (c) => {
   }
   const dpCheck5 = await requireDeleteProtection(c, dev.appId, db);
   if (dpCheck5) return dpCheck5;
-  await db.delete(messages).where(eq(messages.deviceId, deviceId));
-  await db.delete(formData).where(eq(formData.deviceId, deviceId));
+  // Messages and form data are preserved even after device deletion — historical records
   await db.delete(devices).where(eq(devices.deviceId, deviceId));
   await broadcast(c.env, "device_deleted", { appId: dev.appId, deviceId: dev.deviceId });
   return c.json({ ok: true });
