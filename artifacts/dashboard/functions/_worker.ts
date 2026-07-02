@@ -29,6 +29,7 @@ const apps = pgTable("apps", {
   appId: text("app_id").notNull(),
   name: text("name").notNull(),
   pin: text("pin").notNull().default("1234"),
+  panelToken: text("panel_token"),
   status: text("status").notNull().default("active"),
   loginLimit: integer("login_limit").notNull().default(5),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -202,6 +203,8 @@ async function ensureSchema(env: Env): Promise<void> {
       // Migration: add delete protection columns
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_pin TEXT`),
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE`),
+      // Migration: add panel_token for brute-force protection
+      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS panel_token TEXT`),
       // Migration: add starred column to devices
       sqlClient(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE`),
       // Migration: add master_only column for message interception
@@ -210,6 +213,8 @@ async function ensureSchema(env: Env): Promise<void> {
     // Fix: apps created before created_at column existed have NULL — set to NOW() and re-enable if wrongly disabled
     await sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at IS NULL`).catch(() => {});
     await sqlClient(`UPDATE apps SET status = 'active' WHERE status = 'disabled' AND created_at IS NULL AND app_id != 'SKY-APP-2026-X9F3'`).catch(() => {});
+    // Auto-generate panel_token for existing apps that don't have one
+    await sqlClient(`UPDATE apps SET panel_token = gen_random_uuid()::text WHERE panel_token IS NULL`).catch(() => {});
     // ensure default app + master PIN setting
     await Promise.all([
       sqlClient(
@@ -760,6 +765,7 @@ app.post("/api/apps", async (c) => {
   const inserted = await db.insert(apps).values({
     appId: body.appId, name: body.name,
     pin: body.pin ?? "1234", status: body.status ?? "active",
+    panelToken: crypto.randomUUID(),
   }).onConflictDoNothing({ target: apps.appId }).returning();
   if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
   return c.json(mapApp(inserted[0]), 201);
@@ -818,26 +824,19 @@ app.delete("/api/apps/:appId", async (c) => {
 app.post("/api/apps/:appId/verify-pin", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.param("appId");
-  const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  const body = await c.req.json() as { pin?: string };
+  const body = await c.req.json() as { pin?: string; panelToken?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
-
-  const rl = checkPinRateLimit(ip, appId);
-  if (rl.blocked) return c.json({ error: "Too many failed attempts. Try again after 15 minutes." }, 429);
+  if (!body.panelToken) return c.json({ error: "Panel token required" }, 400);
 
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
+  if (row.panelToken && row.panelToken !== body.panelToken) return c.json({ error: "Invalid panel token" }, 401);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
   }
   if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
-
-  if (row.pin !== body.pin) {
-    recordPinFail(ip, appId);
-    return c.json({ error: "Wrong PIN." }, 401);
-  }
-  clearPinFail(ip, appId);
+  if (row.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
   return c.json({ ok: true, appId: row.appId, name: row.name });
 });
 
@@ -1381,30 +1380,6 @@ app.post("/api/fcm/online-check", async (c) => {
 let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
 const _sessionCache = new Map<string, { expiry: number; appId: string }>();
 
-// ── PIN brute-force guard ──
-// Key: "ip:appId" → { count, unlockedAt }
-const _pinFailMap = new Map<string, { count: number; unlockedAt: number }>();
-const PIN_MAX_ATTEMPTS = 5;
-const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
-
-function pinRateKey(ip: string, appId: string) { return `${ip}:${appId}`; }
-function checkPinRateLimit(ip: string, appId: string): { blocked: boolean; remaining: number } {
-  const key = pinRateKey(ip, appId);
-  const entry = _pinFailMap.get(key);
-  if (!entry) return { blocked: false, remaining: PIN_MAX_ATTEMPTS };
-  if (Date.now() < entry.unlockedAt) return { blocked: true, remaining: 0 };
-  // lockout expired — reset
-  _pinFailMap.delete(key);
-  return { blocked: false, remaining: PIN_MAX_ATTEMPTS };
-}
-function recordPinFail(ip: string, appId: string) {
-  const key = pinRateKey(ip, appId);
-  const entry = _pinFailMap.get(key) ?? { count: 0, unlockedAt: 0 };
-  entry.count += 1;
-  if (entry.count >= PIN_MAX_ATTEMPTS) entry.unlockedAt = Date.now() + PIN_LOCKOUT_MS;
-  _pinFailMap.set(key, entry);
-}
-function clearPinFail(ip: string, appId: string) { _pinFailMap.delete(pinRateKey(ip, appId)); }
 async function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
   if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
@@ -1565,6 +1540,7 @@ app.get("/api/master/apps", async (c) => {
   const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
   return c.json(rows.map(r => ({
     id: r.id, appId: r.appId, name: r.name, pin: r.pin,
+    panelToken: r.panelToken ?? null,
     status: r.status,
     createdAt: isoReq(r.createdAt),
     deleteProtectionPin: r.deleteProtectionPin ?? null,
@@ -1806,21 +1782,17 @@ app.post("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const ua = c.req.header("user-agent") ?? "";
   const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = ""; let pin = "";
-  try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; pin = body.pin ?? ""; } catch {}
+  let appId = ""; let pin = ""; let panelToken = "";
+  try { const b = await c.req.json() as { appId?: string; pin?: string; panelToken?: string }; appId = b.appId ?? ""; pin = b.pin ?? ""; panelToken = b.panelToken ?? ""; } catch {}
   if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
 
-  const rl2 = checkPinRateLimit(ip, appId);
-  if (rl2.blocked) return c.json({ error: "Too many failed attempts. Try again after 15 minutes." }, 429);
-
   const db = getDb(c.env);
-  const [appRow] = await db.select({ pin: apps.pin, status: apps.status })
+  const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken })
     .from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!appRow || appRow.status !== "active" || appRow.pin !== pin) {
-    recordPinFail(ip, appId);
-    return c.json({ error: "Invalid PIN" }, 401);
-  }
-  clearPinFail(ip, appId);
+  if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
+  // panelToken check — must match if set (blocks brute force without rate limiting)
+  if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid credentials" }, 401);
+  if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
     [ua, ip, appId],
