@@ -250,6 +250,18 @@ function Row({ label, value, mono, accent }: { label: string; value: string; mon
   );
 }
 
+/* ─── Favorite (starred) device badge — reused wherever a device name is shown so the
+   user can tell at a glance, everywhere, that a device has been marked favorite ─── */
+function FavoriteBadge({ starred, size = 14 }: { starred?: boolean; size?: number }) {
+  if (!starred) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      <title>Favorite device</title>
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  );
+}
+
 /* ─── Message card ─── */
 const MsgCard = React.memo(function MsgCard({
   msg, deviceName, device, onOpen, cardClickable, formEntries,
@@ -301,7 +313,9 @@ const MsgCard = React.memo(function MsgCard({
         {/* Header row */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8 }}>
           <span style={{ fontSize: 10, color: "#94a3b8" }}>{fmtShort(msg.receivedAt)}</span>
-          <span style={{ fontSize: 10, background: t.hdrB, color: t.muted, padding: "1px 7px", borderRadius: 4 }}>{deviceName}</span>
+          <span style={{ fontSize: 10, background: t.hdrB, color: t.muted, padding: "1px 7px", borderRadius: 4, display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <FavoriteBadge starred={device?.starred} size={11} />{deviceName}
+          </span>
         </div>
 
         {/* Body */}
@@ -1083,6 +1097,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
                   {/* Device sub-header */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderBottom: `1px solid ${H}` }}>
                     <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <FavoriteBadge starred={device.starred} size={13} />
                       <span style={{ fontSize: 11, fontWeight: 700, color: t.txt }}>{device.name}</span>
                       <CopyIconButton value={device.name} size={18} color={t.accent} title="Copy device name" />
                       <span style={{ fontSize: 9, color: "#64748b", fontFamily: "monospace" }}>{device.deviceId}</span>
@@ -1567,7 +1582,9 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
         {/* Name banner */}
         <div style={{ background: t.card, borderRadius: 10, padding: "11px 14px", border: `1px solid ${t.cardB}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: t.txt }}>{selected.name}</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: t.txt, display: "flex", alignItems: "center", gap: 6 }}>
+              <FavoriteBadge starred={selected.starred} size={15} />{selected.name}
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
               <div style={{ fontSize: 9, color: "#94a3b8", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.deviceId}</div>
               <CopyIconButton value={selected.deviceId} size={22} color={t.accent} title="Copy Device ID" />
@@ -1911,8 +1928,8 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
 
                 {/* Card header */}
                 <div style={{ padding: "8px 10px 8px 14px", borderBottom: `1px solid ${t.cardB}`, background: t.hdr, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                  <span style={{ fontWeight: 800, fontSize: 13, color: t.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {filtered.length - idx}.&nbsp;{device.name}
+                  <span style={{ fontWeight: 800, fontSize: 13, color: t.txt, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    {filtered.length - idx}.&nbsp;<FavoriteBadge starred={device.starred} size={13} />{device.name}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
                     <button onClick={e => void toggleLike(device, e)} disabled={starringId === device.deviceId} style={{ background: "none", border: "none", cursor: starringId === device.deviceId ? "wait" : "pointer", padding: "4px", borderRadius: 5, display: "flex", alignItems: "center", opacity: starringId === device.deviceId ? 0.5 : 1 }} title={device.starred ? "Unlike" : "Like"}>
