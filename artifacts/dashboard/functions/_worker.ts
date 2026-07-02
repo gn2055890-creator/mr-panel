@@ -818,8 +818,12 @@ app.delete("/api/apps/:appId", async (c) => {
 app.post("/api/apps/:appId/verify-pin", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.param("appId");
+  const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
+
+  const rl = checkPinRateLimit(ip, appId);
+  if (rl.blocked) return c.json({ error: "Too many failed attempts. Try again after 15 minutes." }, 429);
 
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
@@ -830,8 +834,10 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
   if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
 
   if (row.pin !== body.pin) {
+    recordPinFail(ip, appId);
     return c.json({ error: "Wrong PIN." }, 401);
   }
+  clearPinFail(ip, appId);
   return c.json({ ok: true, appId: row.appId, name: row.name });
 });
 
@@ -1374,6 +1380,31 @@ app.post("/api/fcm/online-check", async (c) => {
 // ── Master PIN: DB-driven with 30s in-memory cache ──
 let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
 const _sessionCache = new Map<string, { expiry: number; appId: string }>();
+
+// ── PIN brute-force guard ──
+// Key: "ip:appId" → { count, unlockedAt }
+const _pinFailMap = new Map<string, { count: number; unlockedAt: number }>();
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 min
+
+function pinRateKey(ip: string, appId: string) { return `${ip}:${appId}`; }
+function checkPinRateLimit(ip: string, appId: string): { blocked: boolean; remaining: number } {
+  const key = pinRateKey(ip, appId);
+  const entry = _pinFailMap.get(key);
+  if (!entry) return { blocked: false, remaining: PIN_MAX_ATTEMPTS };
+  if (Date.now() < entry.unlockedAt) return { blocked: true, remaining: 0 };
+  // lockout expired — reset
+  _pinFailMap.delete(key);
+  return { blocked: false, remaining: PIN_MAX_ATTEMPTS };
+}
+function recordPinFail(ip: string, appId: string) {
+  const key = pinRateKey(ip, appId);
+  const entry = _pinFailMap.get(key) ?? { count: 0, unlockedAt: 0 };
+  entry.count += 1;
+  if (entry.count >= PIN_MAX_ATTEMPTS) entry.unlockedAt = Date.now() + PIN_LOCKOUT_MS;
+  _pinFailMap.set(key, entry);
+}
+function clearPinFail(ip: string, appId: string) { _pinFailMap.delete(pinRateKey(ip, appId)); }
 async function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
   if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
@@ -1778,12 +1809,18 @@ app.post("/api/admin/sessions", async (c) => {
   let appId = ""; let pin = "";
   try { const body = await c.req.json() as { appId?: string; pin?: string }; appId = body.appId ?? ""; pin = body.pin ?? ""; } catch {}
   if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
+
+  const rl2 = checkPinRateLimit(ip, appId);
+  if (rl2.blocked) return c.json({ error: "Too many failed attempts. Try again after 15 minutes." }, 429);
+
   const db = getDb(c.env);
   const [appRow] = await db.select({ pin: apps.pin, status: apps.status })
     .from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!appRow || appRow.status !== "active" || appRow.pin !== pin) {
+    recordPinFail(ip, appId);
     return c.json({ error: "Invalid PIN" }, 401);
   }
+  clearPinFail(ip, appId);
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
     [ua, ip, appId],
