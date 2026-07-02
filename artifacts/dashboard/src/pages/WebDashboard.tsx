@@ -877,7 +877,10 @@ function MessagesPage({
     });
   }, [messages, search, filterSensitive, deviceMap]);
 
-  const { visible: visibleMsgsFeed, sentinelRef: feedSentinel, loading: feedLoading } = useInfiniteScroll(filtered, 20, initialCount, onCountChange);
+  const { visible: visibleMsgsFeed, sentinelRef: feedSentinel, loading: feedLoading, resetCount: resetFeed } = useInfiniteScroll(filtered, 20, initialCount, onCountChange);
+
+  // Reset to page 1 whenever search query or sensitive filter changes
+  useEffect(() => { resetFeed(20); }, [search, filterSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Retry-aware scroll restore — see HomePage for rationale.
   useEffect(() => {
