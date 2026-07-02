@@ -464,12 +464,12 @@ function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPi
 }
 
 /* ── App Card ── */
-function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId }: {
+function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, onRegenToken, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId, regenTokenId }: {
   app: App; onEdit: (a: App) => void; onDelete: (a: App) => void;
   onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void;
-  onResetApk: (a: App) => void; onRenew: (a: App) => void;
+  onResetApk: (a: App) => void; onRenew: (a: App) => void; onRegenToken: (a: App) => void;
   copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null;
-  logoutAllId: string | null; resetApkId: string | null; renewId: string | null;
+  logoutAllId: string | null; resetApkId: string | null; renewId: string | null; regenTokenId: string | null;
 }) {
   const isActive = app.status === "active";
   const dt = new Date(app.createdAt);
@@ -525,6 +525,9 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           </button>
           <button onClick={() => onResetApk(app)} disabled={resetApkId === app.appId} title="Reset APK" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#0369a114", border: "1px solid #0369a140", color: "#38bdf8", opacity: resetApkId === app.appId ? 0.45 : 1, cursor: resetApkId === app.appId ? "wait" : "pointer" }}>
             {resetApkId === app.appId ? <Spinner /> : <Ic.Refresh />}
+          </button>
+          <button onClick={() => onRegenToken(app)} disabled={regenTokenId === app.appId} title="Regenerate Link (invalidate old link if leaked)" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#dc262614", border: "1px solid #dc262640", color: "#f87171", opacity: regenTokenId === app.appId ? 0.45 : 1, cursor: regenTokenId === app.appId ? "wait" : "pointer" }}>
+            {regenTokenId === app.appId ? <Spinner /> : <Ic.Key />}
           </button>
           <button onClick={() => onRenew(app)} disabled={renewId === app.appId} title="Renew Licence +30 Days" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#16a34a14", border: "1px solid #16a34a40", color: "#4ade80", opacity: renewId === app.appId ? 0.45 : 1, cursor: renewId === app.appId ? "wait" : "pointer" }}>
             <Ic.CalendarPlus />
@@ -2580,6 +2583,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
   const [logoutAllId, setLogoutAllId] = useState<string | null>(null);
   const [resetApkId, setResetApkId] = useState<string | null>(null);
   const [renewId, setRenewId] = useState<string | null>(null);
+  const [regenTokenId, setRegenTokenId] = useState<string | null>(null);
   const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month">("all");
@@ -2779,6 +2783,24 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     });
   }
 
+  async function regenToken(app: App) {
+    if (!confirm(`Generate a new login link for "${app.name}"?\n\nThe OLD link will stop working immediately, and anyone currently logged in via it will be logged out. Make sure to share the new link with the sub-admin.`)) return;
+    setRegenTokenId(app.appId);
+    try {
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/regenerate-token`, { method: "POST", headers: { "x-master-pin": masterPin } });
+      const j = await r.json() as { ok?: boolean; error?: string; panelToken?: string };
+      if (r.ok && j.panelToken) {
+        setAppList(prev => prev.map(a => a.appId === app.appId ? { ...a, panelToken: j.panelToken! } : a));
+        const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}&pt=${j.panelToken}`;
+        copyToClipboard(url).then(() => {
+          setCopyMsg(p => ({ ...p, [app.appId]: "New link copied!" }));
+          setTimeout(() => setCopyMsg(p => ({ ...p, [app.appId]: "" })), 2500);
+        });
+        alert("✅ New link generated and copied! Old link is now invalid. Share the new link with the sub-admin.");
+      } else alert(`❌ Error: ${j.error ?? "Unknown error"}`);
+    } catch { alert("❌ Network error"); } finally { setRegenTokenId(null); }
+  }
+
   const filteredApps = sortedApps.filter(a => {
     if (dateFilter !== "all") {
       const created = new Date(a.createdAt);
@@ -2971,7 +2993,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {filteredApps.map(app => (
-                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} />
+                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} onRegenToken={regenToken} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} regenTokenId={regenTokenId} />
                 ))}
               </div>
             )}

@@ -1737,6 +1737,24 @@ app.delete("/api/master/apps/:appId", async (c) => {
   return c.json({ ok: true });
 });
 
+// Master admin: rotate an app's panel token — instantly kills the old access link
+// (and every session logged in through it) so a leaked/attacker link stops working.
+app.post("/api/master/apps/:appId/regenerate-token", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const db = getDb(c.env);
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const appId = c.req.param("appId");
+  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  const newToken = crypto.randomUUID();
+  await db.update(apps).set({ panelToken: newToken }).where(eq(apps.appId, appId));
+  // Force-logout every currently active session for this app — the old link's
+  // holder (including an attacker) must not stay logged in after rotation.
+  await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
+  return c.json({ ok: true, panelToken: newToken });
+});
+
 // Master admin: renew app licence +30 days — requires x-master-pin header
 app.post("/api/master/apps/:appId/renew", async (c) => {
   const guard = await checkMasterPin(c as never);
