@@ -1122,7 +1122,7 @@ function GroupsPage({ devices, formData, onOpenDevice, initialCount, onCountChan
                       <CopyIconButton value={device.name} size={18} color={t.accent} title="Copy device name" />
                       <span style={{ fontSize: 9, color: "#64748b", fontFamily: "monospace" }}>{device.deviceId}</span>
                       <CopyIconButton value={device.deviceId} size={18} color={t.accent} title="Copy device ID" />
-                      <span style={{ fontSize: 9, color: "#64748b" }}>
+                      <span style={{ fontSize: 9, fontWeight: device.status !== "uninstalled" && isRecent(device.lastOnline) ? 700 : 400, color: device.status !== "uninstalled" && isRecent(device.lastOnline) ? "#16a34a" : "#64748b" }}>
                         {device.status === "uninstalled" ? "Uninstalled" : timeAgo(device.lastOnline)}
                       </span>
                     </div>
