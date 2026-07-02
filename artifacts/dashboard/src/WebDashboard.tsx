@@ -3402,13 +3402,15 @@ export default function WebDashboard() {
       clearTimeout(timeout);
       if (!silent) setLoading(false);
 
-      // Stage 2 — background-load older messages page-by-page
+      // Stage 2 — background-load older messages page-by-page using cursor pagination
       (async () => {
-        let offset = firstM.length;
-        if (offset < FIRST_PAGE) return;
+        if (firstM.length < FIRST_PAGE) return; // already got all
+        // oldest id from first batch = cursor for next page
+        let cursorId: number | null = firstM.length > 0 ? Math.min(...firstM.map((m: DbMessage) => m.id)) : null;
+        if (!cursorId) return;
         for (;;) {
           try {
-            const r = await apiFetch(`/api/messages?appId=${appId}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: { "x-silent": "1" } });
+            const r = await apiFetch(`/api/messages?appId=${appId}&limit=${PAGE_SIZE}&cursor=${cursorId}`, { headers: { "x-silent": "1" } });
             if (!r.ok) break;
             const page = await r.json() as DbMessage[];
             if (!page.length) break;
@@ -3417,7 +3419,7 @@ export default function WebDashboard() {
               const fresh = page.filter(m => !seen.has(m.id));
               return fresh.length ? [...prev, ...fresh] : prev;
             });
-            offset += page.length;
+            cursorId = Math.min(...page.map((m: DbMessage) => m.id));
             if (page.length < PAGE_SIZE) break;
           } catch { break; }
         }
