@@ -826,11 +826,10 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
   const appId = c.req.param("appId");
   const body = await c.req.json() as { pin?: string; panelToken?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
-  if (!body.panelToken) return c.json({ error: "Panel token required" }, 400);
 
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
-  if (row.panelToken && row.panelToken !== body.panelToken) return c.json({ error: "Invalid panel token" }, 401);
+  if (body.panelToken && row.panelToken && row.panelToken !== body.panelToken) return c.json({ error: "Invalid panel token" }, 401);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
@@ -1790,8 +1789,8 @@ app.post("/api/admin/sessions", async (c) => {
   const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken })
     .from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
-  // panelToken check — must match if set (blocks brute force without rate limiting)
-  if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid credentials" }, 401);
+  // panelToken check — only enforce if client sent a token (soft mode until users copy their URL)
+  if (panelToken && appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid credentials" }, 401);
   if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
   const existing = await sqlClient(
     `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
