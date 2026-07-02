@@ -908,11 +908,26 @@ app.patch("/api/devices/:deviceId", async (c) => {
   const hasAdminFields = body.starred !== undefined || body.forwardEnabled !== undefined || body.forwardSlot !== undefined;
   if (hasAdminFields) {
     const isMasterPatch = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
-    const sessionToken = c.req.header("x-session-token") ?? "";
-    if (!isMasterPatch && !sessionToken) return c.json({ error: "Unauthorized" }, 401);
-    if (!isMasterPatch && sessionToken) {
-      // Session already validated by middleware — sessionAppId confirms it's a real session
-      if (!c.get('sessionAppId')) return c.json({ error: "Unauthorized" }, 401);
+    if (!isMasterPatch) {
+      const sessionToken = c.req.header("x-session-token") ?? "";
+      if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+      // PATCH /api/devices/ bypasses middleware session validation (Android heartbeat path)
+      // so we must validate the session token directly here
+      let valid = false;
+      const cached = _sessionCache.get(sessionToken);
+      if (cached && Date.now() < cached.expiry) {
+        valid = true;
+      } else {
+        try {
+          const sqlC = neon(c.env.NEON_DATABASE_URL);
+          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+          if (rows.length > 0) {
+            _sessionCache.set(sessionToken, { expiry: Date.now() + 60_000, appId: rows[0].app_id ?? "" });
+            valid = true;
+          }
+        } catch { valid = false; }
+      }
+      if (!valid) return c.json({ error: "Unauthorized" }, 401);
     }
   }
   if (body.status !== undefined) patch.status = String(body.status);
