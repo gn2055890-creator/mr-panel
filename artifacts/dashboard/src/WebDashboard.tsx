@@ -2822,9 +2822,10 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
     if (!pin.trim()) { setPinErr("Enter your PIN."); return; }
     setPhase("verifying"); setPinErr(""); cancelRef.current = false;
     try {
+      const panelToken = localStorage.getItem(`mrrobot_panel_token_${appId}`) ?? new URLSearchParams(window.location.search).get("pt") ?? "";
       const vr = await apiFetch(`/api/apps/${encodeURIComponent(appId)}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, panelToken }),
       });
       if (!vr.ok) { setPhase("idle"); setPinErr("Wrong PIN. Try again."); setPin(""); return; }
 
@@ -2986,28 +2987,20 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true); setErr("");
+    const panelToken = localStorage.getItem(`mrrobot_panel_token_${appId}`) ?? new URLSearchParams(window.location.search).get("pt") ?? "";
     try {
       // Step 1: verify PIN
       const r = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
+        body: JSON.stringify({ pin, panelToken }),
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         const apiErr = (j as { error?: string }).error ?? "";
-        if (r.status === 429) {
-          // Parse seconds from "Try again in X sec." or "Locked for 2 min."
-          const secMatch = apiErr.match(/(\d+)\s*sec/);
-          const minMatch = apiErr.match(/(\d+)\s*min/);
-          const secs = secMatch ? parseInt(secMatch[1]) : minMatch ? parseInt(minMatch[1]) * 60 : 120;
-          setLockSecs(secs);
-          setErr("");
-          setPin(""); return;
-        }
         setErr(
           apiErr.includes("expired") || apiErr.includes("Licence") ? "Login restricted. Please contact admin." :
           apiErr.includes("disabled") ? "Login restricted. Please contact admin." :
-          apiErr.includes("attempt") ? apiErr :
+          apiErr.includes("token") ? "Invalid panel link. Please use the correct login URL." :
           "Wrong PIN. Try again."
         );
         setPin(""); return;
@@ -3016,7 +3009,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
       // Step 2: create session — required for data access
       const sessR = await apiFetch("/api/admin/sessions", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId, pin }),
+        body: JSON.stringify({ appId, pin, panelToken }),
       }).catch(() => null);
 
       if (!sessR || !sessR.ok) {
@@ -3025,6 +3018,8 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
       }
       const { sessionId } = await sessR.json();
       localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
+      // Persist panelToken so it survives page refreshes
+      if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
 
       // Both steps passed — set auth
       localStorage.setItem(`mrrobot_auth_${appId}`, "1");
