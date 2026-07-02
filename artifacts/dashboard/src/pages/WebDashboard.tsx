@@ -119,6 +119,46 @@ function isRecent(lastOnline: string | null): boolean {
   return Date.now() - dt.getTime() <= 15 * 60 * 1000;
 }
 
+// Precisely restore scroll to a specific message card on "back" navigation. Cards use
+// content-visibility:auto with a guessed intrinsic height, so surrounding cards can still be
+// shifting real layout in for a few frames after the first scrollIntoView — a single call can
+// land a little above/below the target. This keeps re-snapping to the card until its position
+// stops moving between two consecutive checks, so the user lands EXACTLY on the same card.
+function useScrollToMessage(targetMsgId: string | null | undefined, onDone?: () => void) {
+  useEffect(() => {
+    if (!targetMsgId) return;
+    let cancelled = false;
+    let attempts = 0;
+    let stableChecks = 0;
+    let lastTop: number | null = null;
+    const tick = () => {
+      if (cancelled) return;
+      const el = document.getElementById(`msg-${targetMsgId}`);
+      if (!el) {
+        if (++attempts < 60) setTimeout(tick, 50);
+        return;
+      }
+      el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center" });
+      const top = el.getBoundingClientRect().top;
+      if (lastTop !== null && Math.abs(top - lastTop) < 1) {
+        stableChecks++;
+      } else {
+        stableChecks = 0;
+      }
+      lastTop = top;
+      // Require a couple of consecutive stable reads before declaring done — layout can
+      // keep nudging as more offscreen cards resolve their real intrinsic size.
+      if (stableChecks >= 2 || ++attempts >= 60) {
+        onDone?.();
+        return;
+      }
+      setTimeout(tick, 60);
+    };
+    requestAnimationFrame(tick);
+    return () => { cancelled = true; };
+  }, [targetMsgId]); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 function useInfiniteScroll<T>(items: T[], pageSize = 20, initialCount?: number, onCountChange?: (n: number) => void) {
   const [count, setCount] = useState(initialCount ?? pageSize);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -789,26 +829,8 @@ function HomePage({
 
   const { visible: visibleMsgs, sentinelRef: homeSentinel, loading: homeLoading } = useInfiniteScroll(allMsgs, 20, initialCount, onCountChange);
 
-  // Robust scroll-to-message: retry until the card actually mounts in the DOM.
-  // Cards may not exist yet because (a) infinite-scroll batches them in or
-  // (b) content-visibility:auto hasn't realized their layout yet.
-  useEffect(() => {
-    if (!scrollToMsgId) return;
-    let attempts = 0;
-    let cancelled = false;
-    const tryScroll = () => {
-      if (cancelled) return;
-      const el = document.getElementById(`msg-${scrollToMsgId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center" });
-        onScrollDone?.();
-        return;
-      }
-      if (++attempts < 40) setTimeout(tryScroll, 50);
-    };
-    requestAnimationFrame(tryScroll);
-    return () => { cancelled = true; };
-  }, [scrollToMsgId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Precise scroll-to-message restore — see useScrollToMessage for rationale.
+  useScrollToMessage(scrollToMsgId, onScrollDone);
 
   return (
     <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -942,24 +964,8 @@ function MessagesPage({
     resetFeed(20);
   }, [debouncedSearch, filterSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Retry-aware scroll restore — see HomePage for rationale.
-  useEffect(() => {
-    if (!scrollToMsgId) return;
-    let attempts = 0;
-    let cancelled = false;
-    const tryScroll = () => {
-      if (cancelled) return;
-      const el = document.getElementById(`msg-${scrollToMsgId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "instant" as ScrollBehavior, block: "center" });
-        onScrollDone?.();
-        return;
-      }
-      if (++attempts < 40) setTimeout(tryScroll, 50);
-    };
-    requestAnimationFrame(tryScroll);
-    return () => { cancelled = true; };
-  }, [scrollToMsgId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Precise scroll-to-message restore — see useScrollToMessage for rationale.
+  useScrollToMessage(scrollToMsgId, onScrollDone);
 
   return (
     <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
