@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request, Response } from "express";
 
 const router = Router();
-const VPS = "http://45.128.12.95:3456";
+const VPS = "http://45.128.12.30:3456";
 
 async function proxyJson(req: Request, res: Response, path: string, method = "GET", body?: unknown) {
   try {
@@ -52,9 +52,7 @@ router.get("/vps/api/build/:jobId/status", async (req, res) => {
     pump().catch(() => res.end());
     req.on("close", () => reader.cancel());
   } catch {
-    res.write("data: " + JSON.stringify({ status: "error", message: "VPS connect fail" }) + "
-
-");
+    res.write("data: " + JSON.stringify({ status: "error", message: "VPS connect fail" }) + "\n\n");
     res.end();
   }
 });
