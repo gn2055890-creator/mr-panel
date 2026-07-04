@@ -3937,11 +3937,14 @@ export default function WebDashboard() {
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                     </svg>
-                    <span>✅ Bypass fix ho gaya hai! Sirf "Generate Shoot URL" feature abhi band hai — subah tak ye bhi fix ho jayega</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Bypass fix ho gaya hai! Sirf "Generate Shoot URL" feature abhi band hai — subah tak ye bhi fix ho jayega</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
-                    <span>⚠️ Agar website se bypass mein koi dikkat aaye toh bot ka use karo — bot bilkul sahi chal raha hai</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>Agar website se bypass mein koi dikkat aaye toh bot ka use karo — bot bilkul sahi chal raha hai</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
-                    <span>✅ Bypass is back and working! If you face any issue on website, use the bot — bot is working perfectly</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Bypass is back and working! If you face any issue on website, use the bot — bot is working perfectly</span>
                   </span>
                 ))}
               </div>
