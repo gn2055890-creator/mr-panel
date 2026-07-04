@@ -3939,7 +3939,9 @@ export default function WebDashboard() {
                     </svg>
                     <span>✅ Bypass fix ho gaya hai! Sirf "Generate Shoot URL" feature abhi band hai — subah tak ye bhi fix ho jayega</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
-                    <span>✅ Bypass is back and working! Only "Generate Shoot URL" feature is temporarily down — will be fixed by morning</span>
+                    <span>⚠️ Agar website se bypass mein koi dikkat aaye toh bot ka use karo — bot bilkul sahi chal raha hai</span>
+                    <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
+                    <span>✅ Bypass is back and working! If you face any issue on website, use the bot — bot is working perfectly</span>
                   </span>
                 ))}
               </div>
