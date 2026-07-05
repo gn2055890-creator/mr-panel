@@ -2204,6 +2204,11 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [dpShowToggleDialog, setDpShowToggleDialog] = useState(false);
   const [dpShowChangePinDialog, setDpShowChangePinDialog] = useState(false);
 
+  /* ── APK download state ── */
+  const [apkLoading, setApkLoading] = useState(false);
+  const [apkError, setApkError] = useState("");
+  const [apkSuccess, setApkSuccess] = useState(false);
+
   useEffect(() => {
     fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store" })
       .then(r => r.json())
@@ -2475,26 +2480,78 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>
                 {isZT ? "Install the ZERO TRACE Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install." : "Install the MR ROBOT Android app on a device. Tap the button below to download the latest APK, then open it on your phone to install."}
               </div>
-              <a
-                href={`https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(appId)}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                disabled={apkLoading}
+                onClick={async () => {
+                  setApkError("");
+                  setApkSuccess(false);
+                  setApkLoading(true);
+                  try {
+                    const res = await fetch(`https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(appId)}`);
+                    if (!res.ok) {
+                      let msg = `Error ${res.status}`;
+                      try { const j = await res.json(); msg = j.detail || j.error || msg; } catch {}
+                      setApkError(msg);
+                      return;
+                    }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "MR_ROBOT.apk"; a.click();
+                    URL.revokeObjectURL(url);
+                    setApkSuccess(true);
+                  } catch (e: unknown) {
+                    setApkError(e instanceof Error ? e.message : "Download failed");
+                  } finally {
+                    setApkLoading(false);
+                  }
+                }}
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 18px", borderRadius: 8,
-                  background: isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  background: apkLoading ? t.muted : isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: "#fff", fontWeight: 700, fontSize: 13,
-                  textDecoration: "none", boxShadow: isZT ? "0 4px 14px rgba(29,78,216,0.45)" : "0 4px 14px rgba(99,102,241,0.45)",
-                  cursor: "pointer", border: "none",
+                  boxShadow: apkLoading ? "none" : isZT ? "0 4px 14px rgba(29,78,216,0.45)" : "0 4px 14px rgba(99,102,241,0.45)",
+                  cursor: apkLoading ? "not-allowed" : "pointer", border: "none", width: "100%",
+                  opacity: apkLoading ? 0.7 : 1, transition: "all 0.2s",
                 }}
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                Download APK
-              </a>
+                {apkLoading ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    Building APK...
+                  </>
+                ) : (
+                  <>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Download APK
+                  </>
+                )}
+              </button>
+              {apkError && (
+                <div style={{
+                  background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)",
+                  borderRadius: 8, padding: "10px 12px", fontSize: 12,
+                  color: "#ef4444", lineHeight: 1.5, wordBreak: "break-word",
+                }}>
+                  <strong>⚠ Build failed:</strong> {apkError}
+                </div>
+              )}
+              {apkSuccess && (
+                <div style={{
+                  background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.35)",
+                  borderRadius: 8, padding: "10px 12px", fontSize: 12,
+                  color: "#22c55e", lineHeight: 1.5,
+                }}>
+                  ✓ APK download ho gaya! Phone pe install karo.
+                </div>
+              )}
               <div style={{ fontSize: 10, color: t.muted, lineHeight: 1.4 }}>
                 You may need to enable "Install from unknown sources" in your phone settings.
               </div>
