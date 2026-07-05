@@ -2487,7 +2487,12 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                   setApkLoading(true);
                   setApkProgress(0);
                   const apkUrl = `https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(appId)}`;
-                  window.open(apkUrl, "_blank");
+                  // Hidden iframe — page white nahi hoga, download seedha trigger
+                  const dlFrame = document.createElement("iframe");
+                  dlFrame.style.display = "none";
+                  dlFrame.src = apkUrl;
+                  document.body.appendChild(dlFrame);
+                  setTimeout(() => { try { document.body.removeChild(dlFrame); } catch {} }, 10000);
                   // Animate progress 0→90% over 100s, then 100% at 120s
                   let pct = 0;
                   const iv = setInterval(() => {
