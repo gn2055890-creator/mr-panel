@@ -2485,36 +2485,27 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 onClick={() => {
                   setApkSuccess(false);
                   setApkLoading(true);
-                  setApkProgress(0);
-                  // pt + baaki sare URL params bhi bhejo taaki APK mein full auth URL jaye
                   const _sp = new URLSearchParams(window.location.search);
                   _sp.delete("appId");
                   const _extra = _sp.toString();
                   const _fullToken = appId + (_extra ? "&" + _extra : "");
                   const apkUrl = `https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(_fullToken)}`;
-                  // Hidden iframe — page white nahi hoga, download seedha trigger
+                  // Hidden iframe — server builds APK (~2 min), browser auto-downloads when server responds
                   const dlFrame = document.createElement("iframe");
                   dlFrame.style.display = "none";
                   dlFrame.src = apkUrl;
                   document.body.appendChild(dlFrame);
-                  setTimeout(() => { try { document.body.removeChild(dlFrame); } catch {} }, 10000);
-                  // Animate progress 0→90% over 100s, then 100% at 120s
-                  let pct = 0;
-                  const iv = setInterval(() => {
-                    pct += pct < 90 ? 1 : 0;
-                    setApkProgress(pct);
-                  }, 1100);
+                  // Show success + remove iframe after 2.5 min
                   setTimeout(() => {
-                    clearInterval(iv);
-                    setApkProgress(100);
                     setApkLoading(false);
                     setApkSuccess(true);
-                  }, 120000);
+                    try { document.body.removeChild(dlFrame); } catch {}
+                  }, 150000);
                 }}
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 18px", borderRadius: 8,
-                  background: apkLoading ? "rgba(99,102,241,0.15)" : isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  background: apkLoading ? "rgba(99,102,241,0.12)" : isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
                   color: apkLoading ? (isZT ? t.accent : "#6366f1") : "#fff",
                   fontWeight: 700, fontSize: 13, border: "none", width: "100%",
                   boxShadow: apkLoading ? "none" : isZT ? "0 4px 14px rgba(29,78,216,0.45)" : "0 4px 14px rgba(99,102,241,0.45)",
@@ -2527,7 +2518,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}>
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                    Processing... {apkProgress}%
+                    Processing...
                   </>
                 ) : (
                   <>
@@ -2541,13 +2532,22 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 )}
               </button>
               {apkLoading && (
-                <div style={{ width: "100%", height: 6, background: "rgba(99,102,241,0.15)", borderRadius: 99, overflow: "hidden" }}>
-                  <div style={{
-                    height: "100%", borderRadius: 99,
-                    background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
-                    width: `${apkProgress}%`, transition: "width 1s linear",
-                  }} />
-                </div>
+                <>
+                  <style>{`
+                    @keyframes apk-indeterminate {
+                      0%   { left: -45%; width: 45%; }
+                      60%  { left: 100%; width: 45%; }
+                      100% { left: 100%; width: 45%; }
+                    }
+                  `}</style>
+                  <div style={{ width: "100%", height: 4, background: "rgba(99,102,241,0.15)", borderRadius: 99, overflow: "hidden", position: "relative" }}>
+                    <div style={{
+                      position: "absolute", top: 0, height: "100%", borderRadius: 99,
+                      background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                      animation: "apk-indeterminate 1.8s ease-in-out infinite",
+                    }} />
+                  </div>
+                </>
               )}
               {apkSuccess && (
                 <div style={{
