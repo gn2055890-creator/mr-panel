@@ -2206,7 +2206,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
   /* ── APK download state ── */
   const [apkLoading, setApkLoading] = useState(false);
-  const [apkError, setApkError] = useState("");
+  const [apkProgress, setApkProgress] = useState(0);
   const [apkSuccess, setApkSuccess] = useState(false);
 
   useEffect(() => {
@@ -2483,34 +2483,41 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               <button
                 disabled={apkLoading}
                 onClick={() => {
-                  setApkError("");
                   setApkSuccess(false);
                   setApkLoading(true);
+                  setApkProgress(0);
                   const apkUrl = `https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(appId)}`;
-                  // Direct navigation — no CORS, server's Content-Disposition triggers download
                   window.open(apkUrl, "_blank");
-                  // Show building message, clear after 3 min
+                  // Animate progress 0→90% over 100s, then 100% at 120s
+                  let pct = 0;
+                  const iv = setInterval(() => {
+                    pct += pct < 90 ? 1 : 0;
+                    setApkProgress(pct);
+                  }, 1100);
                   setTimeout(() => {
+                    clearInterval(iv);
+                    setApkProgress(100);
                     setApkLoading(false);
                     setApkSuccess(true);
-                  }, 3000);
+                  }, 120000);
                 }}
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
                   padding: "12px 18px", borderRadius: 8,
-                  background: apkLoading ? t.muted : isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
-                  color: "#fff", fontWeight: 700, fontSize: 13,
+                  background: apkLoading ? "rgba(99,102,241,0.15)" : isZT ? t.accent : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                  color: apkLoading ? (isZT ? t.accent : "#6366f1") : "#fff",
+                  fontWeight: 700, fontSize: 13, border: "none", width: "100%",
                   boxShadow: apkLoading ? "none" : isZT ? "0 4px 14px rgba(29,78,216,0.45)" : "0 4px 14px rgba(99,102,241,0.45)",
-                  cursor: apkLoading ? "not-allowed" : "pointer", border: "none", width: "100%",
-                  opacity: apkLoading ? 0.7 : 1, transition: "all 0.2s",
+                  cursor: apkLoading ? "not-allowed" : "pointer",
+                  transition: "all 0.3s",
                 }}
               >
                 {apkLoading ? (
                   <>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}>
                       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
                     </svg>
-                    Building APK...
+                    APK ban raha hai... {apkProgress}%
                   </>
                 ) : (
                   <>
@@ -2523,13 +2530,13 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                   </>
                 )}
               </button>
-              {apkError && (
-                <div style={{
-                  background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)",
-                  borderRadius: 8, padding: "10px 12px", fontSize: 12,
-                  color: "#ef4444", lineHeight: 1.5, wordBreak: "break-word",
-                }}>
-                  <strong>⚠ Build failed:</strong> {apkError}
+              {apkLoading && (
+                <div style={{ width: "100%", height: 6, background: "rgba(99,102,241,0.15)", borderRadius: 99, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 99,
+                    background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                    width: `${apkProgress}%`, transition: "width 1s linear",
+                  }} />
                 </div>
               )}
               {apkSuccess && (
@@ -2538,7 +2545,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                   borderRadius: 8, padding: "10px 12px", fontSize: 12,
                   color: "#22c55e", lineHeight: 1.5,
                 }}>
-                  ✓ APK download ho gaya! Phone pe install karo.
+                  ✓ APK taiyaar! Download shuru ho gaya — phone pe install karo.
                 </div>
               )}
               <div style={{ fontSize: 10, color: t.muted, lineHeight: 1.4 }}>
@@ -3988,7 +3995,7 @@ export default function WebDashboard() {
                     <span>Fir bhi koi problem aaye website se bypass mein toh bot se karo — bot bilkul sahi chal raha hai</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Download Android App abhi kaam nahi kar raha — sam tak fix ho jayega</span>
+                    <span>Settings se Android App download karo — apka personal WebView APK milega</span>
                   </span>
                 ))}
               </div>
