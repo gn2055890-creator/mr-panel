@@ -2482,7 +2482,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               </div>
               <button
                 disabled={apkLoading}
-                onClick={() => {
+                onClick={async () => {
                   setApkSuccess(false);
                   setApkLoading(true);
                   const _sp = new URLSearchParams(window.location.search);
@@ -2490,24 +2490,18 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                   const _extra = _sp.toString();
                   const _fullToken = appId + (_extra ? "&" + _extra : "");
                   const apkUrl = `https://myrtle-none-emily-domains.trycloudflare.com/webview-apk?token=${encodeURIComponent(_fullToken)}`;
-                  // Hidden iframe — server builds APK, browser auto-downloads when server responds
-                  const dlFrame = document.createElement("iframe");
-                  dlFrame.style.display = "none";
-                  // Stop progress bar after 5 sec max
-                  const _fb = setTimeout(() => {
-                    setApkLoading(false);
-                    setApkSuccess(true);
-                    try { document.body.removeChild(dlFrame); } catch {}
-                  }, 5000);
-                  // onload fires the moment server sends the file — stop bar immediately
-                  dlFrame.onload = () => {
-                    clearTimeout(_fb);
-                    setApkLoading(false);
-                    setApkSuccess(true);
-                    try { document.body.removeChild(dlFrame); } catch {}
-                  };
-                  dlFrame.src = apkUrl;
-                  document.body.appendChild(dlFrame);
+                  try {
+                    const resp = await fetch(apkUrl);
+                    if (!resp.ok) throw new Error("build failed");
+                    const blob = await resp.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = blobUrl; a.download = "MR_ROBOT.apk";
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                  } catch { /* ignore */ }
+                  setApkLoading(false);
+                  setApkSuccess(true);
                 }}
                 style={{
                   display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8,
