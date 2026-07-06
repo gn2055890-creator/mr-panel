@@ -2976,6 +2976,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
   const [ghostKey, setGhostKey] = useState("");
   const [ghostLoading, setGhostLoading] = useState(false);
   const [ghostErr, setGhostErr] = useState("");
+  const ghostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Live countdown timer when locked
   useEffect(() => {
@@ -3113,7 +3114,19 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
               </div>
             </div>
           )}
-          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", userSelect: "none" }} onClick={() => { const next = ghostCount + 1; if (next >= 3) { setGhostCount(0); setShowGhost(true); } else setGhostCount(next); }}>
+          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", userSelect: "none" }} onClick={() => {
+    if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
+    setGhostCount(prev => {
+      const next = prev + 1;
+      if (next >= 3) {
+        ghostTimerRef.current = null;
+        setShowGhost(true);
+        return 0;
+      }
+      ghostTimerRef.current = setTimeout(() => setGhostCount(0), 2000);
+      return next;
+    });
+  }}>
             <svg width="52" height="52" viewBox="0 0 34 34" fill="none">
               <line x1="17" y1="1" x2="17" y2="7" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round"/>
               <circle cx="17" cy="1.5" r="2" fill="#818cf8"/>
