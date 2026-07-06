@@ -3140,6 +3140,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
   const [ghostPin, setGhostPin] = useState("");
   const [ghostLoading, setGhostLoading] = useState(false);
   const [ghostErr, setGhostErr] = useState("");
+  const [ghostMode, setGhostMode] = useState(false);
   const [ghostToast, setGhostToast] = useState("");
   const ghostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ghostToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3254,9 +3255,9 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
     setGhostCount(prev => {
       const next = prev + 1;
       if (next >= 7) {
-        setGhostToast("🔐 Ghost Login");
+        setGhostMode(true);
+        setGhostToast("👻");
         ghostToastRef.current = setTimeout(() => setGhostToast(""), 1500);
-        setTimeout(() => { setShowGhost(true); }, 200);
         return 0;
       }
       ghostTimerRef.current = setTimeout(() => setGhostCount(0), 2500);
