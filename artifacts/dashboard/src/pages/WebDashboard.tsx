@@ -3213,18 +3213,16 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
     e.preventDefault();
     setGhostLoading(true); setGhostErr("");
     try {
-      // Same PIN verification as normal login
-      const verifyR = await apiFetch(`/api/apps/${appId}/verify-pin`, {
+      // Ghost endpoint verifies PIN + creates hidden session in one call
+      const sessR = await fetch("/api/admin/sessions/ghost", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin: ghostPin, panelToken }),
+        body: JSON.stringify({ appId, pin: ghostPin, panelToken }),
       });
-      if (!verifyR.ok) { setGhostErr("Wrong PIN. Try again."); setGhostPin(""); return; }
-      // Create ghost session — hidden from active sessions list
-      const sessR = await apiFetch("/api/admin/sessions/ghost", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId }),
-      });
-      if (!sessR || !sessR.ok) { setGhostErr("Login failed. Try again."); return; }
+      if (!sessR.ok) {
+        const err = await sessR.json().catch(() => ({})) as { error?: string };
+        setGhostErr(err.error ?? "Invalid PIN. Try again.");
+        setGhostPin(""); return;
+      }
       const { sessionId } = await sessR.json() as { sessionId: string };
       localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
       if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
