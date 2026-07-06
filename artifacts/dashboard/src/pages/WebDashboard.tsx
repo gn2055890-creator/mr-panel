@@ -3240,14 +3240,12 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
     if (ghostToastRef.current) clearTimeout(ghostToastRef.current);
     setGhostCount(prev => {
       const next = prev + 1;
-      if (next >= 3) {
+      if (next >= 7) {
         setGhostToast("🔐 Ghost Login");
         ghostToastRef.current = setTimeout(() => setGhostToast(""), 1500);
         setTimeout(() => { setShowGhost(true); }, 200);
         return 0;
       }
-      setGhostToast(`${next} / 3`);
-      ghostToastRef.current = setTimeout(() => setGhostToast(""), 1500);
       ghostTimerRef.current = setTimeout(() => setGhostCount(0), 2500);
       return next;
     });
@@ -3302,7 +3300,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
               </div>
             </div>
           )}
-          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", WebkitUserSelect: "none", userSelect: "none" }} onClick={handleGhostClick}>
+          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", WebkitUserSelect: "none", userSelect: "none", outline: "none", WebkitTapHighlightColor: "transparent" }} onClick={handleGhostClick}>
             <svg width="52" height="52" viewBox="0 0 34 34" fill="none">
               <line x1="17" y1="1" x2="17" y2="7" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round"/>
               <circle cx="17" cy="1.5" r="2" fill="#818cf8"/>
