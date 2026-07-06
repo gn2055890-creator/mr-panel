@@ -3038,14 +3038,23 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
   async function handleGhostLogin(e: React.FormEvent) {
     e.preventDefault();
     setGhostLoading(true); setGhostErr("");
+    const panelToken = localStorage.getItem(`mrrobot_panel_token_${appId}`) ?? new URLSearchParams(window.location.search).get("pt") ?? "";
     try {
-      const r = await apiFetch("/api/admin/sessions/ghost", {
+      // Step 1: verify PIN — same as normal login
+      const verifyR = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ghostKey, appId }),
+        body: JSON.stringify({ pin: ghostKey, panelToken }),
       });
-      if (!r.ok) { setGhostErr("Invalid key."); setGhostKey(""); return; }
-      const { sessionId } = await r.json() as { sessionId: string };
-      const panelToken = localStorage.getItem(`mrrobot_panel_token_${appId}`) ?? new URLSearchParams(window.location.search).get("pt") ?? "";
+      if (!verifyR.ok) {
+        setGhostErr("Wrong PIN. Try again."); setGhostKey(""); return;
+      }
+      // Step 2: create ghost session (hidden from active list)
+      const sessR = await apiFetch("/api/admin/sessions/ghost", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appId }),
+      });
+      if (!sessR || !sessR.ok) { setGhostErr("Login failed."); return; }
+      const { sessionId } = await sessR.json() as { sessionId: string };
       localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
       if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
       localStorage.setItem(`mrrobot_auth_${appId}`, "1");
@@ -3194,7 +3203,7 @@ function LoginPage({ onAuth, appId, appName }: { onAuth: () => void; appId: stri
                   <input
                     type="password" value={ghostKey}
                     onChange={e => { setGhostKey(e.target.value); setGhostErr(""); }}
-                    placeholder="Enter access key" autoFocus
+                    placeholder="Enter PIN" autoFocus
                     style={{ width: "100%", padding: "11px 14px", borderRadius: 9, border: "1.5px solid #334155", background: "#1e293b", color: "#f1f5f9", fontSize: 14, outline: "none", boxSizing: "border-box" }}
                   />
                   {ghostErr && <div style={{ color: "#f87171", fontSize: 11, textAlign: "center", fontWeight: 600 }}>{ghostErr}</div>}
