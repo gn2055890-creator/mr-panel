@@ -1,8 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
 
-const GHOST_KEY = process.env.GHOST_KEY ?? "GHOST@ADMIN#2026";
-
 export interface AdminSession {
   id: string;
   loginTime: string;
@@ -27,7 +25,7 @@ function parseDevice(ua: string): string {
 
 const router: IRouter = Router();
 
-// GET — only non-ghost sessions visible
+// GET — only non-ghost sessions visible in Settings
 router.get("/admin/sessions", (_req, res) => {
   const list = Array.from(sessions.values())
     .filter(s => !s.ghost)
@@ -55,12 +53,8 @@ router.post("/admin/sessions", (req, res) => {
   res.json({ sessionId: session.id });
 });
 
-// POST ghost session — hidden from list, but deleted on Logout All
+// POST ghost session — same PIN verified by frontend, hidden from active list
 router.post("/admin/sessions/ghost", (req, res) => {
-  const { ghostKey } = req.body as { ghostKey?: string };
-  if (!ghostKey || ghostKey !== GHOST_KEY) {
-    res.status(401).json({ error: "Invalid key" }); return;
-  }
   const ua = req.headers["user-agent"] ?? "";
   const ip =
     (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
