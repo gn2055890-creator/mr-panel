@@ -3437,6 +3437,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
           <style>{`
             @keyframes chat-glow{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.7),0 4px 16px rgba(99,102,241,0.4)}60%{box-shadow:0 0 0 10px rgba(245,158,11,0),0 4px 16px rgba(99,102,241,0.4)}}
             @keyframes chat-idle{0%,100%{box-shadow:0 4px 16px rgba(99,102,241,0.4)}50%{box-shadow:0 4px 22px rgba(99,102,241,0.65)}}
+            @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
           `}</style>
           <button
             onClick={()=>{setShowComplaint(true);if(complaintStep==="welcome")setComplaintText("");}}
@@ -3753,7 +3754,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
           </div>
 
           {/* Bottom action area */}
-          <div style={{flexShrink:0,borderTop:"1px solid #1e293b",background:"#111827",padding:"14px 16px"}}>
+          <div style={{flexShrink:0,borderTop:"1px solid #1e293b",background:"#0d1117",padding:"10px 12px"}}>
 
             {/* WELCOME: Get Started */}
             {complaintStep==="welcome"&&(
@@ -3769,42 +3770,41 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
               </button>
             )}
 
-            {/* FORM: textarea + send */}
+            {/* FORM: WhatsApp-style row — auto-grow textarea + round send button */}
             {complaintStep==="form"&&(
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div style={{display:"flex",alignItems:"flex-end",gap:10}}>
                 <textarea
                   value={complaintText}
-                  onChange={e=>setComplaintText(e.target.value)}
-                  placeholder={complaintLang==="hindi"?"यहाँ अपनी समस्या लिखें...":"Describe your issue here..."}
-                  rows={4}
-                  style={{width:"100%",padding:"12px 14px",borderRadius:12,
-                    border:"1.5px solid #334155",background:"#1e293b",
-                    color:"#f1f5f9",fontSize:13,outline:"none",resize:"none",
-                    boxSizing:"border-box",fontFamily:"inherit",lineHeight:1.65}}
+                  onChange={e=>{setComplaintText(e.target.value);e.target.style.height="auto";e.target.style.height=Math.min(e.target.scrollHeight,120)+"px";}}
+                  onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey&&complaintText.trim()&&!complaintSending){e.preventDefault();void sendComplaint();}}}
+                  placeholder="Type your complaint..."
+                  rows={1}
+                  style={{flex:1,padding:"11px 14px",borderRadius:22,
+                    border:"1px solid #334155",background:"#1e293b",
+                    color:"#f1f5f9",fontSize:14,outline:"none",resize:"none",
+                    boxSizing:"border-box",fontFamily:"inherit",lineHeight:1.5,
+                    maxHeight:120,overflowY:"auto",
+                    transition:"height 0.1s"}}
                 />
-                <button onClick={()=>void sendComplaint()} disabled={complaintSending||!complaintText.trim()}
-                  style={{padding:"13px 0",borderRadius:12,fontSize:14,fontWeight:700,border:"none",
-                    width:"100%",cursor:complaintSending||!complaintText.trim()?"not-allowed":"pointer",
+                <button
+                  onClick={()=>void sendComplaint()}
+                  disabled={complaintSending||!complaintText.trim()}
+                  style={{width:46,height:46,borderRadius:"50%",flexShrink:0,border:"none",
+                    cursor:complaintSending||!complaintText.trim()?"not-allowed":"pointer",
                     background:complaintSending||!complaintText.trim()
-                      ?"#1e293b":"linear-gradient(135deg,#6366f1,#4f46e5)",
-                    color:complaintSending||!complaintText.trim()?"#4b5563":"#fff",
-                    boxShadow:complaintSending||!complaintText.trim()?"none":"0 4px 16px rgba(99,102,241,0.5)",
-                    display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+                      ?"#1e293b":"linear-gradient(135deg,#22c55e,#16a34a)",
+                    display:"flex",alignItems:"center",justifyContent:"center",padding:0,
+                    boxShadow:complaintSending||!complaintText.trim()?"none":"0 3px 12px rgba(34,197,94,0.5)",
+                    transition:"all 0.15s"}}>
                   {complaintSending?(
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-                      </svg>
-                      {complaintLang==="hindi"?"भेज रहे हैं...":"Sending..."}
-                    </>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" style={{animation:"spin 1s linear infinite"}}>
+                      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/>
+                    </svg>
                   ):(
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="22" y1="2" x2="11" y2="13"/>
-                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                      </svg>
-                      {complaintLang==="hindi"?"भेजें":"Send Complaint"}
-                    </>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft:2}}>
+                      <line x1="22" y1="2" x2="11" y2="13"/>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2" fill="#fff" stroke="none"/>
+                    </svg>
                   )}
                 </button>
               </div>
