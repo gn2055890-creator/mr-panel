@@ -2818,16 +2818,18 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       const spaceIdx = afterCmd.indexOf(' ');
       const replyAppId = spaceIdx > 0 ? afterCmd.slice(0, spaceIdx) : afterCmd;
       const replyMsg  = spaceIdx > 0 ? afterCmd.slice(spaceIdx + 1).trim() : '';
+      // Always reply to admin's private chat (msg.from.id) — works even when command is sent from a group/channel
+      const adminPrivateChatId = msg.from?.id ?? chatId;
       if (!replyAppId || !replyMsg) {
-        await tgReply(token, chatId, '❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nExample: /reply APP-XXX We are looking into your issue.');
+        await tgReply(token, adminPrivateChatId, '❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nExample: /reply APP-XXX We are looking into your issue.');
         return c.json({ ok: true });
       }
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
         const safeMsgPreview = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        await tgReply(token, chatId, `✅ Reply sent to <code>${replyAppId}</code>:\n"${safeMsgPreview}"`);
-      } catch (e) { await tgReply(token, chatId, `❌ Error: ${String(e)}`); }
+        await tgReply(token, adminPrivateChatId, `✅ Reply sent to <code>${replyAppId}</code>:\n"${safeMsgPreview}"`);
+      } catch (e) { await tgReply(token, adminPrivateChatId, `❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
 
