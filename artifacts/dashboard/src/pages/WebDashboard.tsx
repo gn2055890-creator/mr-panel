@@ -2487,7 +2487,6 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
             <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.65 }}>
               Agar aapka <strong style={{ color: t.txt }}>login link leak</strong> hua hai to yahan se naya generate kar sakte hain.
               Naya link generate karte hi <strong style={{ color: "#ef4444" }}>purana link turant band</strong> ho jayega aur sirf naya link kaam karega.
-              <br/><strong style={{ color: "#f59e0b" }}>Note:</strong> Generate karte hi <strong>10 seconds</strong> ke andar naya link copy kar lo.
             </div>
           </div>
 
