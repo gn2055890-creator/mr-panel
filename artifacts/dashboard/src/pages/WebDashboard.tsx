@@ -3144,9 +3144,7 @@ function fmtSecs(s: number): string {
 function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: string; onDeleted: () => void; msgCount: number }) {
   const t = useTheme();
   const [showDialog, setShowDialog] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinErr, setPinErr] = useState("");
-  const [phase, setPhase] = useState<"idle" | "verifying" | "fetching" | "deleting" | "done" | "err">("idle");
+  const [phase, setPhase] = useState<"idle" | "fetching" | "deleting" | "done" | "err">("idle");
   const [resultMsg, setResultMsg] = useState("");
   const [total, setTotal] = useState(0);
   const [deleted, setDeleted] = useState(0);
@@ -3155,23 +3153,16 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
 
   function openDialog() {
     cancelRef.current = false;
-    setShowDialog(true); setPin(""); setPinErr(""); setPhase("idle"); setResultMsg(""); setTotal(0); setDeleted(0);
+    setShowDialog(true); setPhase("idle"); setResultMsg(""); setTotal(0); setDeleted(0);
   }
   function closeDialog() {
     cancelRef.current = true;
-    setShowDialog(false); setPin(""); setPinErr(""); setPhase("idle"); setResultMsg(""); setTotal(0); setDeleted(0);
+    setShowDialog(false); setPhase("idle"); setResultMsg(""); setTotal(0); setDeleted(0);
   }
 
   async function handleConfirm() {
-    if (!pin.trim()) { setPinErr("Enter your PIN."); return; }
-    setPhase("verifying"); setPinErr(""); cancelRef.current = false;
+    cancelRef.current = false;
     try {
-      const vr = await apiFetch(`/api/apps/${encodeURIComponent(appId)}/verify-pin`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pin }),
-      });
-      if (!vr.ok) { setPhase("idle"); setPinErr("Wrong PIN. Try again."); setPin(""); return; }
-
       // Fetch ALL message IDs for THIS appId only
       setPhase("fetching");
       const PAGE = 5000;
@@ -3246,23 +3237,7 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
               </div>
             </div>
 
-            {phase === "idle" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 700, color: t.txt2 }}>Confirm with your PIN</label>
-                <input type="password" value={pin} onChange={e => { setPin(e.target.value); setPinErr(""); }} onKeyDown={e => e.key === "Enter" && void handleConfirm()} placeholder="Enter PIN" autoFocus
-                  style={{ padding: "10px 12px", borderRadius: 8, border: `1.5px solid ${pinErr ? "#ef4444" : t.cardB}`, background: t.bg, color: t.txt, fontSize: 14, outline: "none", letterSpacing: 3 }} />
-                {pinErr && <div style={{ fontSize: 11, color: "#ef4444" }}>{pinErr}</div>}
-              </div>
-            )}
-
-            {phase === "verifying" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
-                <CircularLoader size={18} color={t.accent} />
-                <span style={{ fontSize: 13, color: t.txt2 }}>Verifying PIN…</span>
-              </div>
-            )}
-
-            {phase === "fetching" && (
+{phase === "fetching" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
                 <CircularLoader size={18} color={t.accent} />
                 <span style={{ fontSize: 13, color: t.txt2 }}>Loading messages for <span style={{ fontFamily: "monospace", color: t.accent }}>{appId}</span>…</span>
