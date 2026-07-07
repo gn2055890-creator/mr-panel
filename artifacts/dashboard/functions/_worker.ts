@@ -2194,6 +2194,12 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
 
   // =================== TELEGRAM BOT COMMANDS ===================
   type TgUpdate = {
+  callback_query?: {
+    id: string;
+    from: { id: number; username?: string };
+    data?: string;
+    message?: { chat: { id: number | string } };
+  };
     update_id: number;
     message?: {
       message_id: number;
@@ -2243,6 +2249,8 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     let body: TgUpdate;
     try { body = await c.req.json() as TgUpdate; } catch { return c.json({ ok: true }); }
 
+    // Callback queries handled by the second webhook route below
+    if (body.callback_query) return c.json({ ok: true });
     const msg = body.message ?? body.channel_post;
     if (!msg?.text) return c.json({ ok: true });
 
@@ -2829,43 +2837,146 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       return c.json({ ok: true });
     }
 
-    // /reply <appId> <message> — send admin reply to sub-admin complaint chat
+    // Helper: resolve bot token from env or DB, send to admin's personal chat
+    const adminNotify = async (text: string, replyMarkup?: object) => {
+      try {
+        let botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
+        let toChat = String(msg.from?.id ?? chatId);
+        if (!botToken) {
+          const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
+          const settMap = Object.fromEntries(settRows.map(r=>[r.key,r.value]));
+          botToken = settMap['telegram_bot_token'] ?? "";
+          if (settMap['telegram_chat_id']) toChat = settMap['telegram_chat_id'];
+        }
+        if (!botToken) return;
+        const payload: Record<string,unknown> = { chat_id: toChat, text, parse_mode: "HTML" };
+        if (replyMarkup) payload.reply_markup = replyMarkup;
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } catch { /* silent */ }
+    };
+
+    // /reply with no message arg → show app list as inline keyboard to select
+    if (txt === '/reply' || txt === '/reply ') {
+      try {
+        const apps = await sqlClient(`SELECT app_id, app_name FROM apps ORDER BY created_at DESC LIMIT 8`) as {app_id:string;app_name:string}[];
+        if (!apps.length) {
+          await adminNotify('❌ No apps found. Create an app first.');
+          return c.json({ ok: true });
+        }
+        const keyboard = apps.map(a => [{
+          text: `${a.app_name ?? a.app_id} — ${a.app_id}`,
+          callback_data: `tglock:${a.app_id}`,
+        }]);
+        keyboard.push([{ text: '🔓 Unlock (clear selection)', callback_data: 'tgunlock' }]);
+        await adminNotify('📱 <b>Select an app to reply to:</b>\nTap one, then just type your message.', {
+          inline_keyboard: keyboard,
+        });
+      } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
+      return c.json({ ok: true });
+    }
+
+    // /reply <appId> <message> — direct reply (old format still works)
     if (txt.startsWith('/reply ')) {
       const afterCmd = txt.slice(7).trim();
       const spaceIdx = afterCmd.indexOf(' ');
       const replyAppId = spaceIdx > 0 ? afterCmd.slice(0, spaceIdx) : afterCmd;
       const replyMsg  = spaceIdx > 0 ? afterCmd.slice(spaceIdx + 1).trim() : '';
-      // Helper: send confirmation — read token from env OR DB (bootstrapped by frontend)
-      const replyNotify = async (text: string) => {
-        try {
-          let botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
-          let confirmChatId = String(msg.from?.id ?? chatId);
-          // If env token missing, read from DB (stored via /api/apps/tg-bootstrap on page load)
-          if (!botToken) {
-            const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
-            const settMap = Object.fromEntries(settRows.map(r=>[r.key,r.value]));
-            botToken = settMap['telegram_bot_token'] ?? "";
-            if (settMap['telegram_chat_id']) confirmChatId = settMap['telegram_chat_id'];
-          }
-          if (!botToken) return;
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chat_id: confirmChatId, text, parse_mode: "HTML" }),
-          });
-        } catch { /* silent fail */ }
-      };
       if (!replyAppId || !replyMsg) {
-        await replyNotify('❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nExample: /reply APP-XXX We are looking into your issue.');
+        await adminNotify('❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nOr just /reply to pick from list.');
         return c.json({ ok: true });
       }
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
-        const safeMsgPreview = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        await replyNotify(`✅ Reply sent!\n📱 App: <code>${replyAppId}</code>\n💬 "${safeMsgPreview}"`);
-      } catch (e) { await replyNotify(`❌ Error: ${String(e)}`); }
+        const safe = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        await adminNotify(`✅ Reply sent!\n📱 <code>${replyAppId}</code>\n💬 "${safe}"`);
+      } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
+    }
+
+    // /unlock — clear app lock for this chat
+    if (txt === '/unlock') {
+      try {
+        await sqlClient(`DELETE FROM tg_app_lock WHERE chat_id = $1`, [String(chatId)]);
+        await adminNotify('🔓 Unlocked. /reply to select a new app.');
+      } catch { /* ignore */ }
+      return c.json({ ok: true });
+    }
+
+    // Plain message (not a command) → check if this chat has a locked app, store reply
+    if (!txt.startsWith('/')) {
+      try {
+        await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
+        const locks = await sqlClient(`SELECT app_id, app_name FROM tg_app_lock WHERE chat_id = $1`, [String(chatId)]) as {app_id:string;app_name:string}[];
+        if (locks.length) {
+          const { app_id, app_name } = locks[0];
+          await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
+          await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [app_id, txt]);
+          const safe = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          await adminNotify(`✅ Reply sent to <b>${app_name ?? app_id}</b>\n💬 "${safe}"\n\n/unlock — change app`);
+        }
+        // No lock = ignore plain messages (don't spam admin with errors)
+      } catch { /* silent */ }
+      return c.json({ ok: true });
+    }
+
+    return c.json({ ok: true });
+  });
+
+  // Handle Telegram callback_query (inline keyboard button taps)
+  app.post("/api/telegram/webhook", async (c) => {
+    let body: TgUpdate;
+    try { body = await c.req.json() as TgUpdate; } catch { return c.json({ ok: true }); }
+    if (!body.callback_query) return c.json({ ok: true });
+
+    const cq = body.callback_query;
+    const cqChatId = String(cq.message?.chat?.id ?? cq.from.id);
+    const data = cq.data ?? '';
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+
+    let botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
+    if (!botToken) {
+      const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
+      const settMap = Object.fromEntries(settRows.map(r=>[r.key,r.value]));
+      botToken = settMap['telegram_bot_token'] ?? "";
+    }
+
+    // Answer callback immediately (removes spinner in Telegram)
+    if (botToken) {
+      await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ callback_query_id: cq.id }),
+      }).catch(() => {});
+    }
+
+    if (data.startsWith('tglock:')) {
+      const appId = data.slice(7);
+      try {
+        const apps = await sqlClient(`SELECT app_name FROM apps WHERE app_id = $1`, [appId]) as {app_name:string}[];
+        const appName = apps[0]?.app_name ?? appId;
+        await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
+        await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, $2, $3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2, app_name=$3, locked_at=now()`, [cqChatId, appId, appName]);
+        if (botToken) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ chat_id: cqChatId, parse_mode: "HTML",
+              text: `🔒 Locked to <b>${appName}</b>\n<code>${appId}</code>\n\nNow just type your reply message directly. /unlock to change.` }),
+          }).catch(() => {});
+        }
+      } catch { /* silent */ }
+    } else if (data === 'tgunlock') {
+      try {
+        await sqlClient(`DELETE FROM tg_app_lock WHERE chat_id = $1`, [cqChatId]);
+        if (botToken) {
+          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ chat_id: cqChatId, text: '🔓 Unlocked. Use /reply to pick an app.' }),
+          }).catch(() => {});
+        }
+      } catch { /* silent */ }
     }
 
     return c.json({ ok: true });
