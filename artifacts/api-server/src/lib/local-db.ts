@@ -14,6 +14,7 @@ export type AppRow = {
   createdAt: string;
   deleteProtectionPin: string | null;
   deleteProtectionEnabled: boolean;
+  panelToken: string | null;
 };
 
 export type DeviceRow = {
@@ -69,6 +70,7 @@ function mapApp(r: typeof apps.$inferSelect): AppRow {
     id: r.id, appId: r.appId, name: r.name, pin: r.pin, status: r.status, createdAt: isoReq(r.createdAt),
     deleteProtectionPin: r.deleteProtectionPin ?? null,
     deleteProtectionEnabled: r.deleteProtectionEnabled ?? false,
+    panelToken: r.panelToken ?? null,
   };
 }
 function mapDevice(r: typeof devices.$inferSelect): DeviceRow {
@@ -120,13 +122,14 @@ export const localDb = {
     if (inserted.length === 0) throw new Error("APP_EXISTS");
     return mapApp(inserted[0]);
   },
-  async updateApp(appId: string, updates: Partial<Pick<AppRow, "name" | "pin" | "status" | "deleteProtectionPin" | "deleteProtectionEnabled">>): Promise<AppRow | undefined> {
+  async updateApp(appId: string, updates: Partial<Pick<AppRow, "name" | "pin" | "status" | "deleteProtectionPin" | "deleteProtectionEnabled" | "panelToken">>): Promise<AppRow | undefined> {
     const patch: Partial<typeof apps.$inferInsert> = {};
     if (updates.name !== undefined) patch.name = updates.name;
     if (updates.pin !== undefined) patch.pin = isHashed(updates.pin) ? updates.pin : hashPin(updates.pin);
     if (updates.status !== undefined) patch.status = updates.status;
     if (updates.deleteProtectionPin !== undefined) patch.deleteProtectionPin = updates.deleteProtectionPin ? (isHashed(updates.deleteProtectionPin) ? updates.deleteProtectionPin : hashPin(updates.deleteProtectionPin)) : null;
     if (updates.deleteProtectionEnabled !== undefined) patch.deleteProtectionEnabled = updates.deleteProtectionEnabled;
+    if (updates.panelToken !== undefined) patch.panelToken = updates.panelToken;
     if (Object.keys(patch).length === 0) return this.getApp(appId);
     const [row] = await db.update(apps).set(patch).where(eq(apps.appId, appId)).returning();
     return row ? mapApp(row) : undefined;
