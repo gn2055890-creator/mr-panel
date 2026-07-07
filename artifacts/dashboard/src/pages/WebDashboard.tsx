@@ -3361,12 +3361,19 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
     });
   }
 
-  // Poll admin replies every 5s while complaint chat is open on askMore/thanks step
+  // Bootstrap: store bot token+chatId in DB so /reply confirmation works
   useEffect(() => {
-    if (!showComplaint || (complaintStep !== "askMore" && complaintStep !== "thanks")) {
-      if (adminReplyPollRef.current) { clearInterval(adminReplyPollRef.current); adminReplyPollRef.current = null; }
-      return;
-    }
+    if (!appId) return;
+    fetch('/api/apps/tg-bootstrap', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({token:'8954718163:AAEqXGTNDGF3a3pTIP_TwxZb_1opKqB6Rrs', chatId:'8711198416'}),
+    }).catch(()=>{});
+  }, [appId]);
+
+  // Poll admin replies every 5s — always active so replies show on login page too
+  useEffect(() => {
+    if (!appId) return;
     const poll = async () => {
       try {
         const r = await fetch(`/api/apps/${encodeURIComponent(appId)}/complaint-replies`);
@@ -3379,7 +3386,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
     poll();
     adminReplyPollRef.current = setInterval(poll, 5000);
     return () => { if (adminReplyPollRef.current) { clearInterval(adminReplyPollRef.current); adminReplyPollRef.current = null; } };
-  }, [showComplaint, complaintStep, appId]);
+  }, [appId]);
 
   async function sendComplaint() {
     if (!complaintText.trim()) return;
@@ -3424,6 +3431,27 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "system-ui,-apple-system,'Segoe UI',sans-serif", padding: 16,
     }}>
+      {/* Admin reply notification — shows on login page when admin has replied */}
+      {adminReplies.length > 0 && !showComplaint && (
+        <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",
+          zIndex:9999,background:"#064e3b",border:"1px solid #059669",borderRadius:14,
+          padding:"12px 18px",maxWidth:340,width:"calc(100% - 32px)",
+          boxShadow:"0 4px 24px rgba(5,150,105,0.35)",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#059669,#047857)",
+            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
+            fontSize:16,fontWeight:800,color:"#fff"}}>A</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#34d399",marginBottom:3,letterSpacing:0.4}}>ADMIN REPLY</div>
+            <div style={{fontSize:13,color:"#ecfdf5",lineHeight:1.4,overflow:"hidden",
+              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{adminReplies[adminReplies.length-1]}</div>
+          </div>
+          <button onClick={()=>setShowComplaint(true)}
+            style={{background:"#059669",border:"none",borderRadius:8,color:"#fff",
+              fontSize:12,fontWeight:700,padding:"6px 12px",cursor:"pointer",flexShrink:0}}>
+            View
+          </button>
+        </div>
+      )}
       <div style={{ width: "100%", maxWidth: 380 }}>
         {/* Card */}
         <div style={{ background: appName === "ZERO TRACE" ? "#f8fafc" : "#111827", borderRadius: 18, padding: "32px 28px", border: appName === "ZERO TRACE" ? "1px solid #bfdbfe" : "1px solid #1e293b", boxShadow: appName === "ZERO TRACE" ? "0 20px 60px rgba(29,78,216,0.14)" : "0 20px 60px #00000080" }}>
