@@ -2500,8 +2500,8 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
           {regenState === "confirm" && (
             <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>Confirm karein?</div>
-              <div style={{ fontSize: 12, color: t.muted }}>Purana login link <strong style={{ color: "#ef4444" }}>permanently invalid</strong> ho jayega. Kya aap sure hain?</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#ef4444" }}>Confirm Action</div>
+              <div style={{ fontSize: 12, color: t.muted }}>The current login link will be <strong style={{ color: "#ef4444" }}>permanently invalidated</strong>. All other active sessions will be logged out. Are you sure?</div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={async () => {
                   setRegenState("loading");
@@ -2526,7 +2526,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                     }, 1000);
                   } catch { setRegenState("idle"); alert("Error generating link. Try again."); }
                 }} style={{ flex: 1, padding: "9px 0", borderRadius: 7, background: "#ef4444", border: "none", color: "#fff", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
-                  Haan, Generate Karo
+                  Yes, Generate New Link
                 </button>
                 <button onClick={() => setRegenState("idle")} style={{ flex: 1, padding: "9px 0", borderRadius: 7, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.muted, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
                   Cancel
