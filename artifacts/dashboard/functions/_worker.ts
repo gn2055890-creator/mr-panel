@@ -2861,19 +2861,9 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     // /reply with no message arg → show app list as inline keyboard to select
     if (txt === '/reply' || txt === '/reply ') {
       try {
-        const apps = await sqlClient(`SELECT app_id, app_name FROM apps ORDER BY created_at DESC LIMIT 8`) as {app_id:string;app_name:string}[];
-        if (!apps.length) {
-          await adminNotify('❌ No apps found. Create an app first.');
-          return c.json({ ok: true });
-        }
-        const keyboard = apps.map(a => [{
-          text: `${a.app_name ?? a.app_id} — ${a.app_id}`,
-          callback_data: `tglock:${a.app_id}`,
-        }]);
-        keyboard.push([{ text: '🔓 Unlock (clear selection)', callback_data: 'tgunlock' }]);
-        await adminNotify('📱 <b>Select an app to reply to:</b>\nTap one, then just type your message.', {
-          inline_keyboard: keyboard,
-        });
+        await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
+        await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, '__pending__', '__pending__') ON CONFLICT (chat_id) DO UPDATE SET app_id='__pending__', app_name='__pending__', locked_at=now()`, [String(chatId)]);
+        await adminNotify('📱 <b>App token daalo:</b>\n<i>Example: APP-XXXX-XXXX</i>\n\n/unlock — cancel karo');
       } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
@@ -2906,20 +2896,34 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       return c.json({ ok: true });
     }
 
-    // Plain message (not a command) → check if this chat has a locked app, store reply
+    // Plain message (not a command) → token entry OR reply based on lock state
     if (!txt.startsWith('/')) {
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
         const locks = await sqlClient(`SELECT app_id, app_name FROM tg_app_lock WHERE chat_id = $1`, [String(chatId)]) as {app_id:string;app_name:string}[];
-        if (locks.length) {
-          const { app_id, app_name } = locks[0];
+        if (!locks.length) { return c.json({ ok: true }); }
+        const { app_id, app_name } = locks[0];
+
+        if (app_id === '__pending__') {
+          // Admin typed a token — verify it
+          const tokenInput = txt.trim().toUpperCase();
+          const found = await sqlClient(`SELECT app_id, name FROM apps WHERE UPPER(app_id) = $1`, [tokenInput]) as {app_id:string;name:string}[];
+          if (!found.length) {
+            await adminNotify(`❌ Token <code>${tokenInput}</code> nahi mila.\nDobara try karo ya /unlock se cancel karo.`);
+          } else {
+            const realAppId = found[0].app_id;
+            const realName  = found[0].name ?? realAppId;
+            await sqlClient(`UPDATE tg_app_lock SET app_id=$1, app_name=$2, locked_at=now() WHERE chat_id=$3`, [realAppId, realName, String(chatId)]);
+            await adminNotify(`✅ Verified! <b>${realName}</b> lock ho gaya.\n<code>${realAppId}</code>\n\nAb seedha reply type karo. /unlock — change app.`);
+          }
+        } else {
+          // App locked — store reply
           await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
           await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [app_id, txt]);
           const safe = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           await adminNotify(`✅ Reply sent to <b>${app_name ?? app_id}</b>\n💬 "${safe}"\n\n/unlock — change app`);
         }
-        // No lock = ignore plain messages (don't spam admin with errors)
-      } catch { /* silent */ }
+      } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
 
@@ -2955,8 +2959,8 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     if (data.startsWith('tglock:')) {
       const appId = data.slice(7);
       try {
-        const apps = await sqlClient(`SELECT app_name FROM apps WHERE app_id = $1`, [appId]) as {app_name:string}[];
-        const appName = apps[0]?.app_name ?? appId;
+        const apps = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`, [appId]) as {name:string}[];
+        const appName = apps[0]?.name ?? appId;
         await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, $2, $3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2, app_name=$3, locked_at=now()`, [cqChatId, appId, appName]);
         if (botToken) {
