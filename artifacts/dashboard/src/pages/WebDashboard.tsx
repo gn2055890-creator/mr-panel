@@ -2563,6 +2563,10 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                       setRegenCountdown(10);
                       const newUrl = `${window.location.origin}${window.location.pathname.split('/').slice(0,-1).join('/') || ''}/WebDashboard?appId=${appId}&pt=${newTk}`;
                       navigator.clipboard.writeText(newUrl).then(() => { setRegenCopied(true); }).catch(() => {});
+                      // Update address bar URL so sharing directly from browser works
+                      history.replaceState({}, "", `?appId=${appId}&pt=${newTk}`);
+                      // Save to localStorage as fallback for this browser
+                      localStorage.setItem(`mrrobot_panel_token_${appId}`, newTk);
                       const iv = setInterval(() => {
                         setRegenCountdown(prev => {
                           if (prev <= 1) { clearInterval(iv); setRegenState("idle"); setRegenToken(""); setRegenCopied(false); return 10; }
