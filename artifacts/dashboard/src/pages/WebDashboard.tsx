@@ -961,6 +961,15 @@ function MessagesPage({
     });
   }, [messages, searchResults, debouncedSearch, filterSensitive, deviceMap, favoritesOnly, recentOnly]);
 
+  // Fetch real total from server (client may have only partial batch loaded)
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  useEffect(() => {
+    apiFetch(`/api/messages/count?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { count?: number } | null) => { if (d?.count !== undefined) setTotalCount(d.count); })
+      .catch(() => {});
+  }, [appId]);
+
   const { visible: visibleMsgsFeed, sentinelRef: feedSentinel, loading: feedLoading, resetCount: resetFeed } = useInfiniteScroll(filtered, 20, initialCount, onCountChange);
 
   // Reset to page 1 whenever the user actually changes search query or sensitive filter —
@@ -993,7 +1002,7 @@ function MessagesPage({
         }}>Sensitive</button>
       </div>
       {/* ── Message count stats bar ── */}
-      {!searching && filtered.length > 0 && (
+      {(filtered.length > 0 || totalCount !== null) && !searching && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 2, paddingBottom: 2 }}>
           {debouncedSearch ? (
             <>
@@ -1002,21 +1011,22 @@ function MessagesPage({
               </span>
               <span style={{ fontSize: 11, color: t.muted }}>·</span>
               <span style={{ fontSize: 11, color: t.muted }}>
-                Total {messages.length} messages
+                Total {totalCount !== null ? totalCount.toLocaleString() : messages.length.toLocaleString()} messages
               </span>
             </>
           ) : (
             <>
-              <span style={{ fontSize: 11, fontWeight: 700, color: t.muted }}>
-                {filtered.length !== messages.length
-                  ? <>{filtered.length} <span style={{ fontWeight: 400 }}>of</span> {messages.length} messages</>
-                  : <>{messages.length} messages</>
-                }
+              <span style={{ fontSize: 11, fontWeight: 600, color: t.muted }}>
+                Total{" "}
+                <span style={{ fontWeight: 700, color: t.txt }}>
+                  {totalCount !== null ? totalCount.toLocaleString() : messages.length.toLocaleString()}
+                </span>
+                {" "}messages
               </span>
               {visibleMsgsFeed.length < filtered.length && (
                 <>
                   <span style={{ fontSize: 11, color: t.muted }}>·</span>
-                  <span style={{ fontSize: 11, color: t.muted }}>Showing {visibleMsgsFeed.length}</span>
+                  <span style={{ fontSize: 11, color: t.muted }}>Showing {visibleMsgsFeed.length.toLocaleString()}</span>
                 </>
               )}
             </>
