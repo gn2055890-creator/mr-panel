@@ -2818,18 +2818,25 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       const spaceIdx = afterCmd.indexOf(' ');
       const replyAppId = spaceIdx > 0 ? afterCmd.slice(0, spaceIdx) : afterCmd;
       const replyMsg  = spaceIdx > 0 ? afterCmd.slice(spaceIdx + 1).trim() : '';
-      // Helper: send confirmation using direct fetch — bypasses sendTelegram guards (paused/focus/cache)
+      // Helper: send confirmation — always to sender (msg.from.id = admin's private chat)
       const replyNotify = async (text: string) => {
         const botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
-        // Try stored chatId first, fall back to sender's chat, then private chat with admin
-        const storedId = await tgChatId(c.env).catch(() => "");
-        const confirmChatId = storedId || String(chatId);
+        // msg.from.id = the admin user ID (works in both private & group chats)
+        const confirmChatId = msg.from?.id ?? chatId;
         try {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          const r = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ chat_id: confirmChatId, text, parse_mode: "HTML" }),
           });
+          // If failed (e.g. channel post with no from.id), try chatId directly
+          if (!r.ok) {
+            await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+            });
+          }
         } catch { /* silent fail */ }
       };
       if (!replyAppId || !replyMsg) {
