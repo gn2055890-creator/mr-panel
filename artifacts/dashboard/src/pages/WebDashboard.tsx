@@ -3163,41 +3163,17 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
   async function handleConfirm() {
     cancelRef.current = false;
     try {
-      // Fetch ALL message IDs for THIS appId only
-      setPhase("fetching");
-      const PAGE = 5000;
-      let allIds: number[] = [];
-      let offset = 0;
-      while (true) {
-        if (cancelRef.current) return;
-        const r = await apiFetch(`/api/messages?appId=${encodeURIComponent(appId)}&limit=${PAGE}&offset=${offset}`, { headers: { "x-silent": "1" } });
-        if (!r.ok) { setPhase("err"); setResultMsg(`Failed to load messages (${r.status}).`); return; }
-        const batch: { id: number }[] = await r.json();
-        if (!Array.isArray(batch) || batch.length === 0) break;
-        allIds = [...allIds, ...batch.map(m => m.id)];
-        if (batch.length < PAGE) break;
-        offset += batch.length;
-      }
-
-      if (allIds.length === 0) {
-        setPhase("done"); setResultMsg("No messages found for this App ID.");
-        setTimeout(() => closeDialog(), 2500); return;
-      }
-
-      // Delete in batches of 10 with progress
-      setTotal(allIds.length); setDeleted(0); setPhase("deleting");
+      // Single bulk DELETE — server deletes all in one SQL query
+      setPhase("deleting");
       startTimeRef.current = Date.now();
-      const BATCH = 10;
-      let done = 0;
-      for (let i = 0; i < allIds.length; i += BATCH) {
-        if (cancelRef.current) return;
-        await Promise.allSettled(allIds.slice(i, i + BATCH).map(id => apiFetch(`/api/messages/${id}`, { method: "DELETE" })));
-        done += Math.min(BATCH, allIds.length - i);
-        setDeleted(done);
-      }
-      setPhase("done"); setResultMsg(`${allIds.length.toLocaleString()} messages deleted successfully.`);
+      const r = await apiFetch(`/api/messages?appId=${encodeURIComponent(appId)}`, { method: "DELETE" });
+      if (!r.ok) { setPhase("err"); setResultMsg(`Delete failed (${r.status}).`); return; }
+      const data = await r.json() as { deleted?: number };
+      const count = data.deleted ?? msgCount;
+      setTotal(count); setDeleted(count);
+      setPhase("done"); setResultMsg(`${count.toLocaleString()} messages deleted successfully.`);
       onDeleted();
-      setTimeout(() => closeDialog(), 4000);
+      setTimeout(() => closeDialog(), 3000);
     } catch { setPhase("err"); setResultMsg("Network error. Try again."); }
   }
 
