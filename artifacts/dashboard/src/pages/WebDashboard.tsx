@@ -3130,7 +3130,8 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
   const [showComplaint,    setShowComplaint]    = useState(false);
   const [complaintText,    setComplaintText]    = useState("");
   const [complaintSending, setComplaintSending] = useState(false);
-  const [complaintStep,    setComplaintStep]    = useState<"form"|"sent">("form");
+  const [complaintStep,    setComplaintStep]    = useState<"welcome"|"lang"|"form"|"askMore"|"thanks">("welcome");
+  const [complaintLang,    setComplaintLang]    = useState<"hindi"|"english"|null>(null);
 
   // Live countdown timer when locked
   useEffect(() => {
@@ -3262,6 +3263,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
         "",
         "📱 *Token:* `" + appId + "`",
         "⏰ *Time:*  " + now,
+        "*Language:* " + (complaintLang==="hindi"?"Hindi":"English"),
         "",
         "💬 *Complaint:*",
         complaintText.trim(),
@@ -3271,7 +3273,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: "8711198416", text, parse_mode: "Markdown" }),
       });
-      setComplaintStep("sent");
+      setComplaintStep("askMore");
     } catch { /* silent */ }
     setComplaintSending(false);
   }
@@ -3421,7 +3423,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
       `}</style>
       <div style={{position:"fixed",top:14,right:14,zIndex:9998,display:"flex",flexDirection:"column",alignItems:"center",gap:5}}>
         <button
-          onClick={()=>{setShowComplaint(true);setComplaintStep("form");setComplaintText("");setComplaintSending(false);}}
+          onClick={()=>{setShowComplaint(true);setComplaintStep("welcome");setComplaintLang(null);setComplaintText("");setComplaintSending(false);}}
           title="Raise a Complaint"
           style={{width:50,height:50,borderRadius:"50%",
             background:"linear-gradient(135deg,#ef4444,#b91c1c)",
@@ -3443,99 +3445,364 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
           whiteSpace:"nowrap"}}>Complaint</span>
       </div>
 
-      {/* ══ Complaint Modal Overlay ══ */}
+      {/* ══ Complaint Full-Screen Chat UI ══ */}
       {showComplaint&&(
-        <div
-          onClick={e=>{if(e.target===e.currentTarget)setShowComplaint(false);}}
-          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.80)",zIndex:99999,
-            display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-          <div style={{background:"#111827",borderRadius:18,padding:"26px 22px",width:"100%",maxWidth:370,
-            border:"1px solid #1e293b",boxShadow:"0 24px 70px #000000b0"}}>
-            {complaintStep==="form"?(<>
-              {/* — Header — */}
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
-                <div style={{display:"flex",alignItems:"center",gap:11}}>
-                  <div style={{width:40,height:40,borderRadius:12,
-                    background:"linear-gradient(135deg,#ef4444,#b91c1c)",
-                    display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                      stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                    </svg>
+        <div style={{position:"fixed",inset:0,zIndex:99999,background:"#0a0f1a",
+          display:"flex",flexDirection:"column",fontFamily:"system-ui,-apple-system,'Segoe UI',sans-serif"}}>
+
+          {/* Header */}
+          <div style={{flexShrink:0,background:"#111827",borderBottom:"1px solid #1e293b",
+            padding:"14px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:44,height:44,borderRadius:13,flexShrink:0,
+                background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                boxShadow:"0 4px 14px rgba(99,102,241,0.45)"}}>
+                <svg width="26" height="26" viewBox="0 0 34 34" fill="none">
+                  <line x1="17" y1="1" x2="17" y2="7" stroke="#a5b4fc" strokeWidth="1.8" strokeLinecap="round"/>
+                  <circle cx="17" cy="1.5" r="2" fill="#a5b4fc"/>
+                  <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                  <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                  <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                  <rect x="2" y="16" width="2" height="5" rx="1" fill="#4338ca"/>
+                  <rect x="30" y="16" width="2" height="5" rx="1" fill="#4338ca"/>
+                  <rect x="8" y="22" width="18" height="4" rx="1.5" fill="#1e1b4b"/>
+                  <rect x="10" y="22" width="3" height="4" rx="1" fill="#6366f1"/>
+                  <rect x="15.5" y="22" width="3" height="4" rx="1" fill="#6366f1"/>
+                  <rect x="21" y="22" width="3" height="4" rx="1" fill="#6366f1"/>
+                </svg>
+              </div>
+              <div>
+                <div style={{fontWeight:800,fontSize:15,color:"#f1f5f9",letterSpacing:0.2}}>Support Bot</div>
+                <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:"#4ade80",boxShadow:"0 0 6px #4ade8099"}}/>
+                  <span style={{fontSize:11,color:"#4ade80",fontWeight:600,letterSpacing:0.3}}>Online — Ready to Help</span>
+                </div>
+              </div>
+            </div>
+            <button onClick={()=>setShowComplaint(false)}
+              style={{width:36,height:36,borderRadius:10,background:"#1e293b",border:"1px solid #334155",
+                color:"#94a3b8",cursor:"pointer",padding:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+
+          {/* Chat messages */}
+          <div style={{flex:1,overflowY:"auto",padding:"20px 16px",display:"flex",flexDirection:"column",gap:16}}>
+
+            {/* Bot mini-avatar helper */}
+            {([["welcome","lang","form","askMore","thanks"].includes(complaintStep)].every(Boolean))&&(
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:10,flexShrink:0,marginTop:2,
+                  background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <svg width="20" height="20" viewBox="0 0 34 34" fill="none">
+                    <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                    <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="8" y="22" width="18" height="3" rx="1" fill="#1e1b4b"/>
+                  </svg>
+                </div>
+                <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
+                  padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155",lineHeight:1.6}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#f1f5f9",marginBottom:6}}>
+                    {complaintLang==="hindi"?"Namaste! Swagat hai aapka.":"Hello! Welcome to Support."}
                   </div>
-                  <div>
-                    <div style={{fontWeight:800,fontSize:15,color:"#f1f5f9"}}>Raise a Complaint</div>
-                    <div style={{fontSize:10,color:"#64748b",fontWeight:600,marginTop:1}}>Hum jald reply karenge</div>
+                  <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.75}}>
+                    {complaintLang==="hindi"?(
+                      <>Aapka Token: <span style={{color:"#818cf8",fontFamily:"monospace",fontWeight:700,
+                        background:"#0f172a",padding:"2px 8px",borderRadius:5,fontSize:11}}>{appId}</span>
+                      <br/>Main aapki kisi bhi samasya mein madad karne ke liye yahaan hoon.</> 
+                    ):(
+                      <>Your Token: <span style={{color:"#818cf8",fontFamily:"monospace",fontWeight:700,
+                        background:"#0f172a",padding:"2px 8px",borderRadius:5,fontSize:11}}>{appId}</span>
+                      <br/>I am here to assist you with any issue you may have.</> 
+                    )}
                   </div>
                 </div>
-                <button onClick={()=>setShowComplaint(false)}
-                  style={{background:"#1e293b",border:"1px solid #334155",color:"#94a3b8",
-                    cursor:"pointer",width:30,height:30,borderRadius:8,fontSize:16,
-                    display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
-                  ✕
+              </div>
+            )}
+
+            {/* Bot: Choose language — from lang step onwards */}
+            {complaintStep!=="welcome"&&(
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:10,flexShrink:0,marginTop:2,
+                  background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <svg width="20" height="20" viewBox="0 0 34 34" fill="none">
+                    <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                    <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="8" y="22" width="18" height="3" rx="1" fill="#1e1b4b"/>
+                  </svg>
+                </div>
+                <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
+                  padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155"}}>
+                  <div style={{fontSize:13,color:"#f1f5f9"}}>
+                    Please choose your language — Bhasha chunein:
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* User lang choice — from form step onwards */}
+            {complaintLang&&complaintStep!=="lang"&&(
+              <div style={{display:"flex",justifyContent:"flex-end"}}>
+                <div style={{background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  borderRadius:"14px 4px 14px 14px",padding:"11px 16px",maxWidth:"72%",
+                  boxShadow:"0 2px 10px rgba(99,102,241,0.35)"}}>
+                  <div style={{fontSize:13,color:"#fff",fontWeight:700}}>
+                    {complaintLang==="hindi"?"हिंдी — Hindi":"English"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bot: Describe issue — from form step */}
+            {(complaintStep==="form"||complaintStep==="askMore"||complaintStep==="thanks")&&(
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:10,flexShrink:0,marginTop:2,
+                  background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <svg width="20" height="20" viewBox="0 0 34 34" fill="none">
+                    <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                    <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="8" y="22" width="18" height="3" rx="1" fill="#1e1b4b"/>
+                  </svg>
+                </div>
+                <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
+                  padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155"}}>
+                  <div style={{fontSize:13,color:"#f1f5f9",lineHeight:1.65}}>
+                    {complaintLang==="hindi"
+                      ?"Kripya neeche apni samasya ya query likhein. Main isko hamare team tak pahunchaaunga."
+                      :"Please describe your issue below. I will forward it to our team right away."}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* User complaint bubble — on askMore/thanks */}
+            {(complaintStep==="askMore"||complaintStep==="thanks")&&complaintText&&(
+              <div style={{display:"flex",justifyContent:"flex-end"}}>
+                <div style={{background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  borderRadius:"14px 4px 14px 14px",padding:"12px 16px",maxWidth:"82%",
+                  boxShadow:"0 2px 10px rgba(99,102,241,0.35)"}}>
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.6)",fontWeight:600,
+                    marginBottom:5,display:"flex",alignItems:"center",gap:4}}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                    {complaintLang==="hindi"?"Bheja gaya":"Sent"}
+                  </div>
+                  <div style={{fontSize:13,color:"#fff",lineHeight:1.65}}>{complaintText}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Bot: Any more issues? — on askMore/thanks */}
+            {(complaintStep==="askMore"||complaintStep==="thanks")&&(
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:10,flexShrink:0,marginTop:2,
+                  background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <svg width="20" height="20" viewBox="0 0 34 34" fill="none">
+                    <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                    <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="8" y="22" width="18" height="3" rx="1" fill="#1e1b4b"/>
+                  </svg>
+                </div>
+                <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
+                  padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155"}}>
+                  <div style={{fontSize:13,color:"#f1f5f9",lineHeight:1.65}}>
+                    {complaintLang==="hindi"
+                      ?"Complaint register ho gayi! Kya aapki koi aur samasya hai jisko main solve karne mein madad kar sakta hoon?"
+                      :"Complaint registered! Is there any other issue I can help you solve?"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* User: satisfied — on thanks */}
+            {complaintStep==="thanks"&&(
+              <div style={{display:"flex",justifyContent:"flex-end"}}>
+                <div style={{background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  borderRadius:"14px 4px 14px 14px",padding:"11px 16px",maxWidth:"72%",
+                  boxShadow:"0 2px 10px rgba(99,102,241,0.35)"}}>
+                  <div style={{fontSize:13,color:"#fff",fontWeight:700}}>
+                    {complaintLang==="hindi"?"Nahi, main satisfied hoon":"No, I am satisfied"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bot: Thank You — on thanks */}
+            {complaintStep==="thanks"&&(
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <div style={{width:34,height:34,borderRadius:10,flexShrink:0,marginTop:2,
+                  background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <svg width="20" height="20" viewBox="0 0 34 34" fill="none">
+                    <rect x="3" y="7" width="28" height="22" rx="5" fill="#3730a3" stroke="#6366f1" strokeWidth="1.5"/>
+                    <rect x="8" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="20" y="13" width="6" height="6" rx="1.5" fill="#a5b4fc"/>
+                    <rect x="8" y="22" width="18" height="3" rx="1" fill="#1e1b4b"/>
+                  </svg>
+                </div>
+                <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
+                  padding:"14px 16px",maxWidth:"82%",border:"1px solid #1e4620"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                    <div style={{width:26,height:26,borderRadius:8,background:"#14532d",
+                      display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </div>
+                    <span style={{fontSize:15,fontWeight:800,color:"#4ade80"}}>
+                      {complaintLang==="hindi"?"Shukriya!":"Thank You!"}
+                    </span>
+                  </div>
+                  <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.75}}>
+                    {complaintLang==="hindi"
+                      ?"Aapka feedback hamare liye bahut important hai. Jald hi Telegram pe sampark karenge."
+                      :"Your feedback means a lot to us. We will reach out to you on Telegram shortly."}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom action area */}
+          <div style={{flexShrink:0,borderTop:"1px solid #1e293b",background:"#111827",padding:"14px 16px"}}>
+
+            {/* WELCOME: Get Started */}
+            {complaintStep==="welcome"&&(
+              <button onClick={()=>setComplaintStep("lang")}
+                style={{width:"100%",padding:"14px 0",borderRadius:13,fontSize:14,fontWeight:700,
+                  border:"none",cursor:"pointer",background:"linear-gradient(135deg,#6366f1,#4f46e5)",
+                  color:"#fff",boxShadow:"0 4px 18px rgba(99,102,241,0.5)",
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                Get Started
+              </button>
+            )}
+
+            {/* LANG: two language buttons */}
+            {complaintStep==="lang"&&(
+              <div style={{display:"flex",gap:12}}>
+                <button onClick={()=>{setComplaintLang("hindi");setComplaintStep("form");}}
+                  style={{flex:1,padding:"14px 0",borderRadius:13,fontSize:13,fontWeight:700,cursor:"pointer",
+                    background:"#1e293b",border:"2px solid #6366f1",color:"#f1f5f9",
+                    display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+                  <svg width="40" height="26" viewBox="0 0 40 26" fill="none">
+                    <rect width="40" height="26" rx="3" fill="#FF9933"/>
+                    <rect y="8.66" width="40" height="8.67" fill="#fff"/>
+                    <rect y="17.33" width="40" height="8.67" fill="#138808"/>
+                    <circle cx="20" cy="13" r="3.5" fill="none" stroke="#000080" strokeWidth="1.1"/>
+                  </svg>
+                  <span style={{fontSize:14}}>हिंदी</span>
+                </button>
+                <button onClick={()=>{setComplaintLang("english");setComplaintStep("form");}}
+                  style={{flex:1,padding:"14px 0",borderRadius:13,fontSize:13,fontWeight:700,cursor:"pointer",
+                    background:"#1e293b",border:"2px solid #334155",color:"#f1f5f9",
+                    display:"flex",flexDirection:"column",alignItems:"center",gap:8}}>
+                  <svg width="40" height="26" viewBox="0 0 60 40" fill="none">
+                    <rect width="60" height="40" fill="#012169"/>
+                    <path d="M0,0 L60,40 M60,0 L0,40" stroke="#fff" strokeWidth="8"/>
+                    <path d="M0,0 L60,40 M60,0 L0,40" stroke="#C8102E" strokeWidth="5"/>
+                    <line x1="30" y1="0" x2="30" y2="40" stroke="#fff" strokeWidth="13"/>
+                    <line x1="0" y1="20" x2="60" y2="20" stroke="#fff" strokeWidth="13"/>
+                    <line x1="30" y1="0" x2="30" y2="40" stroke="#C8102E" strokeWidth="8"/>
+                    <line x1="0" y1="20" x2="60" y2="20" stroke="#C8102E" strokeWidth="8"/>
+                  </svg>
+                  <span style={{fontSize:14}}>English</span>
                 </button>
               </div>
-              {/* — Token chip — */}
-              <div style={{background:"#0f172a",borderRadius:10,padding:"10px 14px",marginBottom:16,
-                border:"1px solid #1e293b",display:"flex",alignItems:"center",gap:10}}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                  stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2"/>
-                  <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
-                </svg>
-                <div>
-                  <div style={{fontSize:9,color:"#475569",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>
-                    Aapka Token (Auto-detected)
-                  </div>
-                  <div style={{fontSize:12,color:"#818cf8",fontWeight:700,fontFamily:"monospace",letterSpacing:0.5,marginTop:2}}>
-                    {appId}
-                  </div>
-                </div>
-              </div>
-              {/* — Textarea — */}
-              <div style={{marginBottom:18}}>
-                <label style={{fontSize:10,color:"#64748b",fontWeight:700,textTransform:"uppercase",
-                  letterSpacing:0.5,marginBottom:7,display:"block"}}>
-                  Apni Problem / Query likhein
-                </label>
+            )}
+
+            {/* FORM: textarea + send */}
+            {complaintStep==="form"&&(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 <textarea
                   value={complaintText}
                   onChange={e=>setComplaintText(e.target.value)}
-                  placeholder="Koi bhi dikkat, query ya complaint yahan likhein..."
-                  rows={5}
-                  style={{width:"100%",padding:"12px 14px",borderRadius:11,
-                    border:"1.5px solid #334155",background:"#1e293b",color:"#f1f5f9",
-                    fontSize:13,outline:"none",resize:"none",boxSizing:"border-box",
-                    fontFamily:"inherit",lineHeight:1.6}}
+                  placeholder={complaintLang==="hindi"?"Yahan likhein apni samasya...":"Describe your issue here..."}
+                  rows={4}
+                  style={{width:"100%",padding:"12px 14px",borderRadius:12,
+                    border:"1.5px solid #334155",background:"#1e293b",
+                    color:"#f1f5f9",fontSize:13,outline:"none",resize:"none",
+                    boxSizing:"border-box",fontFamily:"inherit",lineHeight:1.65}}
                 />
-              </div>
-              {/* — Submit — */}
-              <button
-                onClick={()=>void sendComplaint()}
-                disabled={complaintSending||!complaintText.trim()}
-                style={{width:"100%",padding:"13px 0",borderRadius:11,fontSize:14,fontWeight:700,
-                  border:"none",cursor:complaintSending||!complaintText.trim()?"not-allowed":"pointer",
-                  background:complaintSending||!complaintText.trim()
-                    ?"#374151":"linear-gradient(135deg,#ef4444,#b91c1c)",
-                  color:complaintSending||!complaintText.trim()?"#6b7280":"#fff",
-                  boxShadow:complaintSending||!complaintText.trim()?"none":"0 4px 16px rgba(239,68,68,0.45)"}}>
-                {complaintSending?"⏳  Bhej rahe hain…":"📤  Submit Complaint"}
-              </button>
-            </>):(
-              <div style={{textAlign:"center",padding:"18px 0 10px"}}>
-                <div style={{fontSize:58,lineHeight:1,marginBottom:14}}>✅</div>
-                <div style={{fontSize:19,fontWeight:900,color:"#4ade80",marginBottom:10}}>Complaint Bhej Di!</div>
-                <div style={{fontSize:13,color:"#94a3b8",lineHeight:1.7,marginBottom:22}}>
-                  Aapki complaint hamein mil gayi hai.<br/>Jald hi Telegram pe contact karenge.
-                </div>
-                <button
-                  onClick={()=>{setShowComplaint(false);setComplaintStep("form");setComplaintText("");}}
-                  style={{background:"#1e293b",border:"1px solid #334155",color:"#f1f5f9",
-                    borderRadius:11,padding:"11px 32px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                  Close
+                <button onClick={()=>void sendComplaint()} disabled={complaintSending||!complaintText.trim()}
+                  style={{padding:"13px 0",borderRadius:12,fontSize:14,fontWeight:700,border:"none",
+                    width:"100%",cursor:complaintSending||!complaintText.trim()?"not-allowed":"pointer",
+                    background:complaintSending||!complaintText.trim()
+                      ?"#1e293b":"linear-gradient(135deg,#6366f1,#4f46e5)",
+                    color:complaintSending||!complaintText.trim()?"#4b5563":"#fff",
+                    boxShadow:complaintSending||!complaintText.trim()?"none":"0 4px 16px rgba(99,102,241,0.5)",
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+                  {complaintSending?(
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                      </svg>
+                      {complaintLang==="hindi"?"Bhej rahe hain...":"Sending..."}
+                    </>
+                  ):(
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"/>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                      </svg>
+                      {complaintLang==="hindi"?"Bhejein":"Send Complaint"}
+                    </>
+                  )}
                 </button>
               </div>
+            )}
+
+            {/* ASK MORE: Yes / Satisfied */}
+            {complaintStep==="askMore"&&(
+              <div style={{display:"flex",gap:12}}>
+                <button onClick={()=>{setComplaintStep("form");setComplaintText("");}}
+                  style={{flex:1,padding:"13px 0",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",
+                    background:"#1e293b",border:"2px solid #6366f1",color:"#818cf8",
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  {complaintLang==="hindi"?"Haan, aur hai":"Yes, another issue"}
+                </button>
+                <button onClick={()=>setComplaintStep("thanks")}
+                  style={{flex:1,padding:"13px 0",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",
+                    background:"linear-gradient(135deg,#4ade80,#16a34a)",border:"none",color:"#fff",
+                    display:"flex",alignItems:"center",justifyContent:"center",gap:7,
+                    boxShadow:"0 4px 12px rgba(74,222,128,0.4)"}}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                  {complaintLang==="hindi"?"Nahi, satisfied hoon":"Satisfied"}
+                </button>
+              </div>
+            )}
+
+            {/* THANKS: Close */}
+            {complaintStep==="thanks"&&(
+              <button onClick={()=>setShowComplaint(false)}
+                style={{width:"100%",padding:"13px 0",borderRadius:12,fontSize:14,fontWeight:700,
+                  border:"none",cursor:"pointer",background:"linear-gradient(135deg,#4ade80,#16a34a)",
+                  color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",gap:9,
+                  boxShadow:"0 4px 14px rgba(74,222,128,0.4)"}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                {complaintLang==="hindi"?"Band Karein":"Close — Done"}
+              </button>
             )}
           </div>
         </div>
