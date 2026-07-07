@@ -2821,7 +2821,8 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
-        await tgReply(token, chatId, `✅ Reply sent to <code>${replyAppId}</code>:\n"${replyMsg}"`);
+        const safeMsgPreview = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        await tgReply(token, chatId, `✅ Reply sent to <code>${replyAppId}</code>:\n"${safeMsgPreview}"`);
       } catch (e) { await tgReply(token, chatId, `❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
