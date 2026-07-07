@@ -183,6 +183,15 @@ router.delete("/master/sessions/:id", requireMasterPin, async (req, res) => {
   res.json({ ok: true });
 });
 
+
+router.post("/master/apps/:appId/regenerate-token", requireMasterPin, async (req, res) => {
+  const appId = String(req.params.appId ?? "");
+  const app = await localDb.getApp(appId);
+  if (!app) { res.status(404).json({ error: "App not found" }); return; }
+  const newToken = randomUUID();
+  await localDb.updateApp(appId, { panelToken: newToken });
+  res.json({ ok: true, panelToken: newToken });
+});
 router.get("/master/all-devices", requireMasterPin, async (req, res) => {
   const hasFcm = req.query["hasFcm"] === "1";
   const appId = req.query.appId ? String(req.query.appId) : undefined;
