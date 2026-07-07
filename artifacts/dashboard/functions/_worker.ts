@@ -2249,6 +2249,11 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     let body: TgUpdate;
     try { body = await c.req.json() as TgUpdate; } catch { return c.json({ ok: true }); }
 
+    // Shared resources — declared early so both callback_query and message handlers can use them
+    const token = c.env.TELEGRAM_BOT_TOKEN ?? "";
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    const db = getDb(c.env);
+
     // ── Callback query handler (inline keyboard button taps) ──────────────
     if (body.callback_query) {
       const cq = body.callback_query;
@@ -2295,9 +2300,6 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
 
     const chatId = msg.chat.id;
     const txt = msg.text.trim().replace(/@\w+/, ''); // strip @botname — required for channel commands
-    const token = c.env.TELEGRAM_BOT_TOKEN ?? "";
-    const sqlClient = neon(c.env.NEON_DATABASE_URL);
-    const db = getDb(c.env);
 
     // /1h — last 1 hour
     if (txt === '/1h' || txt.startsWith('/1h ')) {
