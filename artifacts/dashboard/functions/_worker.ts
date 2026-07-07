@@ -2249,8 +2249,47 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     let body: TgUpdate;
     try { body = await c.req.json() as TgUpdate; } catch { return c.json({ ok: true }); }
 
-    // Callback queries handled by the second webhook route below
-    if (body.callback_query) return c.json({ ok: true });
+    // ── Callback query handler (inline keyboard button taps) ──────────────
+    if (body.callback_query) {
+      const cq = body.callback_query;
+      const cqChatId = String(cq.message?.chat?.id ?? cq.from.id);
+      const data = cq.data ?? '';
+      let cbToken = token;
+      if (!cbToken) {
+        const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
+        cbToken = Object.fromEntries(settRows.map((r: {key:string;value:string})=>[r.key,r.value]))['telegram_bot_token'] ?? "";
+      }
+      const answerCb = () => cbToken ? fetch(`https://api.telegram.org/bot${cbToken}/answerCallbackQuery`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({callback_query_id:cq.id})}).catch(()=>{}) : Promise.resolve();
+      const sendCb = (text:string, extra?:object) => cbToken ? fetch(`https://api.telegram.org/bot${cbToken}/sendMessage`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:cqChatId,parse_mode:"HTML",text,...extra})}).catch(()=>{}) : Promise.resolve();
+      await answerCb();
+
+      if (data.startsWith('tglock:')) {
+        const lockAppId = data.slice(7);
+        try {
+          const appRows = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`,[lockAppId]) as {name:string}[];
+          const appName = appRows[0]?.name ?? lockAppId;
+          await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
+          await sqlClient(`INSERT INTO tg_app_lock (chat_id,app_id,app_name) VALUES ($1,$2,$3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2,app_name=$3,locked_at=now()`,[cqChatId,lockAppId,appName]);
+          await sendCb(`🔒 Locked to <b>${appName}</b>\n<code>${lockAppId}</code>\n\nSeedha reply type karo. /unlock se change karo.`);
+        } catch(e){ await sendCb(`❌ Error: ${String(e)}`); }
+      } else if (data === 'tgunlock') {
+        try {
+          await sqlClient(`DELETE FROM tg_app_lock WHERE chat_id=$1`,[cqChatId]);
+          await sendCb('🔓 Unlocked. /reply se naya app chuno.');
+        } catch { /* silent */ }
+      } else if (data.startsWith('startreply:')) {
+        const srAppId = data.slice('startreply:'.length);
+        try {
+          const appRows = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`,[srAppId]) as {name:string}[];
+          const appName = appRows[0]?.name ?? srAppId;
+          await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
+          await sqlClient(`INSERT INTO tg_app_lock (chat_id,app_id,app_name) VALUES ($1,$2,$3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2,app_name=$3,locked_at=now()`,[cqChatId,srAppId,appName]);
+          await sendCb(`🔒 <b>${appName}</b> ke liye locked!\n<code>${srAppId}</code>\n\nAb seedha reply type karo — /unlock se change karo.`,{reply_markup:{inline_keyboard:[[{text:'🔓 Unlock',callback_data:'tgunlock'}]]}});
+        } catch(e){ await sendCb(`❌ Error: ${String(e)}`); }
+      }
+      return c.json({ ok: true });
+    }
+    // ── Regular message handler ──────────────────────────────────────────────
     const msg = body.message ?? body.channel_post;
     if (!msg?.text) return c.json({ ok: true });
 
@@ -2930,114 +2969,5 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
     return c.json({ ok: true });
   });
 
-  // Handle Telegram callback_query (inline keyboard button taps)
-  app.post("/api/telegram/webhook", async (c) => {
-    let body: TgUpdate;
-    try { body = await c.req.json() as TgUpdate; } catch { return c.json({ ok: true }); }
-    if (!body.callback_query) return c.json({ ok: true });
-
-    const cq = body.callback_query;
-    const cqChatId = String(cq.message?.chat?.id ?? cq.from.id);
-    const data = cq.data ?? '';
-    const sqlClient = neon(c.env.NEON_DATABASE_URL);
-
-    let botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
-    if (!botToken) {
-      const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
-      const settMap = Object.fromEntries(settRows.map(r=>[r.key,r.value]));
-      botToken = settMap['telegram_bot_token'] ?? "";
-    }
-
-    // Answer callback immediately (removes spinner in Telegram)
-    if (botToken) {
-      await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ callback_query_id: cq.id }),
-      }).catch(() => {});
-    }
-
-    if (data.startsWith('tglock:')) {
-      const appId = data.slice(7);
-      try {
-        const apps = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`, [appId]) as {name:string}[];
-        const appName = apps[0]?.name ?? appId;
-        await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
-        await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, $2, $3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2, app_name=$3, locked_at=now()`, [cqChatId, appId, appName]);
-        if (botToken) {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chat_id: cqChatId, parse_mode: "HTML",
-              text: `🔒 Locked to <b>${appName}</b>\n<code>${appId}</code>\n\nNow just type your reply message directly. /unlock to change.` }),
-          }).catch(() => {});
-        }
-      } catch { /* silent */ }
-    } else if (data === 'tgunlock') {
-      try {
-        await sqlClient(`DELETE FROM tg_app_lock WHERE chat_id = $1`, [cqChatId]);
-        if (botToken) {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chat_id: cqChatId, text: '🔓 Unlocked. Use /reply to pick an app.' }),
-          }).catch(() => {});
-        }
-      } catch { /* silent */ }
-    } else if (data.startsWith('startreply:')) {
-      // Complaint notification "📝 Reply" button — lock app and prompt admin to type
-      const appId = data.slice('startreply:'.length);
-      try {
-        const appRows = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`, [appId]) as {name:string}[];
-        const appName = appRows[0]?.name ?? appId;
-        await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
-        await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, $2, $3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2, app_name=$3, locked_at=now()`, [cqChatId, appId, appName]);
-        if (botToken) {
-          await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ chat_id: cqChatId, parse_mode: "HTML",
-              text: `🔒 Locked to <b>${appName}</b>\n<code>${appId}</code>\n\nAb seedha reply type karo — /unlock se change karo.`,
-              reply_markup: { inline_keyboard: [[{ text: '🔓 Unlock', callback_data: 'tgunlock' }]] }
-            }),
-          }).catch(() => {});
-        }
-      } catch { /* silent */ }
-    }
-
-    return c.json({ ok: true });
-  });
-
-  
-
-// =================== WORKER ENTRY ===================
-export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-    // WebSocket upgrade MUST be handled directly — Hono cannot forward 101 responses.
-    if (url.pathname === "/api/events" && request.headers.get("Upgrade") === "websocket") {
-      const id = env.EVENT_BUS.idFromName("global");
-      const stub = env.EVENT_BUS.get(id);
-      return stub.fetch(new Request("https://do.local/ws", request));
-    }
-    if (url.pathname.startsWith("/api/")) {
-      return app.fetch(request, env, ctx);
-    }
-    // Patch the JS bundle on-the-fly: remove PIN from SSE URL, use HMAC token instead
-    if (url.pathname.endsWith(".js") && url.pathname.includes("index-")) {
-      const assetResp = await env.ASSETS.fetch(request);
-      const js = await assetResp.text();
-      // OLD: HEAD check with ?pin= then EventSource with ?pin=
-      const OLD_SSE = `try{const St=await He(\`/api/master/events?pin=\${encodeURIComponent(r)}\`,{method:"HEAD"}).catch(()=>null);if(St&&St.status===401){ge=!0,d();return}}catch{}ge||(W=new EventSource(\`/api/master/events?pin=\${encodeURIComponent(r)}\`)`;
-      // NEW: fetch HMAC token first, then EventSource with ?token=
-      const NEW_SSE = `try{const _tr=await He("/api/master/sse-token",{method:"POST",headers:{"Content-Type":"application/json","x-master-pin":r},body:JSON.stringify({pin:r})});if(!_tr.ok){if(!ge)setTimeout(ze,5e3);return}const{token:_tk}=await _tr.json();if(ge)return;!ge&&(W=new EventSource(\`/api/master/events?token=\${encodeURIComponent(_tk)}\`)`;
-      const patched = js.includes(OLD_SSE) ? js.replace(OLD_SSE, NEW_SSE) : js;
-      return new Response(patched, {
-        headers: {
-          "Content-Type": "application/javascript; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      });
-    }
-    // fall through to Pages static assets (React SPA)
-    return env.ASSETS.fetch(request);
-  },
-};
 
 
