@@ -2292,9 +2292,13 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as {key:string;value:string}[];
         cbToken = Object.fromEntries(settRows.map((r: {key:string;value:string})=>[r.key,r.value]))['telegram_bot_token'] ?? "";
       }
-      const answerCb = () => cbToken ? fetch(`https://api.telegram.org/bot${cbToken}/answerCallbackQuery`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({callback_query_id:cq.id})}).catch(()=>{}) : Promise.resolve();
-      const sendCb = (text:string, extra?:object) => cbToken ? fetch(`https://api.telegram.org/bot${cbToken}/sendMessage`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:cqChatId,parse_mode:"HTML",text,...extra})}).catch(()=>{}) : Promise.resolve();
-      await answerCb();
+      // answerCb with optional popup text visible to user in Telegram
+      const answerCb = (text?: string, showAlert?: boolean) => cbToken
+        ? fetch(`https://api.telegram.org/bot${cbToken}/answerCallbackQuery`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({callback_query_id:cq.id,...(text?{text,show_alert:showAlert??false}:{})})}).catch(()=>{})
+        : Promise.resolve();
+      const sendCb = (text:string, extra?:object) => cbToken
+        ? fetch(`https://api.telegram.org/bot${cbToken}/sendMessage`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({chat_id:cqChatId,parse_mode:"HTML",text,...extra})}).then(async r=>{ if(!r.ok){ const e=await r.text().catch(()=>""); throw new Error(`TG ${r.status}: ${e.slice(0,200)}`); } }).catch(()=>{})
+        : Promise.resolve();
 
       if (data.startsWith('tglock:')) {
         const lockAppId = data.slice(7);
@@ -2303,22 +2307,28 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
           const appName = appRows[0]?.name ?? lockAppId;
           await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
           await sqlClient(`INSERT INTO tg_app_lock (chat_id,app_id,app_name) VALUES ($1,$2,$3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2,app_name=$3,locked_at=now()`,[cqChatId,lockAppId,appName]);
+          await answerCb(`🔒 Locked: ${appName}`);
           await sendCb(`🔒 Locked to <b>${appName}</b>\n<code>${lockAppId}</code>\n\nSeedha reply type karo. /unlock se change karo.`);
-        } catch(e){ await sendCb(`❌ Error: ${String(e)}`); }
+        } catch(e){ await answerCb(`❌ Error`,true); await sendCb(`❌ tglock error: ${String(e)}`); }
       } else if (data === 'tgunlock') {
         try {
           await sqlClient(`DELETE FROM tg_app_lock WHERE chat_id=$1`,[cqChatId]);
+          await answerCb('🔓 Unlocked');
           await sendCb('🔓 Unlocked. /reply se naya app chuno.');
-        } catch { /* silent */ }
+        } catch(e) { await answerCb(`❌ Error`,true); }
       } else if (data.startsWith('startreply:')) {
         const srAppId = data.slice('startreply:'.length);
+        // Immediately answer so Telegram removes the loading state
+        await answerCb(`🔒 Locking to ${srAppId}...`);
         try {
           const appRows = await sqlClient(`SELECT name FROM apps WHERE app_id = $1`,[srAppId]) as {name:string}[];
           const appName = appRows[0]?.name ?? srAppId;
           await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
           await sqlClient(`INSERT INTO tg_app_lock (chat_id,app_id,app_name) VALUES ($1,$2,$3) ON CONFLICT (chat_id) DO UPDATE SET app_id=$2,app_name=$3,locked_at=now()`,[cqChatId,srAppId,appName]);
-          await sendCb(`🔒 <b>${appName}</b> ke liye locked!\n<code>${srAppId}</code>\n\nAb seedha reply type karo — /unlock se change karo.`,{reply_markup:{inline_keyboard:[[{text:'🔓 Unlock',callback_data:'tgunlock'}]]}});
-        } catch(e){ await sendCb(`❌ Error: ${String(e)}`); }
+          await sendCb(`🔒 <b>${appName}</b> ke liye locked!\n<code>${srAppId}</code>\n\nAb seedha reply type karo 👇`,{reply_markup:{inline_keyboard:[[{text:'🔓 Unlock / Change App',callback_data:'tgunlock'}]]}});
+        } catch(e){ await sendCb(`❌ startreply error: ${String(e)}`); }
+      } else {
+        await answerCb();
       }
       return c.json({ ok: true });
     }
