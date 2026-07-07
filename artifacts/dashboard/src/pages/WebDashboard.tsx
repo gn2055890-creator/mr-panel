@@ -3667,8 +3667,8 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   </div>
                   <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.75}}>
                     {complaintLang==="hindi"
-                      ?"आपका फीडबैक हमारे लिए बहुत महत्वपूर्ण है। जल्द ही Telegram पर संपर्क करेंगे।"
-                      :"Your feedback means a lot to us. We will reach out to you on Telegram shortly."}
+                      ?"आपकी शिकायत दर्ज हो गई है। हमारी टीम इसे हल करके आपको जल्द सूचित करेगी।"
+                      :"Your complaint has been received. Our team will resolve it and notify you soon."}
                   </div>
                 </div>
               </div>
