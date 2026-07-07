@@ -553,6 +553,10 @@ app.use("*", async (c, next) => {
   if (method === "GET" && path.includes("/delete-protection")) {
     return await next();
   }
+  // Complaint replies are public — polled by dashboard complaint chat (no login needed)
+  if (method === "GET" && path.endsWith("/complaint-replies")) {
+    return await next();
+  }
   // Master SSE — EventSource can't send headers, so use short-lived HMAC-signed ?token=
   // Token issued by POST /api/master/sse-token after verifying master PIN — PIN never in URL
   if ((method === "GET" || method === "HEAD") && path === "/api/master/events") {
