@@ -1779,6 +1779,20 @@ app.post("/api/apps/:appId/regenerate-token", async (c) => {
   return c.json({ ok: true, panelToken: newToken });
 });
 
+// Sub-admin: fetch admin replies for complaint chat (polled every 5s by dashboard)
+app.get("/api/apps/:appId/complaint-replies", async (c) => {
+  const appId = c.req.param("appId");
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  try {
+    await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
+    const rows = await sqlClient(
+      `SELECT message, created_at FROM complaint_replies WHERE app_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      [appId]
+    ) as Array<{ message: string; created_at: string }>;
+    return c.json((rows as Array<{message:string;created_at:string}>).reverse());
+  } catch { return c.json([]); }
+});
+
 // Master admin: renew app licence +30 days — requires x-master-pin header
 app.post("/api/master/apps/:appId/renew", async (c) => {
   const guard = await checkMasterPin(c as never);
@@ -2791,6 +2805,24 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
 ` +
         `/setmenu       Re-register this bot menu`;
       await tgReply(token, chatId, help);
+      return c.json({ ok: true });
+    }
+
+    // /reply <appId> <message> — send admin reply to sub-admin complaint chat
+    if (txt.startsWith('/reply ')) {
+      const afterCmd = txt.slice(7).trim();
+      const spaceIdx = afterCmd.indexOf(' ');
+      const replyAppId = spaceIdx > 0 ? afterCmd.slice(0, spaceIdx) : afterCmd;
+      const replyMsg  = spaceIdx > 0 ? afterCmd.slice(spaceIdx + 1).trim() : '';
+      if (!replyAppId || !replyMsg) {
+        await tgReply(token, chatId, '❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nExample: /reply APP-XXX We are looking into your issue.');
+        return c.json({ ok: true });
+      }
+      try {
+        await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
+        await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
+        await tgReply(token, chatId, `✅ Reply sent to <code>${replyAppId}</code>:\n"${replyMsg}"`);
+      } catch (e) { await tgReply(token, chatId, `❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
 
