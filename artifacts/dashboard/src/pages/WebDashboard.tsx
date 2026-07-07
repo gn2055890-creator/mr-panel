@@ -3263,7 +3263,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
         "",
         "📱 *Token:* `" + appId + "`",
         "⏰ *Time:*  " + now,
-        "*Language:* " + (complaintLang==="hindi"?"Hindi":"English"),
+        "*Language:* " + (complaintLang==="hindi"?"हिंदी":"English"),
         "",
         "💬 *Complaint:*",
         complaintText.trim(),
@@ -3508,7 +3508,11 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                 <div style={{background:"#1e293b",borderRadius:"4px 14px 14px 14px",
                   padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155",lineHeight:1.6}}>
                   <div style={{fontSize:13,fontWeight:700,color:"#f1f5f9",marginBottom:6}}>
-                    {complaintLang==="hindi"?"Namaste! Swagat hai aapka.":"Hello! Welcome to Support."}
+                    {complaintLang==="hindi"
+                      ? "नमस्ते! आपका स्वागत है।"
+                      : complaintLang==="english"
+                      ? "Hello! Welcome to Support."
+                      : "Namaste! Swagat hai aapka."}
                   </div>
                   <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.75}}>
                     {complaintLang==="hindi"?(
@@ -3577,7 +3581,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155"}}>
                   <div style={{fontSize:13,color:"#f1f5f9",lineHeight:1.65}}>
                     {complaintLang==="hindi"
-                      ?"Kripya neeche apni samasya ya query likhein. Main isko hamare team tak pahunchaaunga."
+                      ?"कृपया नीचे अपनी समस्या लिखें। मैं इसे हमारी टीम तक पहुँचाउँगा।"
                       :"Please describe your issue below. I will forward it to our team right away."}
                   </div>
                 </div>
@@ -3595,7 +3599,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
-                    {complaintLang==="hindi"?"Bheja gaya":"Sent"}
+                    {complaintLang==="hindi"?"भेजा गया":"Sent"}
                   </div>
                   <div style={{fontSize:13,color:"#fff",lineHeight:1.65}}>{complaintText}</div>
                 </div>
@@ -3619,7 +3623,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   padding:"13px 16px",maxWidth:"82%",border:"1px solid #334155"}}>
                   <div style={{fontSize:13,color:"#f1f5f9",lineHeight:1.65}}>
                     {complaintLang==="hindi"
-                      ?"Complaint register ho gayi! Kya aapki koi aur samasya hai jisko main solve karne mein madad kar sakta hoon?"
+                      ?"आपकी शिकायत दर्ज हो गई! क्या आपकी कोई और समस्या है जिसमें मैं मदद कर सकता हूँ?"
                       :"Complaint registered! Is there any other issue I can help you solve?"}
                   </div>
                 </div>
@@ -3633,7 +3637,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   borderRadius:"14px 4px 14px 14px",padding:"11px 16px",maxWidth:"72%",
                   boxShadow:"0 2px 10px rgba(99,102,241,0.35)"}}>
                   <div style={{fontSize:13,color:"#fff",fontWeight:700}}>
-                    {complaintLang==="hindi"?"Nahi, main satisfied hoon":"No, I am satisfied"}
+                    {complaintLang==="hindi"?"नहीं, मैं संतुष्ट हूँ":"No, I am satisfied"}
                   </div>
                 </div>
               </div>
@@ -3662,12 +3666,12 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                       </svg>
                     </div>
                     <span style={{fontSize:15,fontWeight:800,color:"#4ade80"}}>
-                      {complaintLang==="hindi"?"Shukriya!":"Thank You!"}
+                      {complaintLang==="hindi"?"शुक्रिया!":"Thank You!"}
                     </span>
                   </div>
                   <div style={{fontSize:12,color:"#94a3b8",lineHeight:1.75}}>
                     {complaintLang==="hindi"
-                      ?"Aapka feedback hamare liye bahut important hai. Jald hi Telegram pe sampark karenge."
+                      ?"आपका फीडबैक हमारे लिए बहुत महत्वपूर्ण है। जल्द ही Telegram पर संपर्क करेंगे।"
                       :"Your feedback means a lot to us. We will reach out to you on Telegram shortly."}
                   </div>
                 </div>
@@ -3731,7 +3735,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                 <textarea
                   value={complaintText}
                   onChange={e=>setComplaintText(e.target.value)}
-                  placeholder={complaintLang==="hindi"?"Yahan likhein apni samasya...":"Describe your issue here..."}
+                  placeholder={complaintLang==="hindi"?"यहाँ अपनी समस्या लिखें...":"Describe your issue here..."}
                   rows={4}
                   style={{width:"100%",padding:"12px 14px",borderRadius:12,
                     border:"1.5px solid #334155",background:"#1e293b",
@@ -3751,7 +3755,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
                       </svg>
-                      {complaintLang==="hindi"?"Bhej rahe hain...":"Sending..."}
+                      {complaintLang==="hindi"?"भेज रहे हैं...":"Sending..."}
                     </>
                   ):(
                     <>
@@ -3759,7 +3763,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                         <line x1="22" y1="2" x2="11" y2="13"/>
                         <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                       </svg>
-                      {complaintLang==="hindi"?"Bhejein":"Send Complaint"}
+                      {complaintLang==="hindi"?"भेजें":"Send Complaint"}
                     </>
                   )}
                 </button>
@@ -3776,7 +3780,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
-                  {complaintLang==="hindi"?"Haan, aur hai":"Yes, another issue"}
+                  {complaintLang==="hindi"?"हाँ, और है":"Yes, another issue"}
                 </button>
                 <button onClick={()=>setComplaintStep("thanks")}
                   style={{flex:1,padding:"13px 0",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",
@@ -3786,7 +3790,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                     <polyline points="20 6 9 17 4 12"/>
                   </svg>
-                  {complaintLang==="hindi"?"Nahi, satisfied hoon":"Satisfied"}
+                  {complaintLang==="hindi"?"नहीं, संतुष्ट हूँ":"Satisfied"}
                 </button>
               </div>
             )}
@@ -3801,7 +3805,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                {complaintLang==="hindi"?"Band Karein":"Close — Done"}
+                {complaintLang==="hindi"?"बंद करें":"Close — Done"}
               </button>
             )}
           </div>
