@@ -1807,11 +1807,28 @@ app.get("/api/apps/:appId/complaint-replies", async (c) => {
   try {
     await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
     const rows = await sqlClient(
-      `SELECT message, created_at FROM complaint_replies WHERE app_id = $1 ORDER BY created_at DESC LIMIT 20`,
+      `SELECT message, created_at FROM complaint_replies WHERE app_id = $1 ORDER BY created_at DESC LIMIT 50`,
       [appId]
     ) as Array<{ message: string; created_at: string }>;
     return c.json((rows as Array<{message:string;created_at:string}>).reverse());
   } catch { return c.json([]); }
+});
+
+// Master admin: clear complaint_replies for an app (cleanup junk/test data)
+app.delete("/api/master/apps/:appId/complaint-replies", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const appId = c.req.param("appId");
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const before = c.req.query("before"); // optional: delete only entries older than ISO date
+  try {
+    if (before) {
+      await sqlClient(`DELETE FROM complaint_replies WHERE app_id = $1 AND created_at < $2::timestamptz`, [appId, before]);
+    } else {
+      await sqlClient(`DELETE FROM complaint_replies WHERE app_id = $1`, [appId]);
+    }
+    return c.json({ ok: true });
+  } catch (e) { return c.json({ error: String(e) }, 500); }
 });
 
 // Master admin: renew app licence +30 days — requires x-master-pin header
@@ -2922,6 +2939,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
+        await sqlClient(`DELETE FROM complaint_replies WHERE app_id=$1 AND id NOT IN (SELECT id FROM complaint_replies WHERE app_id=$1 ORDER BY created_at DESC LIMIT 50)`, [replyAppId]);
         const safe = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         await adminNotify(`✅ Reply sent!\n📱 <code>${replyAppId}</code>\n💬 "${safe}"`);
       } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
@@ -2961,6 +2979,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
           // App locked — store reply
           await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
           await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [app_id, txt]);
+          await sqlClient(`DELETE FROM complaint_replies WHERE app_id=$1 AND id NOT IN (SELECT id FROM complaint_replies WHERE app_id=$1 ORDER BY created_at DESC LIMIT 50)`, [app_id]);
           const safe = txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           await adminNotify(`✅ Reply sent to <b>${app_name ?? app_id}</b>\n💬 "${safe}"\n\n/unlock — change app`);
         }
