@@ -3431,25 +3431,23 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
       display: "flex", alignItems: "center", justifyContent: "center",
       fontFamily: "system-ui,-apple-system,'Segoe UI',sans-serif", padding: 16,
     }}>
-      {/* Admin reply notification — shows on login page when admin has replied */}
+      {/* Admin reply — small floating icon badge bottom-right, click to open complaint chat */}
       {adminReplies.length > 0 && !showComplaint && (
-        <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",
-          zIndex:9999,background:"#1c1205",border:"1.5px solid #92400e",borderRadius:14,
-          padding:"12px 18px",maxWidth:340,width:"calc(100% - 32px)",
-          boxShadow:"0 4px 28px rgba(245,158,11,0.35)",display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#f59e0b,#d97706)",
-            display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:18}}>👤</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#fbbf24",marginBottom:3,letterSpacing:0.4}}>ADMIN REPLY</div>
-            <div style={{fontSize:13,color:"#fef3c7",lineHeight:1.4,overflow:"hidden",
-              textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{adminReplies[adminReplies.length-1]}</div>
-          </div>
-          <button onClick={()=>setShowComplaint(true)}
-            style={{background:"linear-gradient(135deg,#f59e0b,#d97706)",border:"none",borderRadius:8,
-              color:"#1c1205",fontSize:12,fontWeight:700,padding:"6px 12px",cursor:"pointer",flexShrink:0}}>
-            View
-          </button>
-        </div>
+        <button onClick={()=>setShowComplaint(true)}
+          title="Admin ne reply kiya — click karo dekhne ke liye"
+          style={{position:"fixed",bottom:24,right:24,zIndex:9999,
+            width:52,height:52,borderRadius:"50%",border:"2.5px solid #f59e0b",
+            background:"linear-gradient(135deg,#1c1205,#2d1a00)",cursor:"pointer",padding:0,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            boxShadow:"0 0 0 4px rgba(245,158,11,0.2), 0 4px 20px rgba(245,158,11,0.45)"}}>
+          <span style={{fontSize:22}}>💬</span>
+          <span style={{position:"absolute",top:0,right:0,width:16,height:16,borderRadius:"50%",
+            background:"#f59e0b",border:"2px solid #0a0f1a",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:9,fontWeight:800,color:"#1c1205"}}>
+            {adminReplies.length}
+          </span>
+        </button>
       )}
       <div style={{ width: "100%", maxWidth: 380 }}>
         {/* Card */}
