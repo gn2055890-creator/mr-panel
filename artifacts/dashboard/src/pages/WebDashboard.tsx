@@ -3750,6 +3750,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                 </div>
               </div>
             ))}
+          </div>
 
           {/* Bottom action area */}
           <div style={{flexShrink:0,borderTop:"1px solid #1e293b",background:"#111827",padding:"14px 16px"}}>
