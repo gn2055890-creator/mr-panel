@@ -2210,8 +2210,8 @@ async function vpsJson(path: string, neonUrl: string, method = "GET", body?: unk
 // VPS registers its tunnel URL here on startup
 app.post("/api/admin/update-tunnel", async (c) => {
   const secret = c.req.header("x-admin-secret");
-  const expected = c.env.ADMIN_SECRET;
-  if (!expected) return c.json({ error: "Server misconfigured: ADMIN_SECRET not set" }, 500);
+  const expected = c.env.API_SECRET;
+  if (!expected) return c.json({ error: "Server misconfigured: API_SECRET not set" }, 500);
   if (secret !== expected) return c.json({ error: "Unauthorized" }, 401);
   const { url } = await c.req.json<{ url: string }>();
   if (!url || !url.startsWith("https://")) return c.json({ error: "Invalid URL" }, 400);
