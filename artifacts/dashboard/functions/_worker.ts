@@ -529,7 +529,7 @@ const app = new Hono<{ Bindings: Env; Variables: { sessionAppId: string } }>();
 app.use("*", cors({
   origin: "*",
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "x-master-pin", "x-api-key"],
+  allowHeaders: ["Content-Type", "Authorization", "x-master-pin", "x-api-key", "x-session-token"],
 }));
 
 app.use("*", async (c, next) => {
@@ -1931,15 +1931,20 @@ app.post("/api/admin/sessions", async (c) => {
     // Ensure device_id column exists (persistent per-browser fingerprint, avoids
     // mobile-carrier IP rotation from creating a fresh "duplicate" session per request)
     await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`).catch(() => {});
-    const existing = deviceId
+    let existing = deviceId
       ? await sqlClient(
           `SELECT id FROM admin_sessions WHERE device_id = $1 AND app_id = $2 ORDER BY last_active DESC LIMIT 1`,
           [deviceId, appId],
         ) as Array<{ id: string }>
-      : await sqlClient(
-          `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
-          [ua, ip, appId],
-        ) as Array<{ id: string }>;
+      : [] as Array<{ id: string }>;
+    if (existing.length === 0) {
+      // Fallback: merge into a legacy/no-device-id row with same ua+ip so old
+      // pre-fix duplicates get absorbed instead of piling up forever.
+      existing = await sqlClient(
+        `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
+        [ua, ip, appId],
+      ) as Array<{ id: string }>;
+    }
     if (existing.length > 0) {
       const id = existing[0].id;
       await sqlClient(`UPDATE admin_sessions SET last_active = NOW(), ip = $2, user_agent = $3, device_id = COALESCE($4, device_id) WHERE id = $1`, [id, ip, ua, deviceId || null]);
