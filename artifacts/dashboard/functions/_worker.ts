@@ -1490,6 +1490,14 @@ app.delete("/api/master/sessions/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+  app.delete("/api/master/sessions", async (c) => {
+    if (c.req.header("x-master-pin") !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+    const sqlC = neon(c.env.NEON_DATABASE_URL);
+    await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
+    await sqlC(`DELETE FROM master_sessions`);
+    return c.json({ ok: true });
+  });
+
 // ── Master SSE — EventSource can't send headers, PIN in query param ──
 // Cloudflare Workers support streaming; client reconnects every ~25s (CF CPU limit).
 app.get("/api/master/events", async (c) => {
