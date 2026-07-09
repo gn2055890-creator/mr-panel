@@ -2300,7 +2300,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
     if (!sessAppFilter) return;
     setSessLoading(true);
     try {
-      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`);
+      const r = await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { headers: { "x-master-pin": masterPin } });
       if (r.ok) setSessions(await r.json() as SessionRow[]);
     } catch { /* ignore */ } finally { setSessLoading(false); }
   }, [sessAppFilter]);
@@ -2310,7 +2310,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
   async function logoutSession(id: string) {
     setLogoutingId(id);
     try {
-      await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/admin/sessions/${id}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
       setSessions(prev => prev.filter(s => s.id !== id));
     } catch { /* ignore */ } finally { setLogoutingId(null); }
   }
@@ -2319,7 +2319,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
     if (!sessAppFilter) return;
     setLogoutingAll(true);
     try {
-      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { method: "DELETE" });
+      await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(sessAppFilter)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
       setSessions([]);
     } catch { /* ignore */ } finally { setLogoutingAll(false); }
   }
@@ -2756,7 +2756,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
   async function logoutAll(app: App) {
     if (!confirm(`Logout all active sessions for "${app.name}"?`)) return;
     setLogoutAllId(app.appId);
-    try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE" }); }
+    try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } }); }
     catch { /* ignore */ } finally { setLogoutAllId(null); }
   }
 
