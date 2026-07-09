@@ -4541,7 +4541,7 @@ export default function WebDashboard() {
                 {[0,1].map(i => (
                   <span key={i} style={{ fontSize: 12, fontWeight: 700, color: tkText, letterSpacing: 0.4, paddingRight: 60, display: "inline-flex", alignItems: "center", gap: 10 }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Abhi kuch server issue ke wajah se naye installation mein problem aa raha hai — kuch devices mein problem ka pata chal gaya hai, fix ho jayega raat 8-9 baje tak</span>
+                    <span>Server issue solve ho chuka hai — ab installation mein koi problem nahi aayegi, sab kuch normal chal raha hai</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                     <span>Paresan na ho, jald hi sab normal ho jayega</span>
