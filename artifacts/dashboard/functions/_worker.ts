@@ -1910,40 +1910,48 @@ app.get("/api/admin/sessions", async (c) => {
   return c.json(list);
 });
 app.post("/api/admin/sessions", async (c) => {
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const ua = c.req.header("user-agent") ?? "";
-  const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = ""; let pin = ""; let panelToken = "";
-  try { const b = await c.req.json() as { appId?: string; pin?: string; panelToken?: string }; appId = b.appId ?? ""; pin = b.pin ?? ""; panelToken = b.panelToken ?? ""; } catch {}
-  if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    const ua = c.req.header("user-agent") ?? "";
+    const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
+    let appId = ""; let pin = ""; let panelToken = ""; let deviceId = "";
+    try { const b = await c.req.json() as { appId?: string; pin?: string; panelToken?: string; deviceId?: string }; appId = b.appId ?? ""; pin = b.pin ?? ""; panelToken = b.panelToken ?? ""; deviceId = b.deviceId ?? ""; } catch {}
+    if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
 
-  const db = getDb(c.env);
-  const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId })
-    .from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
-  // Hard-enforce panel token — must match the link issued by the master admin.
-  if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
-  // Check licence expiry before anything else (non-default apps only)
-  if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
-    return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
-  }
-  if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
-  const existing = await sqlClient(
-    `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
-    [ua, ip, appId],
-  ) as Array<{ id: string }>;
-  if (existing.length > 0) {
-    const id = existing[0].id;
-    await sqlClient(`UPDATE admin_sessions SET last_active = NOW() WHERE id = $1`, [id]);
+    const db = getDb(c.env);
+    const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId })
+      .from(apps).where(eq(apps.appId, appId)).limit(1);
+    if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
+    // Hard-enforce panel token — must match the link issued by the master admin.
+    if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
+    // Check licence expiry before anything else (non-default apps only)
+    if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
+      return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
+    }
+    if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
+    // Ensure device_id column exists (persistent per-browser fingerprint, avoids
+    // mobile-carrier IP rotation from creating a fresh "duplicate" session per request)
+    await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`).catch(() => {});
+    const existing = deviceId
+      ? await sqlClient(
+          `SELECT id FROM admin_sessions WHERE device_id = $1 AND app_id = $2 ORDER BY last_active DESC LIMIT 1`,
+          [deviceId, appId],
+        ) as Array<{ id: string }>
+      : await sqlClient(
+          `SELECT id FROM admin_sessions WHERE user_agent = $1 AND ip = $2 AND app_id = $3 ORDER BY last_active DESC LIMIT 1`,
+          [ua, ip, appId],
+        ) as Array<{ id: string }>;
+    if (existing.length > 0) {
+      const id = existing[0].id;
+      await sqlClient(`UPDATE admin_sessions SET last_active = NOW(), ip = $2, user_agent = $3, device_id = COALESCE($4, device_id) WHERE id = $1`, [id, ip, ua, deviceId || null]);
+      return c.json({ sessionId: id });
+    }
+    const id = crypto.randomUUID();
+    await sqlClient(
+      `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id, device_id) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, ua, ip, parseDevice(ua), appId, deviceId || null],
+    );
     return c.json({ sessionId: id });
-  }
-  const id = crypto.randomUUID();
-  await sqlClient(
-    `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id) VALUES ($1, $2, $3, $4, $5)`,
-    [id, ua, ip, parseDevice(ua), appId],
-  );
-  return c.json({ sessionId: id });
-});
+  });
 app.post("/api/admin/sessions/ghost", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const ua = c.req.header("user-agent") ?? "";
