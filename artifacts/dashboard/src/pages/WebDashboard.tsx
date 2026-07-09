@@ -3617,7 +3617,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
 
               <div style={{ background: "rgba(239,68,68,0.10)", border: "1.5px solid rgba(239,68,68,0.35)", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
                 <div style={{ color: "#f87171", fontSize: 12, fontWeight: 700, lineHeight: 1.4 }}>
-                  ⚠️ Server abhi down hai — subah 4-5 baje tak theek ho jayega
+                  ⚠️ We are currently performing scheduled maintenance to improve system stability. Login is temporarily unavailable and will resume shortly. Thank you for your patience.
                 </div>
               </div>
 
