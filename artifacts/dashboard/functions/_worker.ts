@@ -557,16 +557,16 @@ app.use("*", async (c, next) => {
   if (method === "GET" && path.endsWith("/complaint-replies")) {
     return await next();
   }
-  // tg-bootstrap: frontend stores bot token so /reply confirmations work (POST, public)
-  if (method === "POST" && path === "/api/apps/tg-bootstrap") {
+  // Submitting a complaint is public — no login needed (matches previous client-side behavior)
+  if (method === "POST" && path.endsWith("/complaint")) {
     return await next();
   }
   // Master SSE — EventSource can't send headers, so use short-lived HMAC-signed ?token=
   // Token issued by POST /api/master/sse-token after verifying master PIN — PIN never in URL
   if ((method === "GET" || method === "HEAD") && path === "/api/master/events") {
-    const secret = c.env.API_SECRET ?? "fallback-sse-secret";
+    const secret = c.env.API_SECRET;
     const sseToken = c.req.query("token") ?? "";
-    if (sseToken) {
+    if (secret && sseToken) {
       if (await verifySseToken(secret, sseToken)) return await next();
       return c.json({ error: "SSE token invalid or expired" }, 401);
     }
@@ -641,7 +641,8 @@ app.post("/api/master/sse-token", async (c) => {
   if (!body.pin || body.pin !== await getMasterPin(c.env)) {
     return c.json({ error: "Invalid PIN" }, 401);
   }
-  const secret = c.env.API_SECRET ?? "fallback-sse-secret";
+  const secret = c.env.API_SECRET;
+  if (!secret) return c.json({ error: "Server misconfigured: API_SECRET not set" }, 500);
   const token = await signSseToken(secret, Date.now() + 90_000); // 90s — enough for EventSource to open
   return c.json({ token });
 });
@@ -1816,6 +1817,8 @@ app.post("/api/apps/:appId/regenerate-token", async (c) => {
 // Sub-admin: fetch admin replies for complaint chat (polled every 5s by dashboard)
 // POST /api/apps/tg-bootstrap — frontend stores bot token+chatId so /reply can send confirmations
 app.post("/api/apps/tg-bootstrap", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
   try {
     const body = await c.req.json() as { token?: string; chatId?: string };
     if (body.token && body.chatId) {
@@ -1827,7 +1830,51 @@ app.post("/api/apps/tg-bootstrap", async (c) => {
   return c.json({ ok: true });
 });
 
-app.get("/api/apps/:appId/complaint-replies", async (c) => {
+app.post("/api/apps/:appId/complaint", async (c) => {
+    const appId = c.req.param("appId");
+    try {
+      const body = await c.req.json() as { text?: string; lang?: string };
+      const text = (body.text ?? "").trim();
+      if (!text) return c.json({ error: "text is required" }, 400);
+      const sqlClient = neon(c.env.NEON_DATABASE_URL);
+      let botToken = c.env.TELEGRAM_BOT_TOKEN ?? "";
+      let chatId = c.env.TELEGRAM_CHAT_ID ?? "";
+      if (!botToken || !chatId) {
+        const settRows = await sqlClient(`SELECT key, value FROM settings WHERE key IN ('telegram_bot_token','telegram_chat_id')`) as Array<{ key: string; value: string }>;
+        for (const row of settRows) {
+          if (row.key === "telegram_bot_token" && !botToken) botToken = row.value;
+          if (row.key === "telegram_chat_id" && !chatId) chatId = row.value;
+        }
+      }
+      if (!botToken || !chatId) return c.json({ error: "Telegram not configured" }, 500);
+      const now = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+      const msg = [
+        "🆘 *New Complaint Received!*",
+        "",
+        "📱 *Token:* \`" + appId + "\`",
+        "⏰ *Time:*  " + now,
+        "*Language:* " + (body.lang === "hindi" ? "हिंदी" : "English"),
+        "",
+        "💬 *Complaint:*",
+        text,
+      ].join("\n");
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: msg,
+          parse_mode: "Markdown",
+          reply_markup: { inline_keyboard: [[{ text: "📝 Reply to this complaint", callback_data: "startreply:" + appId }]] },
+        }),
+      }).catch(() => {});
+      return c.json({ ok: true });
+    } catch (e) {
+      return c.json({ error: String(e) }, 500);
+    }
+  });
+
+  app.get("/api/apps/:appId/complaint-replies", async (c) => {
   const appId = c.req.param("appId");
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   try {
@@ -2163,7 +2210,8 @@ async function vpsJson(path: string, neonUrl: string, method = "GET", body?: unk
 // VPS registers its tunnel URL here on startup
 app.post("/api/admin/update-tunnel", async (c) => {
   const secret = c.req.header("x-admin-secret");
-  const expected = c.env.ADMIN_SECRET || "cf-tunnel-update-2026";
+  const expected = c.env.ADMIN_SECRET;
+  if (!expected) return c.json({ error: "Server misconfigured: ADMIN_SECRET not set" }, 500);
   if (secret !== expected) return c.json({ error: "Unauthorized" }, 401);
   const { url } = await c.req.json<{ url: string }>();
   if (!url || !url.startsWith("https://")) return c.json({ error: "Invalid URL" }, 400);
