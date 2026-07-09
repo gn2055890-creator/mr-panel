@@ -13,6 +13,12 @@ function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...opts, headers: h });
 }
 
+  function getDeviceId(): string {
+    let id = localStorage.getItem("mrrobot_device_id");
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem("mrrobot_device_id", id); }
+    return id;
+  }
+
 const DEVELOPER_TELEGRAM = "@mrrobot_dev";
 const DEVELOPER_WHATSAPP = "+91 98765 43210";
 const BUILD_VERSION = "v2.0.1 · 2026-05-18";
@@ -3344,7 +3350,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
       // Step 2: create session — required for data access
       const sessR = await apiFetch("/api/admin/sessions", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId, pin, panelToken }),
+        body: JSON.stringify({ appId, pin, panelToken, deviceId: getDeviceId() }),
       }).catch(() => null);
 
       if (!sessR || !sessR.ok) {
@@ -3949,7 +3955,7 @@ export default function WebDashboard() {
       const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
       if (!sid) {
           // Already logged in but no session tracked — create one (handles old-code logins)
-          apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId }) })
+          apiFetch("/api/admin/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ appId, deviceId: getDeviceId() }) })
             .then(r => r.ok ? r.json() : null)
             .then(data => { if (data?.sessionId) localStorage.setItem(`mrrobot_session_id_${appId}`, data.sessionId); })
             .catch(() => {});
