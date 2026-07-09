@@ -3114,9 +3114,13 @@ export default function MainAdminPanel() {
     setMasterPin(pin); setSessionId(sid);
   }
   function handleLogout() {
+    const pinForLogout = masterPin;
     sessionStorage.removeItem("mrrobot_master_auth");
     sessionStorage.removeItem("mrrobot_master_sid");
     setMasterPin(null); setSessionId("");
+    if (pinForLogout) {
+      apiFetch("/api/master/sessions", { method: "DELETE", headers: { "x-master-pin": pinForLogout } }).catch(() => {});
+    }
   }
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
   if (!masterPin) return <MasterLogin onAuth={handleAuth} />;
