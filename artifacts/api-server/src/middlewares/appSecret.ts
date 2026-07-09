@@ -11,8 +11,8 @@ import type { Request, Response, NextFunction } from "express";
    */
   export function requireAppSecret(req: Request, res: Response, next: NextFunction): void {
     if (!env.appSecret) {
-      // Secret not configured — skip check (dev/fallback mode)
-      next();
+      // Secret not configured — fail closed, do not allow unauthenticated access
+      res.status(500).json({ error: "Server misconfigured: APP_SECRET not set" });
       return;
     }
 
