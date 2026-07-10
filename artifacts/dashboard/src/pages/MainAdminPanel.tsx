@@ -9,6 +9,17 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
     return /^[\x20-\x7E]+$/.test(v) ? v : encodeURIComponent(v);
     }
 
+    // PINs are sent as-is in JSON bodies but often also travel as HTTP header
+    // values (e.g. x-master-pin on every master request). Non-ASCII characters
+    // (emoji, Rupee sign, regional scripts) are technically encoded before
+    // sending now, but keeping PINs plain ASCII avoids edge cases entirely and
+    // keeps them easy to type back in on another device -- so we block them
+    // up front at PIN-creation time with a clear message.
+    function isSafePinValue(v: string): boolean {
+    return /^[\x20-\x7E]+$/.test(v);
+    }
+    const PIN_CHAR_ERROR = "PIN me sirf English letters, numbers aur symbols (jaise ! @ # $ %) allowed hain -- emoji, ₹ ya doosri language ke characters allowed nahi hain.";
+
     function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
     const h = new Headers();
     const rawHeaders = opts.headers as Record<string, string> | undefined;
@@ -275,6 +286,7 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
     e.preventDefault();
     if (!name.trim() || !pin.trim()) { setErr("All fields required"); return; }
     if (pin.length < 4) { setErr("PIN must be at least 4 characters"); return; }
+    if (!isSafePinValue(pin)) { setErr(PIN_CHAR_ERROR); return; }
     setErr(""); setLoading(true);
     try {
       const r = await apiFetch("/api/master/apps", { method: "POST", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ appId, name: name.trim(), pin }) });
@@ -377,6 +389,7 @@ function ChangePinModal({ onClose, onChanged }: { masterPin: string; onClose: ()
     e.preventDefault();
     if (!curPin) { setErr("Current PIN is required"); return; }
     if (newPin.length < 4) { setErr("New PIN must be at least 4 characters"); return; }
+    if (!isSafePinValue(newPin)) { setErr(PIN_CHAR_ERROR); return; }
     if (newPin !== newPin2) { setErr("PINs do not match"); return; }
     setErr(""); setLoading(true);
     try {
@@ -2475,6 +2488,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
 
   async function setDeleteProtectionPin() {
     if (!dpAppFilter || !dpNewPin || dpNewPin.length < 4) { setDpMsg("PIN must be at least 4 characters"); return; }
+    if (!isSafePinValue(dpNewPin)) { setDpMsg(PIN_CHAR_ERROR); return; }
     setDpState("busy"); setDpMsg("");
     try {
       const r = await apiFetch(`/api/apps/${encodeURIComponent(dpAppFilter)}/delete-protection/set-pin`, {
