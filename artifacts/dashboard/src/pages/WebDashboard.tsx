@@ -3591,12 +3591,7 @@ function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void;
                 </>
               )}
 
-              <div style={{ background: "rgba(239,68,68,0.10)", border: "1.5px solid rgba(239,68,68,0.35)", borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                <div style={{ color: "#f87171", fontSize: 12, fontWeight: 700, lineHeight: 1.4 }}>
-                  ⚠️ We are currently performing scheduled maintenance to improve system stability. Login is temporarily unavailable and will resume between 4:00 AM and 5:00 AM. Thank you for your patience.
-                </div>
-              </div>
-
+              
               <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
                 <button type="submit" disabled={loading || lockSecs > 0} style={{
                   flex: 1, background: lockSecs > 0 ? "#374151" : isZT ? "#1d4ed8" : t.accent,
