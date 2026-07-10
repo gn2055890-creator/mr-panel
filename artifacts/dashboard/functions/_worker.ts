@@ -2184,9 +2184,14 @@ app.delete("/api/admin/sessions/:id", async (c) => {
   const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
   const sessionId = c.req.param("id");
   if (!isMaster) {
-    // Allow self-delete only — verify the session belongs to the caller
-    const rows = await sqlClient(`SELECT id FROM admin_sessions WHERE id = $1`, [sessionId]) as Array<{id:string}>;
+    // Fix: verify the session belongs to the CALLER'S own appId, not just that it exists
+    // (previously any logged-in sub-admin could delete/logout any other app's session — IDOR)
+    const sessionToken = c.req.header("x-session-token") ?? "";
+    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+    const callerAppId = c.get('sessionAppId');
+    const rows = await sqlClient(`SELECT id, app_id FROM admin_sessions WHERE id = $1`, [sessionId]) as Array<{id:string; app_id: string}>;
     if (rows.length === 0) return c.json({ error: "Not found" }, 404);
+    if (rows[0].app_id !== callerAppId) return c.json({ error: "Unauthorized" }, 401);
   }
   await sqlClient(`DELETE FROM admin_sessions WHERE id = $1`, [sessionId]);
   return c.json({ ok: true });
