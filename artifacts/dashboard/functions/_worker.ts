@@ -2377,6 +2377,12 @@ app.delete("/api/admin/sessions", async (c) => {
 app.get("/api/stats", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
+  const _isMasterStats = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  // SECURITY: no anonymous access. Per-app stats need a session bound to that app (or
+  // master); the global (no-appId) totals are master-only.
+  if (!_isMasterStats) {
+    if (!appId || c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+  }
   if (appId) {
     const [d] = await db.select({ c: sql<string>`count(*)::text` }).from(devices).where(eq(devices.appId, appId));
     const [m] = await db.select({ c: sql<string>`count(*)::text` }).from(messages).where(eq(messages.appId, appId));
@@ -2393,6 +2399,12 @@ app.get("/api/stats", async (c) => {
 app.get("/api/sample", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
+  const _isMasterSample = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  // SECURITY: no anonymous access. Per-app sample needs a session bound to that app (or
+  // master); the global (no-appId) sample is master-only.
+  if (!_isMasterSample) {
+    if (!appId || c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+  }
   if (appId) {
     const [d] = await db.select().from(devices).where(eq(devices.appId, appId)).limit(1);
     const [m] = await db.select().from(messages).where(eq(messages.appId, appId)).limit(1);
