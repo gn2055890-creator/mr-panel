@@ -43,7 +43,6 @@ const apps = pgTable("apps", {
     appId: text("app_id").notNull(),
     name: text("name").notNull(),
     status: text("status").notNull().default("active"),
-    loginLimit: integer("login_limit").notNull().default(20),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   }, (t) => ({ appIdUq: uniqueIndex("apps_app_id_uq").on(t.appId) }));
 
@@ -55,6 +54,7 @@ const apps = pgTable("apps", {
       pin: text("pin").notNull().default("1234"),
       deleteProtectionPin: text("delete_protection_pin"),
       deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
+      loginLimit: integer("login_limit").notNull().default(20),
     });
 
     // panelToken (the access-link "pt" credential) lives in its OWN table, split apart
@@ -153,7 +153,8 @@ async function ensureSchema(env: Env): Promise<void> {
             app_id TEXT PRIMARY KEY,
             pin TEXT NOT NULL DEFAULT '1234',
             delete_protection_pin TEXT,
-            delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            login_limit INTEGER NOT NULL DEFAULT 20
           )`),
           sqlClient(`CREATE TABLE IF NOT EXISTS app_panel_tokens (
             app_id TEXT PRIMARY KEY,
@@ -239,8 +240,10 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`),
       sqlClient(`CREATE INDEX IF NOT EXISTS admin_sessions_app_idx ON admin_sessions(app_id)`),
     sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at > NOW() + INTERVAL '1 day'`),
-      // Migration: add login_limit column if not exists
+      // Migration (legacy DBs): login_limit used to live on apps directly; keep it addable
+      // here so older rows can still be picked up by the app_secrets backfill below.
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 5`),
+      sqlClient(`ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 20`),
       // Migration: add created_at for older DBs that predated this column
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`),
       // Migration (legacy DBs): these columns used to live on apps directly; keep them
@@ -265,6 +268,13 @@ async function ensureSchema(env: Env): Promise<void> {
           SELECT app_id, pin, delete_protection_pin, delete_protection_enabled FROM apps
           ON CONFLICT (app_id) DO NOTHING
         `).catch(() => {});
+        // login_limit is a per-app config that must only be readable/writable by the master
+        // admin (a sub-admin session must never self-raise its own device cap), so it lives
+        // in app_secrets alongside the other master-gated fields, not on the public apps table.
+        await sqlClient(`
+          UPDATE app_secrets s SET login_limit = a.login_limit
+          FROM apps a WHERE a.app_id = s.app_id AND a.login_limit IS NOT NULL
+        `).catch(() => {});
         // panelToken now lives in its own dedicated table, split apart from pin/delete-protection.
         // Backfill from BOTH legacy sources before dropping either: apps.panel_token (oldest
         // schema) and app_secrets.panel_token (the more recent source, since apps.panel_token
@@ -288,6 +298,7 @@ async function ensureSchema(env: Env): Promise<void> {
           LEFT JOIN app_panel_tokens t ON t.app_id = a.app_id
           WHERE t.app_id IS NULL
         `).catch(() => {});
+      await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS login_limit`).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS pin`).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS panel_token`).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS delete_protection_pin`).catch(() => {});
@@ -333,8 +344,8 @@ function iso(d: Date | string | null | undefined): string | null {
 function isoReq(d: Date | string): string {
   return typeof d === "string" ? d : d.toISOString();
 }
-function mapApp(r: typeof apps.$inferSelect, dpEnabled = false) {
-  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: dpEnabled, loginLimit: r.loginLimit ?? 20 };
+function mapApp(r: typeof apps.$inferSelect, dpEnabled = false, loginLimit = 20) {
+  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: dpEnabled, loginLimit: loginLimit ?? 20 };
 }
 function mapDevice(r: typeof devices.$inferSelect) {
   return {
@@ -854,13 +865,13 @@ app.get("/api/apps/:appId", async (c) => {
   const appId = c.req.param("appId");
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
-  const [secret0] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+  const [secret0] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled, loginLimit: appSecrets.loginLimit }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     const [updated] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-    return c.json(updated ? mapApp(updated, secret0?.dpEnabled ?? false) : mapApp(row, secret0?.dpEnabled ?? false));
+    return c.json(updated ? mapApp(updated, secret0?.dpEnabled ?? false, secret0?.loginLimit) : mapApp(row, secret0?.dpEnabled ?? false, secret0?.loginLimit));
   }
-  return c.json(mapApp(row, secret0?.dpEnabled ?? false));
+  return c.json(mapApp(row, secret0?.dpEnabled ?? false, secret0?.loginLimit));
 });
 
 app.post("/api/apps", async (c) => {
@@ -899,11 +910,15 @@ app.patch("/api/apps/:appId", async (c) => {
     const patch: Partial<typeof apps.$inferInsert> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.status !== undefined) patch.status = body.status;
+    // loginLimit lives in app_secrets (master-only field, split apart from apps) — updated
+    // separately below, never merged into the `patch` object applied to the apps table.
+    let loginLimitChanged = false;
     if (body.loginLimit !== undefined) {
       if (!isMaster) return c.json({ error: "Only master admin can change the login limit" }, 403);
       const n = Number(body.loginLimit);
       if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
-      patch.loginLimit = Math.floor(n);
+      await db.update(appSecrets).set({ loginLimit: Math.floor(n) }).where(eq(appSecrets.appId, appId));
+      loginLimitChanged = true;
     }
 
     // Changing PIN — master can always; session owner needs currentPin as confirmation
@@ -923,7 +938,7 @@ app.patch("/api/apps/:appId", async (c) => {
     if (Object.keys(patch).length > 0) {
       [row] = await db.update(apps).set(patch).where(eq(apps.appId, appId)).returning();
       if (!row) return c.json({ error: "App not found" }, 404);
-    } else if (pinChanged) {
+    } else if (pinChanged || loginLimitChanged) {
       [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
       if (!row) return c.json({ error: "App not found" }, 404);
     } else {
@@ -935,7 +950,8 @@ app.patch("/api/apps/:appId", async (c) => {
       await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
       for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
     }
-    return c.json(mapApp(row));
+    const [freshSecret] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled, loginLimit: appSecrets.loginLimit }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    return c.json(mapApp(row, freshSecret?.dpEnabled ?? false, freshSecret?.loginLimit));
   });
 
 app.delete("/api/apps/:appId", async (c) => {
@@ -1842,7 +1858,7 @@ app.get("/api/master/apps", async (c) => {
         createdAt: isoReq(r.createdAt),
         hasDeleteProtectionPin: !!s?.deleteProtectionPin,
         deleteProtectionEnabled: s?.deleteProtectionEnabled ?? false,
-        loginLimit: r.loginLimit ?? 20,
+        loginLimit: s?.loginLimit ?? 20,
         activeSessions: sessionMap[r.appId] ?? 0,
       };
     }));
@@ -2239,10 +2255,10 @@ app.post("/api/admin/sessions", async (c) => {
     if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
 
     const db = getDb(c.env);
-    const [appRow] = await db.select({ status: apps.status, createdAt: apps.createdAt, appId: apps.appId, loginLimit: apps.loginLimit })
+    const [appRow] = await db.select({ status: apps.status, createdAt: apps.createdAt, appId: apps.appId })
       .from(apps).where(eq(apps.appId, appId)).limit(1);
     if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
-    const [secretRow] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    const [secretRow] = await db.select({ pin: appSecrets.pin, loginLimit: appSecrets.loginLimit }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
 // Check licence expiry before anything else (non-default apps only)
     if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
@@ -2281,7 +2297,7 @@ app.post("/api/admin/sessions", async (c) => {
     // No auto-expiry: a session is only ever removed by an explicit logout
       // (or "Logout All"), never by a time-based guess. This means a device
       // keeps its login-limit slot until the user actually logs it out.
-      const limit = appRow.loginLimit ?? 20;
+      const limit = secretRow?.loginLimit ?? 20;
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
