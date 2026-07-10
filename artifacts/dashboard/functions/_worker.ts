@@ -900,6 +900,7 @@ app.patch("/api/apps/:appId", async (c) => {
     if (body.name !== undefined) patch.name = body.name;
     if (body.status !== undefined) patch.status = body.status;
     if (body.loginLimit !== undefined) {
+      if (!isMaster) return c.json({ error: "Only master admin can change the login limit" }, 403);
       const n = Number(body.loginLimit);
       if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
       patch.loginLimit = Math.floor(n);
