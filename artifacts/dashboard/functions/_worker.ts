@@ -25,17 +25,24 @@ type Env = {
 
 // =================== SCHEMA ===================
 const apps = pgTable("apps", {
-  id: serial("id").primaryKey(),
-  appId: text("app_id").notNull(),
-  name: text("name").notNull(),
-  pin: text("pin").notNull().default("1234"),
-  panelToken: text("panel_token"),
-  status: text("status").notNull().default("active"),
-  loginLimit: integer("login_limit").notNull().default(20),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  deleteProtectionPin: text("delete_protection_pin"),
-  deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
-}, (t) => ({ appIdUq: uniqueIndex("apps_app_id_uq").on(t.appId) }));
+    id: serial("id").primaryKey(),
+    appId: text("app_id").notNull(),
+    name: text("name").notNull(),
+    status: text("status").notNull().default("active"),
+    loginLimit: integer("login_limit").notNull().default(20),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  }, (t) => ({ appIdUq: uniqueIndex("apps_app_id_uq").on(t.appId) }));
+
+  // SECURITY: pin / panelToken / deleteProtectionPin / deleteProtectionEnabled live in a
+  // separate table on purpose. If the apps table (or a query against it) ever leaks, the
+  // secrets are NOT sitting right there in the same row.
+  const appSecrets = pgTable("app_secrets", {
+    appId: text("app_id").primaryKey(),
+    pin: text("pin").notNull().default("1234"),
+    panelToken: text("panel_token"),
+    deleteProtectionPin: text("delete_protection_pin"),
+    deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
+  });
 
 const devices = pgTable("devices", {
   id: serial("id").primaryKey(),
@@ -118,10 +125,16 @@ async function ensureSchema(env: Env): Promise<void> {
         id SERIAL PRIMARY KEY,
         app_id TEXT NOT NULL,
         name TEXT NOT NULL,
-        pin TEXT NOT NULL DEFAULT '1234',
         status TEXT NOT NULL DEFAULT 'active',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`),
+        sqlClient(`CREATE TABLE IF NOT EXISTS app_secrets (
+          app_id TEXT PRIMARY KEY,
+          pin TEXT NOT NULL DEFAULT '1234',
+          panel_token TEXT,
+          delete_protection_pin TEXT,
+          delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE
+        )`),
       sqlClient(`CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
         device_id TEXT NOT NULL,
@@ -206,10 +219,11 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 5`),
       // Migration: add created_at for older DBs that predated this column
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`),
-      // Migration: add delete protection columns
+      // Migration (legacy DBs): these columns used to live on apps directly; keep them
+      // addable here so older rows can still be picked up by the app_secrets backfill below.
+      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS pin TEXT NOT NULL DEFAULT '1234'`),
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_pin TEXT`),
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE`),
-      // Migration: add panel_token for brute-force protection
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS panel_token TEXT`),
       // Migration: add starred column to devices
       sqlClient(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE`),
@@ -217,17 +231,34 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS master_only BOOLEAN NOT NULL DEFAULT FALSE`),
     ]);
     // Fix: apps created before created_at column existed have NULL — set to NOW() and re-enable if wrongly disabled
-    await sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at IS NULL`).catch(() => {});
-    await sqlClient(`UPDATE apps SET status = 'active' WHERE status = 'disabled' AND created_at IS NULL AND app_id != 'SKY-APP-2026-X9F3'`).catch(() => {});
-    // Auto-generate panel_token for existing apps that don't have one
-    await sqlClient(`UPDATE apps SET panel_token = gen_random_uuid()::text WHERE panel_token IS NULL`).catch(() => {});
-    // ensure default app + master PIN setting
+      await sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at IS NULL`).catch(() => {});
+      await sqlClient(`UPDATE apps SET status = 'active' WHERE status = 'disabled' AND created_at IS NULL AND app_id != 'SKY-APP-2026-X9F3'`).catch(() => {});
+      // SECURITY MIGRATION: move pin/panel_token/delete-protection secrets off the apps
+      // table and into the dedicated app_secrets table, then drop them from apps so they
+      // physically can't be returned by a query against apps anymore.
+      await sqlClient(`
+        INSERT INTO app_secrets (app_id, pin, panel_token, delete_protection_pin, delete_protection_enabled)
+        SELECT app_id, pin, panel_token, delete_protection_pin, delete_protection_enabled FROM apps
+        ON CONFLICT (app_id) DO NOTHING
+      `).catch(() => {});
+      // Auto-generate panel_token for existing apps that don't have one
+      await sqlClient(`UPDATE app_secrets SET panel_token = gen_random_uuid()::text WHERE panel_token IS NULL`).catch(() => {});
+      await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS pin`).catch(() => {});
+      await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS panel_token`).catch(() => {});
+      await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS delete_protection_pin`).catch(() => {});
+      await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS delete_protection_enabled`).catch(() => {});
+      // ensure default app + master PIN setting
+    await sqlClient(
+      `INSERT INTO apps (app_id, name, status) VALUES ($1,$2,'active')
+       ON CONFLICT (app_id) DO NOTHING`,
+      [DEFAULT_APP_ID, DEFAULT_APP_NAME],
+    );
+    await sqlClient(
+      `INSERT INTO app_secrets (app_id, pin) VALUES ($1,$2)
+       ON CONFLICT (app_id) DO NOTHING`,
+      [DEFAULT_APP_ID, DEFAULT_APP_PIN],
+    );
     await Promise.all([
-      sqlClient(
-        `INSERT INTO apps (app_id, name, pin, status) VALUES ($1,$2,$3,'active')
-         ON CONFLICT (app_id) DO NOTHING`,
-        [DEFAULT_APP_ID, DEFAULT_APP_NAME, DEFAULT_APP_PIN],
-      ),
       sqlClient(
         `INSERT INTO settings (key, value) VALUES ('master_pin', 'CHANGE-ME-4e5fdd7e-206')
          ON CONFLICT (key) DO NOTHING`,
@@ -257,8 +288,8 @@ function iso(d: Date | string | null | undefined): string | null {
 function isoReq(d: Date | string): string {
   return typeof d === "string" ? d : d.toISOString();
 }
-function mapApp(r: typeof apps.$inferSelect) {
-  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false, loginLimit: r.loginLimit ?? 20 };
+function mapApp(r: typeof apps.$inferSelect, dpEnabled = false) {
+  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: dpEnabled, loginLimit: r.loginLimit ?? 20 };
 }
 function mapDevice(r: typeof devices.$inferSelect) {
   return {
@@ -749,13 +780,14 @@ app.get("/api/apps", async (c) => {
     const appId = sessions[0].app_id;
     const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
     if (!row) return c.json([], 200);
+    const [secret0] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     // auto-disable expired
     if (row.appId !== DEFAULT_APP_ID && row.status === "active" && row.createdAt && isExpired(row.createdAt)) {
       await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
       const [updated] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-      return c.json(updated ? [mapApp(updated)] : [mapApp(row)]);
+      return c.json(updated ? [mapApp(updated, secret0?.dpEnabled ?? false)] : [mapApp(row, secret0?.dpEnabled ?? false)]);
     }
-    return c.json([mapApp(row)]);
+    return c.json([mapApp(row, secret0?.dpEnabled ?? false)]);
   }
   // Master: return all apps (existing behaviour)
   const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
@@ -767,7 +799,9 @@ app.get("/api/apps", async (c) => {
     }
   }
   const fresh = await db.select().from(apps).orderBy(desc(apps.createdAt));
-  return c.json(fresh.map(mapApp));
+  const dpRows = await db.select({ appId: appSecrets.appId, dpEnabled: appSecrets.deleteProtectionEnabled }).from(appSecrets);
+  const dpMap = Object.fromEntries(dpRows.map(r => [r.appId, r.dpEnabled]));
+  return c.json(fresh.map(r => mapApp(r, dpMap[r.appId] ?? false)));
 });
 
 app.get("/api/apps/:appId", async (c) => {
@@ -775,147 +809,161 @@ app.get("/api/apps/:appId", async (c) => {
   const appId = c.req.param("appId");
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
+  const [secret0] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     const [updated] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-    return c.json(updated ? mapApp(updated) : mapApp(row));
+    return c.json(updated ? mapApp(updated, secret0?.dpEnabled ?? false) : mapApp(row, secret0?.dpEnabled ?? false));
   }
-  return c.json(mapApp(row));
+  return c.json(mapApp(row, secret0?.dpEnabled ?? false));
 });
 
 app.post("/api/apps", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const body = await c.req.json() as { appId?: string; name?: string; pin?: string; status?: string };
-  if (!body.appId || !body.name) return c.json({ error: "appId and name are required" }, 400);
-  const inserted = await db.insert(apps).values({
-    appId: body.appId, name: body.name,
-    pin: body.pin ?? "1234", status: body.status ?? "active",
-    panelToken: crypto.randomUUID(),
-  }).onConflictDoNothing({ target: apps.appId }).returning();
-  if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
-  return c.json(mapApp(inserted[0]), 201);
-});
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const body = await c.req.json() as { appId?: string; name?: string; pin?: string; status?: string };
+    if (!body.appId || !body.name) return c.json({ error: "appId and name are required" }, 400);
+    const inserted = await db.insert(apps).values({
+      appId: body.appId, name: body.name, status: body.status ?? "active",
+    }).onConflictDoNothing({ target: apps.appId }).returning();
+    if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
+    await db.insert(appSecrets).values({
+      appId: body.appId, pin: body.pin ?? "1234", panelToken: crypto.randomUUID(),
+    }).onConflictDoNothing({ target: appSecrets.appId });
+    return c.json(mapApp(inserted[0]), 201);
+  });
 
 app.patch("/api/apps/:appId", async (c) => {
-  const appId = c.req.param("appId");
-  const masterPin = await getMasterPin(c.env);
-  const isMaster = (c.req.header("x-master-pin") ?? "") === masterPin;
-  const sessionToken = c.req.header("x-session-token") ?? "";
+    const appId = c.req.param("appId");
+    const masterPin = await getMasterPin(c.env);
+    const isMaster = (c.req.header("x-master-pin") ?? "") === masterPin;
+    const sessionToken = c.req.header("x-session-token") ?? "";
 
-  // Master PIN → full access. Session → must belong to THIS appId. Neither → deny.
-  if (!isMaster) {
-    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
-  }
-
-  const db = getDb(c.env);
-  const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; loginLimit?: number };
-  const patch: Partial<typeof apps.$inferInsert> = {};
-  if (body.name !== undefined) patch.name = body.name;
-  if (body.status !== undefined) patch.status = body.status;
-  if (body.loginLimit !== undefined) {
-    const n = Number(body.loginLimit);
-    if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
-    patch.loginLimit = Math.floor(n);
-  }
-
-  // Changing PIN — master can always; session owner needs currentPin as confirmation
-  if (body.pin !== undefined) {
+    // Master PIN → full access. Session → must belong to THIS appId. Neither → deny.
     if (!isMaster) {
-      const [existing] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-      if (!existing) return c.json({ error: "App not found" }, 404);
-      if (!body.currentPin) return c.json({ error: "currentPin required to change PIN" }, 400);
-      if (body.currentPin !== existing.pin) return c.json({ error: "Wrong current PIN" }, 401);
+      if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+      if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
     }
-    patch.pin = body.pin;
-  }
 
-  if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
-  const [row] = await db.update(apps).set(patch).where(eq(apps.appId, c.req.param("appId"))).returning();
-  if (!row) return c.json({ error: "App not found" }, 404);
-  // PIN change — purani saari sessions delete karo taaki attacker ka access khatam ho
-  if (patch.pin !== undefined) {
-    const sqlC = neon(c.env.NEON_DATABASE_URL);
-    await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
-    for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
-  }
-  return c.json(mapApp(row));
-});
+    const db = getDb(c.env);
+    const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; loginLimit?: number };
+    const patch: Partial<typeof apps.$inferInsert> = {};
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.status !== undefined) patch.status = body.status;
+    if (body.loginLimit !== undefined) {
+      const n = Number(body.loginLimit);
+      if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
+      patch.loginLimit = Math.floor(n);
+    }
+
+    // Changing PIN — master can always; session owner needs currentPin as confirmation
+    let pinChanged = false;
+    if (body.pin !== undefined) {
+      const [existingSecret] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+      if (!existingSecret) return c.json({ error: "App not found" }, 404);
+      if (!isMaster) {
+        if (!body.currentPin) return c.json({ error: "currentPin required to change PIN" }, 400);
+        if (body.currentPin !== existingSecret.pin) return c.json({ error: "Wrong current PIN" }, 401);
+      }
+      await db.update(appSecrets).set({ pin: body.pin }).where(eq(appSecrets.appId, appId));
+      pinChanged = true;
+    }
+
+    let row: typeof apps.$inferSelect | undefined;
+    if (Object.keys(patch).length > 0) {
+      [row] = await db.update(apps).set(patch).where(eq(apps.appId, appId)).returning();
+      if (!row) return c.json({ error: "App not found" }, 404);
+    } else if (pinChanged) {
+      [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+      if (!row) return c.json({ error: "App not found" }, 404);
+    } else {
+      return c.json({ error: "No fields to update" }, 400);
+    }
+    // PIN change — purani saari sessions delete karo taaki attacker ka access khatam ho
+    if (pinChanged) {
+      const sqlC = neon(c.env.NEON_DATABASE_URL);
+      await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
+      for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
+    }
+    return c.json(mapApp(row));
+  });
 
 app.delete("/api/apps/:appId", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const [row] = await db.delete(apps).where(eq(apps.appId, c.req.param("appId"))).returning();
-  if (!row) return c.json({ error: "App not found" }, 404);
-  return c.json({ ok: true });
-});
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const appId = c.req.param("appId");
+    const [row] = await db.delete(apps).where(eq(apps.appId, appId)).returning();
+    if (!row) return c.json({ error: "App not found" }, 404);
+    await db.delete(appSecrets).where(eq(appSecrets.appId, appId));
+    return c.json({ ok: true });
+  });
 
 app.post("/api/apps/:appId/verify-pin", async (c) => {
-  const db = getDb(c.env);
-  const appId = c.req.param("appId");
-  const body = await c.req.json() as { pin?: string; panelToken?: string };
-  if (!body.pin) return c.json({ error: "PIN required" }, 400);
+    const db = getDb(c.env);
+    const appId = c.req.param("appId");
+    const body = await c.req.json() as { pin?: string; panelToken?: string };
+    if (!body.pin) return c.json({ error: "PIN required" }, 400);
 
-  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
-    await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
-    return c.json({ error: "Licence expired. Please contact admin." }, 403);
-  }
-  if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
-  if (row.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
-  return c.json({ ok: true, appId: row.appId, name: row.name });
-});
+    const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+    if (!row) return c.json({ error: "App not found" }, 404);
+  if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
+      await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
+      return c.json({ error: "Licence expired. Please contact admin." }, 403);
+    }
+    if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
+    const [secret] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    if (!secret || secret.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
+    return c.json({ ok: true, appId: row.appId, name: row.name });
+  });
 
 // ------- DELETE PROTECTION -------
 app.get("/api/apps/:appId/delete-protection", async (c) => {
-  await ensureSchema(c.env);
-  const db = getDb(c.env);
-  const [row] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-  const resp = c.json({ enabled: row.deleteProtectionEnabled ?? false, hasPin: !!row.deleteProtectionPin });
-  resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  resp.headers.set("Pragma", "no-cache");
-  return resp;
-});
+    await ensureSchema(c.env);
+    const db = getDb(c.env);
+    const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, c.req.param("appId"))).limit(1);
+    if (!row) return c.json({ error: "App not found" }, 404);
+    const resp = c.json({ enabled: row.deleteProtectionEnabled ?? false, hasPin: !!row.deleteProtectionPin });
+    resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    resp.headers.set("Pragma", "no-cache");
+    return resp;
+  });
 
 app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
-  await ensureSchema(c.env);
-  const db = getDb(c.env);
-  const appId = c.req.param("appId");
-  const isMasterSetPin = c.req.header("x-master-pin") === await getMasterPin(c.env);
-  const body = await c.req.json() as { pin?: string; currentPin?: string };
-  if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
-  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-  if (row.deleteProtectionPin && !isMasterSetPin) {
-    if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
-    if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
-  }
-  await db.update(apps).set({ deleteProtectionPin: body.pin }).where(eq(apps.appId, appId));
-  return c.json({ ok: true });
-});
+    await ensureSchema(c.env);
+    const db = getDb(c.env);
+    const appId = c.req.param("appId");
+    const isMasterSetPin = c.req.header("x-master-pin") === await getMasterPin(c.env);
+    const body = await c.req.json() as { pin?: string; currentPin?: string };
+    if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
+    const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    if (!row) return c.json({ error: "App not found" }, 404);
+    if (row.deleteProtectionPin && !isMasterSetPin) {
+      if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
+      if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
+    }
+    await db.update(appSecrets).set({ deleteProtectionPin: body.pin }).where(eq(appSecrets.appId, appId));
+    return c.json({ ok: true });
+  });
 
-app.post("/api/apps/:appId/delete-protection/toggle", async (c) => {
-  await ensureSchema(c.env);
-  const db = getDb(c.env);
-  const appId = c.req.param("appId");
-  const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
-  const body = await c.req.json() as { pin?: string };
-  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-  if (!isMaster) {
-    if (!body.pin) return c.json({ error: "pin required" }, 400);
-    if (!row.deleteProtectionPin) return c.json({ error: "Set a delete protection pin first" }, 403);
-    if (body.pin !== row.deleteProtectionPin) return c.json({ error: "Wrong pin" }, 401);
-  }
-  const newEnabled = !(row.deleteProtectionEnabled ?? false);
-  await db.update(apps).set({ deleteProtectionEnabled: newEnabled }).where(eq(apps.appId, appId));
-  return c.json({ ok: true, enabled: newEnabled });
-});
+  app.post("/api/apps/:appId/delete-protection/toggle", async (c) => {
+    await ensureSchema(c.env);
+    const db = getDb(c.env);
+    const appId = c.req.param("appId");
+    const isMaster = c.req.header("x-master-pin") === await getMasterPin(c.env);
+    const body = await c.req.json() as { pin?: string };
+    const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    if (!row) return c.json({ error: "App not found" }, 404);
+    if (!isMaster) {
+      if (!body.pin) return c.json({ error: "pin required" }, 400);
+      if (!row.deleteProtectionPin) return c.json({ error: "Set a delete protection pin first" }, 403);
+      if (body.pin !== row.deleteProtectionPin) return c.json({ error: "Wrong pin" }, 401);
+    }
+    const newEnabled = !(row.deleteProtectionEnabled ?? false);
+    await db.update(appSecrets).set({ deleteProtectionEnabled: newEnabled }).where(eq(appSecrets.appId, appId));
+    return c.json({ ok: true, enabled: newEnabled });
+  });
 
 // ------- DEVICES -------
 app.get("/api/devices", async (c) => {
@@ -1160,15 +1208,15 @@ app.post("/api/data", async (c) => {
 
 // ── Delete Protection check ──────────────────────────────────────────────────
 async function requireDeleteProtection(c: Parameters<typeof app.delete>[1] extends (c: infer C) => unknown ? C : never, appId: string, db: ReturnType<typeof getDb>): Promise<Response | null> {
-  const masterPin = await getMasterPin(c.env);
-  if ((c.req.header("x-master-pin") ?? "") === masterPin) return null; // master always bypasses
-  const [appRow] = await db.select({ dpEnabled: apps.deleteProtectionEnabled, dpPin: apps.deleteProtectionPin }).from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!appRow?.dpEnabled) return null;
-  const pin = c.req.header("x-delete-pin") ?? "";
-  if (!pin) return c.json({ error: "delete_protection", message: "Delete protection PIN required" }, 403);
-  if (pin !== appRow.dpPin) return c.json({ error: "delete_protection", message: "Wrong delete protection PIN" }, 401);
-  return null;
-}
+    const masterPin = await getMasterPin(c.env);
+    if ((c.req.header("x-master-pin") ?? "") === masterPin) return null; // master always bypasses
+    const [appRow] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled, dpPin: appSecrets.deleteProtectionPin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+    if (!appRow?.dpEnabled) return null;
+    const pin = c.req.header("x-delete-pin") ?? "";
+    if (!pin) return c.json({ error: "delete_protection", message: "Delete protection PIN required" }, 403);
+    if (pin !== appRow.dpPin) return c.json({ error: "delete_protection", message: "Wrong delete protection PIN" }, 401);
+    return null;
+  }
 
 app.delete("/api/data/:id", async (c) => {
   const db = getDb(c.env);
@@ -1700,92 +1748,108 @@ app.patch("/api/admin/master-pin", async (c) => {
 
 // Master admin: get all apps (including PIN) — requires x-master-pin header
 app.get("/api/master/apps", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  let rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
-  // Backfill panel tokens for apps created before hard-enforcement was added,
-  // so every app has one to embed in its access link.
-  const missingTokenIds = rows.filter(r => !r.panelToken).map(r => r.appId);
-  if (missingTokenIds.length > 0) {
-    await Promise.all(missingTokenIds.map(id =>
-      db.update(apps).set({ panelToken: crypto.randomUUID() }).where(eq(apps.appId, id))
-    ));
-    rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
-  }
-  // Count active sessions per app
-  const sessionCounts = await sqlClient(
-    `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '30 minutes' GROUP BY app_id`,
-  ) as Array<{ app_id: string; cnt: string }>;
-  const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
-  // SECURITY: pin / panelToken / deleteProtectionPin are intentionally NOT included here.
-  // A single master-pin call must never dump every app's secrets at once — use
-  // GET /api/master/apps/:appId/secret to fetch one app's credentials at a time.
-  return c.json(rows.map(r => ({
-    id: r.id, appId: r.appId, name: r.name,
-    hasPanelToken: !!r.panelToken,
-    status: r.status,
-    createdAt: isoReq(r.createdAt),
-    hasDeleteProtectionPin: !!r.deleteProtectionPin,
-    deleteProtectionEnabled: r.deleteProtectionEnabled ?? false,
-    loginLimit: r.loginLimit ?? 20,
-    activeSessions: sessionMap[r.appId] ?? 0,
-  })));
-});
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
+    // Backfill panel tokens for apps created before hard-enforcement was added,
+    // so every app has one to embed in its access link.
+    const missingTokenIds = (await db.select({ appId: appSecrets.appId }).from(appSecrets).where(sql`${appSecrets.panelToken} IS NULL`)).map(r => r.appId);
+    if (missingTokenIds.length > 0) {
+      await Promise.all(missingTokenIds.map(id =>
+        db.update(appSecrets).set({ panelToken: crypto.randomUUID() }).where(eq(appSecrets.appId, id))
+      ));
+    }
+    // Count active sessions per app
+    const sessionCounts = await sqlClient(
+      `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '30 minutes' GROUP BY app_id`,
+    ) as Array<{ app_id: string; cnt: string }>;
+    const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
+    const secretRows = await db.select().from(appSecrets);
+    const secretMap = Object.fromEntries(secretRows.map(r => [r.appId, r]));
+    // SECURITY: pin / panelToken / deleteProtectionPin live in a separate table (app_secrets)
+    // and are intentionally NOT included here. A single master-pin call must never dump every
+    // app's secrets at once — use GET /api/master/apps/:appId/secret to fetch one app's
+    // credentials at a time.
+    return c.json(rows.map(r => {
+      const s = secretMap[r.appId];
+      return {
+        id: r.id, appId: r.appId, name: r.name,
+        hasPanelToken: !!s?.panelToken,
+        status: r.status,
+        createdAt: isoReq(r.createdAt),
+        hasDeleteProtectionPin: !!s?.deleteProtectionPin,
+        deleteProtectionEnabled: s?.deleteProtectionEnabled ?? false,
+        loginLimit: r.loginLimit ?? 20,
+        activeSessions: sessionMap[r.appId] ?? 0,
+      };
+    }));
+  });
 
 // Master admin: fetch sensitive credentials (pin, panelToken, delete-protection pin) for ONE app at a time.
 // Kept separate from the list endpoint so a single call never dumps every app's secrets at once.
 app.get("/api/master/apps/:appId/secret", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const [row] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-  const resp = c.json({ pin: row.pin, panelToken: row.panelToken ?? null, deleteProtectionPin: row.deleteProtectionPin ?? null });
-  resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  return resp;
-});
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, c.req.param("appId"))).limit(1);
+    if (!row) return c.json({ error: "App not found" }, 404);
+    const resp = c.json({ pin: row.pin, panelToken: row.panelToken ?? null, deleteProtectionPin: row.deleteProtectionPin ?? null });
+    resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+    return resp;
+  });
 
 // Master admin: create app — requires x-master-pin header
 app.post("/api/master/apps", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const body = await c.req.json() as { appId?: string; name?: string; pin?: string };
-  if (!body.appId || !body.name || !body.pin) return c.json({ error: "appId, name and pin are required" }, 400);
-  const inserted = await db.insert(apps).values({
-    appId: body.appId, name: body.name, pin: body.pin, status: "active",
-    panelToken: crypto.randomUUID(),
-  }).onConflictDoNothing({ target: apps.appId }).returning();
-  if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
-  const r = inserted[0];
-  return c.json({ id: r.id, appId: r.appId, name: r.name, pin: r.pin, panelToken: r.panelToken ?? null, status: r.status, createdAt: isoReq(r.createdAt) }, 201);
-});
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const body = await c.req.json() as { appId?: string; name?: string; pin?: string };
+    if (!body.appId || !body.name || !body.pin) return c.json({ error: "appId, name and pin are required" }, 400);
+    const inserted = await db.insert(apps).values({
+      appId: body.appId, name: body.name, status: "active",
+    }).onConflictDoNothing({ target: apps.appId }).returning();
+    if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
+    const panelToken = crypto.randomUUID();
+    await db.insert(appSecrets).values({
+      appId: body.appId, pin: body.pin, panelToken,
+    }).onConflictDoNothing({ target: appSecrets.appId });
+    const r = inserted[0];
+    return c.json({ id: r.id, appId: r.appId, name: r.name, pin: body.pin, panelToken, status: r.status, createdAt: isoReq(r.createdAt) }, 201);
+  });
 
 // Master admin: update app (name/pin/status) — requires x-master-pin header
 app.patch("/api/master/apps/:appId", async (c) => {
-  const guard = await checkMasterPin(c as never);
-  if (guard) return guard;
-  const db = getDb(c.env);
-  const appId = c.req.param("appId");
-  const body = await c.req.json() as { name?: string; pin?: string; status?: string; };
-  const patch: Partial<typeof apps.$inferInsert> = {};
-  if (body.name) patch.name = body.name;
-  if (body.pin) patch.pin = body.pin;
-  if (body.status) patch.status = body.status;
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
+    const db = getDb(c.env);
+    const appId = c.req.param("appId");
+    const body = await c.req.json() as { name?: string; pin?: string; status?: string; };
+    const patch: Partial<typeof apps.$inferInsert> = {};
+    if (body.name) patch.name = body.name;
+    if (body.status) patch.status = body.status;
 
-  const updated = await db.update(apps).set(patch).where(eq(apps.appId, appId)).returning();
-  if (updated.length === 0) return c.json({ error: "App not found" }, 404);
-  // PIN change — purani saari sessions delete karo
-  if (patch.pin !== undefined) {
-    const sqlC = neon(c.env.NEON_DATABASE_URL);
-    await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
-    for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
-  }
-  const r = updated[0];
-  return c.json({ id: r.id, appId: r.appId, name: r.name, pin: r.pin, status: r.status, createdAt: isoReq(r.createdAt) });
-});
+    if (body.pin) {
+      await db.update(appSecrets).set({ pin: body.pin }).where(eq(appSecrets.appId, appId));
+    }
+
+    let updated: (typeof apps.$inferSelect)[];
+    if (Object.keys(patch).length > 0) {
+      updated = await db.update(apps).set(patch).where(eq(apps.appId, appId)).returning();
+    } else {
+      updated = await db.select().from(apps).where(eq(apps.appId, appId));
+    }
+    if (updated.length === 0) return c.json({ error: "App not found" }, 404);
+    // PIN change — purani saari sessions delete karo
+    if (body.pin) {
+      const sqlC = neon(c.env.NEON_DATABASE_URL);
+      await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
+      for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
+    }
+    const r = updated[0];
+    return c.json({ id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt) });
+  });
 
 
 // Master admin: fast stats — online count + total devices via SQL COUNT (no full table download)
@@ -1921,6 +1985,7 @@ app.delete("/api/master/apps/:appId", async (c) => {
   const appId = c.req.param("appId");
   if (appId === DEFAULT_APP_ID) return c.json({ error: "Cannot delete the default app" }, 400);
   await db.delete(apps).where(eq(apps.appId, appId));
+  await db.delete(appSecrets).where(eq(appSecrets.appId, appId));
   return c.json({ ok: true });
 });
 
@@ -1935,7 +2000,7 @@ app.post("/api/master/apps/:appId/regenerate-token", async (c) => {
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
   const newToken = crypto.randomUUID();
-  await db.update(apps).set({ panelToken: newToken }).where(eq(apps.appId, appId));
+  await db.update(appSecrets).set({ panelToken: newToken }).where(eq(appSecrets.appId, appId));
   // Force-logout every currently active session for this app — the old link's
   // holder (including an attacker) must not stay logged in after rotation.
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
@@ -2109,14 +2174,15 @@ app.post("/api/admin/sessions", async (c) => {
     if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
 
     const db = getDb(c.env);
-    const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId, loginLimit: apps.loginLimit })
+    const [appRow] = await db.select({ status: apps.status, createdAt: apps.createdAt, appId: apps.appId, loginLimit: apps.loginLimit })
       .from(apps).where(eq(apps.appId, appId)).limit(1);
     if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
+    const [secretRow] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
 // Check licence expiry before anything else (non-default apps only)
     if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
     }
-    if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
+    if (appRow.status !== "active" || !secretRow || secretRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
     // Ensure device_id column exists (persistent per-browser fingerprint, avoids
     // mobile-carrier IP rotation from creating a fresh "duplicate" session per request)
     await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`).catch(() => {});
@@ -2240,15 +2306,18 @@ app.get("/api/sample", async (c) => {
 });
 
 app.post("/api/seed", async (c) => {
-  const db = getDb(c.env);
-  const existing = await db.select().from(apps).where(eq(apps.appId, DEFAULT_APP_ID)).limit(1);
-  if (existing.length === 0) {
-    await db.insert(apps).values({
-      appId: DEFAULT_APP_ID, name: DEFAULT_APP_NAME, pin: DEFAULT_APP_PIN, status: "active",
-    }).onConflictDoNothing({ target: apps.appId });
-  }
-  return c.json({ ok: true, message: "Database is ready" });
-});
+    const db = getDb(c.env);
+    const existing = await db.select().from(apps).where(eq(apps.appId, DEFAULT_APP_ID)).limit(1);
+    if (existing.length === 0) {
+      await db.insert(apps).values({
+        appId: DEFAULT_APP_ID, name: DEFAULT_APP_NAME, status: "active",
+      }).onConflictDoNothing({ target: apps.appId });
+      await db.insert(appSecrets).values({
+        appId: DEFAULT_APP_ID, pin: DEFAULT_APP_PIN,
+      }).onConflictDoNothing({ target: appSecrets.appId });
+    }
+    return c.json({ ok: true, message: "Database is ready" });
+  });
 
 // ------- EVENTS (WebSocket — handled directly in fetch(), bypassing Hono) -------
 // WebSocket 101 upgrade is intercepted before Hono in the default export below.
