@@ -1839,7 +1839,8 @@ app.get("/api/master/apps/:appId/secret", async (c) => {
     const db = getDb(c.env);
     const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, c.req.param("appId"))).limit(1);
     if (!row) return c.json({ error: "App not found" }, 404);
-    const resp = c.json({ pin: row.pin, panelToken: row.panelToken ?? null, deleteProtectionPin: row.deleteProtectionPin ?? null });
+    const [tokenRow] = await db.select().from(appPanelTokens).where(eq(appPanelTokens.appId, c.req.param("appId"))).limit(1);
+    const resp = c.json({ pin: row.pin, panelToken: tokenRow?.panelToken ?? null, deleteProtectionPin: row.deleteProtectionPin ?? null });
     resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
     return resp;
   });
@@ -1857,8 +1858,11 @@ app.post("/api/master/apps", async (c) => {
     if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
     const panelToken = crypto.randomUUID();
     await db.insert(appSecrets).values({
-      appId: body.appId, pin: body.pin, panelToken,
+      appId: body.appId, pin: body.pin,
     }).onConflictDoNothing({ target: appSecrets.appId });
+    await db.insert(appPanelTokens).values({
+      appId: body.appId, panelToken,
+    }).onConflictDoNothing({ target: appPanelTokens.appId });
     const r = inserted[0];
     return c.json({ id: r.id, appId: r.appId, name: r.name, pin: body.pin, panelToken, status: r.status, createdAt: isoReq(r.createdAt) }, 201);
   });
@@ -2044,7 +2048,7 @@ app.post("/api/master/apps/:appId/regenerate-token", async (c) => {
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
   const newToken = crypto.randomUUID();
-  await db.update(appSecrets).set({ panelToken: newToken }).where(eq(appSecrets.appId, appId));
+  await db.insert(appPanelTokens).values({ appId, panelToken: newToken }).onConflictDoUpdate({ target: appPanelTokens.appId, set: { panelToken: newToken } });
   // Force-logout every currently active session for this app — the old link's
   // holder (including an attacker) must not stay logged in after rotation.
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
