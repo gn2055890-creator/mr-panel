@@ -223,7 +223,7 @@ async function ensureSchema(env: Env): Promise<void> {
         [DEFAULT_APP_ID, DEFAULT_APP_NAME, DEFAULT_APP_PIN],
       ),
       sqlClient(
-        `INSERT INTO settings (key, value) VALUES ('master_pin', 'master1234')
+        `INSERT INTO settings (key, value) VALUES ('master_pin', 'CHANGE-ME-4e5fdd7e-206')
          ON CONFLICT (key) DO NOTHING`,
       ),
     ]);
@@ -1441,7 +1441,25 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 }
 
 
-app.post("/api/admin/verify-master-pin", async (c) => {
+app.post("/api/master/change-pin", async (c) => {
+    const currentPin = c.req.header("x-master-pin") ?? "";
+    if (!currentPin) return c.json({ error: "Current Master PIN required" }, 401);
+    const correctPin = await getMasterPin(c.env);
+    if (!correctPin) return c.json({ error: "Master PIN not configured" }, 500);
+    if (currentPin !== correctPin) return c.json({ error: "Wrong current Master PIN" }, 401);
+    const body = await c.req.json().catch(() => ({})) as { newPin?: string };
+    const newPin = (body.newPin ?? "").trim();
+    if (newPin.length < 8) return c.json({ error: "New Master PIN must be at least 8 characters" }, 400);
+    const sqlClient = neon(c.env.NEON_DATABASE_URL);
+    await sqlClient(`UPDATE settings SET value = $1 WHERE key = 'master_pin'`, [newPin]);
+    _masterPinCache = { value: newPin, ts: 0 }; // invalidate cache immediately
+    // Force-logout every admin session across every app — anyone in using the old
+    // Master PIN's authority is fully locked out, matching the security intent of a PIN rotation.
+    await sqlClient(`DELETE FROM admin_sessions`);
+    return c.json({ ok: true });
+  });
+
+  app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
 
