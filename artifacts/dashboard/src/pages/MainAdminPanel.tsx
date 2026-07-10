@@ -526,8 +526,8 @@ function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPi
 }
 
 /* ── App Card ── */
-function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, onRegenToken, onSaveLoginLimit, onResetLoginLimit, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId, regenTokenId, savingLoginLimitId, resetLoginLimitId }: {
-  app: App; onEdit: (a: App) => void; onDelete: (a: App) => void;
+function AppCard({ app, masterPin, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, onRegenToken, onSaveLoginLimit, onResetLoginLimit, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId, regenTokenId, savingLoginLimitId, resetLoginLimitId }: {
+  app: App; masterPin: string | null; onEdit: (a: App) => void; onDelete: (a: App) => void;
   onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void;
   onResetApk: (a: App) => void; onRenew: (a: App) => void; onRegenToken: (a: App) => void;
   onSaveLoginLimit: (a: App, value: number) => void; onResetLoginLimit: (a: App) => void;
@@ -3103,7 +3103,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {filteredApps.map(app => (
-                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} onRegenToken={regenToken} onSaveLoginLimit={saveLoginLimit} onResetLoginLimit={resetLoginLimit} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} regenTokenId={regenTokenId} savingLoginLimitId={savingLoginLimitId} resetLoginLimitId={resetLoginLimitId} />
+                  <AppCard key={app.appId} app={app} masterPin={masterPin} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} onRegenToken={regenToken} onSaveLoginLimit={saveLoginLimit} onResetLoginLimit={resetLoginLimit} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} regenTokenId={regenTokenId} savingLoginLimitId={savingLoginLimitId} resetLoginLimitId={resetLoginLimitId} />
                 ))}
               </div>
             )}
