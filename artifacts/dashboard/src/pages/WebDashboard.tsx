@@ -3170,16 +3170,7 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
   const [lockSecs, setLockSecs] = useState(0);
-  const [ghostCount, setGhostCount] = useState(0);
-  const [showGhost, setShowGhost] = useState(false);
-  const [ghostPin, setGhostPin] = useState("");
-  const [ghostLoading, setGhostLoading] = useState(false);
-  const [ghostErr, setGhostErr] = useState("");
-  const [ghostMode, setGhostMode] = useState(false);
-  const [ghostToast, setGhostToast] = useState("");
-  const ghostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ghostToastRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showComplaint,    setShowComplaint]    = useState(false);
+const [showComplaint,    setShowComplaint]    = useState(false);
   const [complaintText,    setComplaintText]    = useState("");
   const [complaintSending, setComplaintSending] = useState(false);
   const [complaintStep,    setComplaintStep]    = useState<"welcome"|"form"|"sent">("welcome");
@@ -3204,22 +3195,7 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
     e.preventDefault();
     setLoading(true); setErr("");
     try {
-      if (ghostMode) {
-        const gr = await fetch("/api/admin/sessions/ghost", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ appId, pin, panelToken }),
-        });
-        if (!gr.ok) {
-          const j = await gr.json().catch(() => ({})) as { error?: string };
-          setErr(j.error ?? "Invalid PIN."); setPin(""); setLoading(false); setGhostMode(false); return;
-        }
-        const { sessionId } = await gr.json() as { sessionId: string };
-        localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
-        if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
-        localStorage.setItem(`mrrobot_auth_${appId}`, "1");
-        setLoading(false); onAuth(); return;
-      }
-            // Step 1: verify PIN
+      // Step 1: verify PIN
       const r = await apiFetch(`/api/apps/${appId}/verify-pin`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pin, panelToken }),
@@ -3265,48 +3241,6 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
       onAuth();
     } catch { setErr("Network error. Try again."); }
     finally { setLoading(false); }
-  }
-
-
-
-  async function handleGhostLogin(e: React.FormEvent) {
-    e.preventDefault();
-    setGhostLoading(true); setGhostErr("");
-    try {
-      // Ghost endpoint verifies PIN + creates hidden session in one call
-      const sessR = await fetch("/api/admin/sessions/ghost", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ appId, pin: ghostPin, panelToken }),
-      });
-      if (!sessR.ok) {
-        const err = await sessR.json().catch(() => ({})) as { error?: string };
-        setGhostErr(err.error ?? "Invalid PIN. Try again.");
-        setGhostPin(""); return;
-      }
-      const { sessionId } = await sessR.json() as { sessionId: string };
-      localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
-      if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
-      localStorage.setItem(`mrrobot_auth_${appId}`, "1");
-      setShowGhost(false); setGhostPin("");
-      onAuth();
-    } catch { setGhostErr("Network error. Try again."); }
-    finally { setGhostLoading(false); }
-  }
-
-  function handleGhostClick() {
-    if (ghostTimerRef.current) clearTimeout(ghostTimerRef.current);
-    if (ghostToastRef.current) clearTimeout(ghostToastRef.current);
-    setGhostCount(prev => {
-      const next = prev + 1;
-      if (next >= 7) {
-        setGhostMode(true);
-        setGhostToast("👻");
-        ghostToastRef.current = setTimeout(() => setGhostToast(""), 1500);
-        return 0;
-      }
-      ghostTimerRef.current = setTimeout(() => setGhostCount(0), 2500);
-      return next;
-    });
   }
 
   // Poll admin replies every 5s — always active so replies show on login page too
@@ -3424,7 +3358,7 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
               </div>
             </div>
           )}
-          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", WebkitUserSelect: "none", userSelect: "none", outline: "none", WebkitTapHighlightColor: "transparent" }} onClick={handleGhostClick}>
+          {appName !== "ZERO TRACE" && <div style={{ display: "flex", justifyContent: "center", marginBottom: 20, cursor: "pointer", WebkitUserSelect: "none", userSelect: "none", outline: "none", WebkitTapHighlightColor: "transparent" }}>
             <svg width="52" height="52" viewBox="0 0 34 34" fill="none">
               <line x1="17" y1="1" x2="17" y2="7" stroke="#818cf8" strokeWidth="1.8" strokeLinecap="round"/>
               <circle cx="17" cy="1.5" r="2" fill="#818cf8"/>
@@ -3501,11 +3435,7 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
               </div>
             </form>
 
-                    {ghostToast && (
-            <div style={{ position: "fixed", top: 16, right: 16, background: "rgba(99,102,241,0.10)", border: "1px solid rgba(99,102,241,0.2)", color: "#818cf8", padding: "4px 10px", borderRadius: 99, fontSize: 12, zIndex: 99999, pointerEvents: "none" }}>
-              👻
-            </div>
-          )}
+
 
                     <div style={{ textAlign: "center", marginTop: 24, color: "#334155", fontSize: 11, fontWeight: 600 }}>
             Build: {BUILD_VERSION}
