@@ -23,10 +23,20 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
     function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
     const h = new Headers();
     const rawHeaders = opts.headers as Record<string, string> | undefined;
+    let explicitSession: string | undefined;
     if (rawHeaders) {
       for (const [key, value] of Object.entries(rawHeaders)) {
+        // SECURITY: the raw master PIN must never leave the browser after login — every
+        // authenticated master request uses the opaque, revocable x-master-session token
+        // instead (minted once at /api/admin/verify-master-pin). Drop any stray x-master-pin.
+        if (key.toLowerCase() === "x-master-pin") continue;
+        if (key.toLowerCase() === "x-master-session") explicitSession = value as string;
         h.set(key, typeof value === "string" ? encodeHeaderValue(value) : value);
       }
+    }
+    if (!explicitSession) {
+      const sid = sessionStorage.getItem("mrrobot_master_sid");
+      if (sid) h.set("x-master-session", sid);
     }
     return fetch(url, { ...opts, headers: h });
     }
@@ -3276,12 +3286,12 @@ export default function MainAdminPanel() {
     setMasterPin(pin); setSessionId(sid);
   }
   function handleLogout() {
-    const pinForLogout = masterPin;
+    const sidForLogout = sessionId;
     sessionStorage.removeItem("mrrobot_master_auth");
     sessionStorage.removeItem("mrrobot_master_sid");
     setMasterPin(null); setSessionId("");
-    if (pinForLogout) {
-      apiFetch("/api/master/sessions", { method: "DELETE", headers: { "x-master-pin": pinForLogout } }).catch(() => {});
+    if (sidForLogout) {
+      apiFetch("/api/master/sessions", { method: "DELETE", headers: { "x-master-session": sidForLogout } }).catch(() => {});
     }
   }
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
