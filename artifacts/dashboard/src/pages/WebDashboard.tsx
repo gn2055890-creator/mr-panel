@@ -2949,32 +2949,34 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
             </button>
           )}
         </div>
-        {(() => {
-          const mySession = sessions.find(s => s.id === mySessionId);
-          if (!mySession) return <div style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 12 }}>No active session</div>;
-          return (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: t === DT ? "#2e1f5e" : "#f5f3ff" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 9, background: t.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 15 }}>
-                {mySession.device.includes("iPhone") || mySession.device.includes("iPad") ? "🍎" :
-                 mySession.device.includes("Android") ? "🤖" :
-                 mySession.device.includes("Mac") ? "💻" :
-                 mySession.device.includes("Windows") ? "🖥" : "📟"}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontWeight: 700, fontSize: 12, color: t.txt }}>{mySession.device}</span>
-                  <span style={{ background: t.accent, color: "#fff", borderRadius: 99, padding: "1px 6px", fontSize: 9, fontWeight: 800 }}>THIS DEVICE</span>
+        {sessions.length === 0 ? (
+            <div style={{ padding: 20, textAlign: "center", color: "#94a3b8", fontSize: 12 }}>No active session</div>
+          ) : (
+            sessions.map((s, idx) => {
+              const isMine = s.id === mySessionId;
+              return (
+                <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: isMine ? (t === DT ? "#2e1f5e" : "#f5f3ff") : "transparent", borderTop: idx > 0 ? `1px solid ${t.hdrB}` : "none" }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: isMine ? t.accent : t.muted, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 15 }}>
+                    {s.device.includes("iPhone") || s.device.includes("iPad") ? "🍎" :
+                     s.device.includes("Android") ? "🤖" :
+                     s.device.includes("Mac") ? "💻" :
+                     s.device.includes("Windows") ? "🖥" : "📟"}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 12, color: t.txt }}>{s.device}</span>
+                      {isMine && <span style={{ background: t.accent, color: "#fff", borderRadius: 99, padding: "1px 6px", fontSize: 9, fontWeight: 800 }}>THIS DEVICE</span>}
+                    </div>
+                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>Login: {fmtTime(s.loginTime)} · IP: {s.ip || "unknown"} · Last active: {fmtTime(s.lastActive)}</div>
+                  </div>
+                  <button onClick={() => void logoutSession(s.id)} style={{
+                    background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca",
+                    borderRadius: 7, padding: "5px 10px", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0,
+                  }}>Logout</button>
                 </div>
-                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 1 }}>Login: {fmtTime(mySession.loginTime)}</div>
-              </div>
-              <button onClick={() => void logoutSession(mySession.id)} style={{
-                background: "#fef2f2", color: "#ef4444", border: "1px solid #fecaca",
-                borderRadius: 7, padding: "5px 10px", fontSize: 10, fontWeight: 700, cursor: "pointer", flexShrink: 0,
-              }}>Logout</button>
-            </div>
-          );
-        })()}
-      </div>
+              );
+            })
+          )}      </div>
 
       {/* ── Change PIN ── */}
       <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
