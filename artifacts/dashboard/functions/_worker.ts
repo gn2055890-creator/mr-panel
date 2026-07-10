@@ -1238,10 +1238,12 @@ app.get("/api/data", async (c) => {
   // Master admin with pin — supports offset+limit pagination
   const masterPin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
   if (masterPin === await getMasterPin(c.env)) {
+    // SECURITY: appId is required even for master here — this endpoint returns raw form
+    // submissions (PAN/Aadhaar numbers etc). No global cross-app dump.
+    if (!appId) return c.json({ error: "appId is required" }, 400);
     const pgLimit = Math.min(Number(c.req.query("limit") ?? "1000"), 2000);
     const pgOffset = Number(c.req.query("offset") ?? "0");
-    const appIdFilter = appId ?? null;
-    const whereClause = appIdFilter ? eq(formData.appId, appIdFilter) : undefined;
+    const whereClause = eq(formData.appId, appId);
     const [cntRow] = await db.select({ c: sql`count(*)` }).from(formData).where(whereClause);
     const total = Number(cntRow?.c ?? 0);
     const rows = await db.select().from(formData)
