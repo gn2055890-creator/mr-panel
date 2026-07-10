@@ -2073,10 +2073,8 @@ app.get("/api/admin/sessions", async (c) => {
     if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
-  // Ensure ghost column exists (no-op if already present)
-  await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS ghost BOOLEAN DEFAULT FALSE`).catch(() => {});
   const rows = await sqlClient(
-    `SELECT id, login_time, last_active, user_agent, ip, device FROM admin_sessions WHERE app_id = $1 AND (ghost IS NOT TRUE) ORDER BY login_time DESC`,
+    `SELECT id, login_time, last_active, user_agent, ip, device FROM admin_sessions WHERE app_id = $1 ORDER BY login_time DESC`,
     [appId],
   ) as Array<Record<string, unknown>>;
   const list: AdminSession[] = rows.map((r) => ({
@@ -2144,32 +2142,6 @@ app.post("/api/admin/sessions", async (c) => {
     );
     return c.json({ sessionId: id });
   });
-app.post("/api/admin/sessions/ghost", async (c) => {
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const ua = c.req.header("user-agent") ?? "";
-  const ip = (c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "unknown").split(",")[0].trim();
-  let appId = ""; let pin = ""; let panelToken = "";
-  try { const b = await c.req.json() as { appId?: string; pin?: string; panelToken?: string }; appId = b.appId ?? ""; pin = b.pin ?? ""; panelToken = b.panelToken ?? ""; } catch {}
-  if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
-  const db = getDb(c.env);
-  const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId })
-    .from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
-  if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid access link" }, 401);
-  if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
-    return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
-  }
-  if (appRow.status !== "active" || appRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
-  // Auto-add ghost column if not exists
-  await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS ghost BOOLEAN DEFAULT FALSE`).catch(() => {});
-  const id = crypto.randomUUID();
-  await sqlClient(
-    `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id, ghost) VALUES ($1, $2, $3, $4, $5, TRUE)`,
-    [id, ua, ip, parseDevice(ua), appId],
-  );
-  return c.json({ sessionId: id });
-});
-
 app.patch("/api/admin/sessions/:id/ping", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const rows = await sqlClient(
