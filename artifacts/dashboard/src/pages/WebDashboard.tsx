@@ -3818,7 +3818,7 @@ export default function WebDashboard() {
         const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
         if (!sid) return;
         try {
-          fetch(`${import.meta.env.BASE_URL}api/admin/sessions/${sid}`, { method: "DELETE", keepalive: true }).catch(() => {});
+          apiFetch(`/api/admin/sessions/${sid}`, { method: "DELETE", keepalive: true }).catch(() => {});
         } catch { /* ignore */ }
       };
       window.addEventListener("pagehide", killSession);
