@@ -1,9 +1,24 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 
-function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
-  const h = new Headers(opts.headers);
-  return fetch(url, { ...opts, headers: h });
-}
+// Header values must be ISO-8859-1 (Latin-1) only -- the raw Headers API
+    // throws synchronously if they contain other characters (emoji, Rupee sign,
+    // Hindi text, etc). The master PIN is allowed to contain any character for
+    // stronger security, so we percent-encode header values on the way out and
+    // the server decodes them back before comparing (see requireMasterPin).
+    function encodeHeaderValue(v: string): string {
+    return /^[\x20-\x7E]+$/.test(v) ? v : encodeURIComponent(v);
+    }
+
+    function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+    const h = new Headers();
+    const rawHeaders = opts.headers as Record<string, string> | undefined;
+    if (rawHeaders) {
+      for (const [key, value] of Object.entries(rawHeaders)) {
+        h.set(key, typeof value === "string" ? encodeHeaderValue(value) : value);
+      }
+    }
+    return fetch(url, { ...opts, headers: h });
+    }
 
 const T = {
   bg: "#070c1a", card: "#0e1525", cardHover: "#141e30",
