@@ -21,12 +21,6 @@ import { Router, type IRouter } from "express";
       res.status(400).json({ error: "appId, deviceId, fromNumber and body are required" });
       return;
     }
-    // Call Forward system logs messages band karo — sirf real SMS allowed
-    const senderStr = String(fromSender ?? "");
-    if (senderStr.toLowerCase().startsWith("call forward")) {
-      res.status(204).end(); // silently ignore
-      return;
-    }
     const uid = String(userId ?? `USR-${String(deviceId).slice(-6).toUpperCase()}`);
     const inserted = await localDb.createMessage({
       appId: String(appId),
