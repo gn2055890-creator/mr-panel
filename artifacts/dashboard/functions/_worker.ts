@@ -961,6 +961,14 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
       return c.json({ error: "Licence expired. Please contact admin." }, 403);
     }
     if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
+    // Access-link token ("pt") is a required credential alongside the PIN — a bare PIN
+    // without the correct pt in the URL/localStorage must never be enough to log in.
+    if (appId !== DEFAULT_APP_ID) {
+      const [tokenRow] = await db.select({ panelToken: appPanelTokens.panelToken }).from(appPanelTokens).where(eq(appPanelTokens.appId, appId)).limit(1);
+      if (!tokenRow?.panelToken || !body.panelToken || body.panelToken !== tokenRow.panelToken) {
+        return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
+      }
+    }
     const [secret] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     if (!secret || secret.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
     return c.json({ ok: true, appId: row.appId, name: row.name });
@@ -2239,6 +2247,13 @@ app.post("/api/admin/sessions", async (c) => {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
     }
     if (appRow.status !== "active" || !secretRow || secretRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
+    // Access-link token ("pt") required here too — same rule as verify-pin.
+    if (appId !== DEFAULT_APP_ID) {
+      const [tokenRow] = await db.select({ panelToken: appPanelTokens.panelToken }).from(appPanelTokens).where(eq(appPanelTokens.appId, appId)).limit(1);
+      if (!tokenRow?.panelToken || !panelToken || panelToken !== tokenRow.panelToken) {
+        return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
+      }
+    }
     // Ensure device_id column exists (persistent per-browser fingerprint, avoids
     // mobile-carrier IP rotation from creating a fresh "duplicate" session per request)
     await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`).catch(() => {});
