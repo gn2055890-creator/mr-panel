@@ -3240,15 +3240,18 @@ const [showComplaint,    setShowComplaint]    = useState(false);
       }).catch(() => null);
 
       if (!sessR || !sessR.ok) {
-        let sessErr = "";
-          {
-            const j = await sessR!.json().catch(() => ({} as { error?: string }));
+          let sessErr = "";
+          if (sessR) {
+            const j = await sessR.json().catch(() => ({} as { error?: string }));
             sessErr = (j as { error?: string }).error ?? "";
           }
-          setErr(sessErr || "Login failed. Please try again.");
+          setErr(
+            !sessR ? "Network error. Please check your connection and try again." :
+            sessErr || "Login failed. Please try again."
+          );
           return;
         }
-      const { sessionId } = await sessR.json();
+        const { sessionId } = await sessR.json();
       localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
       if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
 
