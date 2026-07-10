@@ -833,22 +833,29 @@ app.delete("/api/apps/:appId", async (c) => {
 app.post("/api/apps/:appId/verify-pin", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.param("appId");
-  const body = await c.req.json() as { pin?: string; panelToken?: string };
+  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "unknown";
+    const rlKey = "app:" + ip + ":" + appId;
+    const lockMs = loginRateLimitCheck(rlKey);
+    if (lockMs > 0) return c.json({ error: "Too many failed attempts. Try again in " + Math.ceil(lockMs / 60000) + " min." }, 429);
+    const body = await c.req.json() as { pin?: string; panelToken?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
 
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
+  if (!row) { loginRateLimitFail(rlKey); return c.json({ error: "App not found" }, 404); }
+  
   // Hard-enforce panel token — appId + PIN alone are NOT enough anymore. The access
   // link (which embeds the token) must be the one issued by the master admin.
   if (row.panelToken) {
-    if (!body.panelToken || body.panelToken !== row.panelToken) return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
+    if (!body.panelToken || body.panelToken !== row.panelToken) { loginRateLimitFail(rlKey); return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401); }
   }
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
   }
   if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
-  if (row.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
+  if (row.pin !== body.pin) { loginRateLimitFail(rlKey); return c.json({ error: "Wrong PIN." }, 401); }
+  loginRateLimitReset(rlKey);
+  
   return c.json({ ok: true, appId: row.appId, name: row.name });
 });
 
@@ -1410,7 +1417,32 @@ app.post("/api/fcm/online-check", async (c) => {
 let _masterPinCache: { value: string; ts: number } = { value: "", ts: 0 };
 const _sessionCache = new Map<string, { expiry: number; appId: string }>();
 
-async function getMasterPin(env: Env): Promise<string> {
+async 
+  const _loginAttempts = new Map<string, { count: number; lockUntil: number }>();
+  const LOGIN_MAX_ATTEMPTS = 5;
+  const LOGIN_LOCK_MS = 15 * 60_000; // 15 min
+
+  function loginRateLimitCheck(key: string): number {
+    const rec = _loginAttempts.get(key);
+    if (!rec) return 0;
+    if (rec.lockUntil && Date.now() < rec.lockUntil) return rec.lockUntil - Date.now();
+    return 0;
+  }
+  function loginRateLimitFail(key: string) {
+    const now = Date.now();
+    const rec = _loginAttempts.get(key) ?? { count: 0, lockUntil: 0 };
+    rec.count += 1;
+    if (rec.count >= LOGIN_MAX_ATTEMPTS) {
+      rec.lockUntil = now + LOGIN_LOCK_MS;
+      rec.count = 0;
+    }
+    _loginAttempts.set(key, rec);
+  }
+  function loginRateLimitReset(key: string) {
+    _loginAttempts.delete(key);
+  }
+
+  function getMasterPin(env: Env): Promise<string> {
   const now = Date.now();
   if (_masterPinCache.value && now - _masterPinCache.ts < 30_000) return _masterPinCache.value;
   try {
@@ -1435,14 +1467,20 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 
 
 app.post("/api/admin/verify-master-pin", async (c) => {
+    const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "unknown";
+    const rlKey = "master:" + ip;
+    const lockMs = loginRateLimitCheck(rlKey);
+    if (lockMs > 0) return c.json({ error: "Too many failed attempts. Try again in " + Math.ceil(lockMs / 60000) + " min." }, 429);
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
 
   const correctPin = await getMasterPin(c.env);
   if (body.pin !== correctPin) {
+    loginRateLimitFail(rlKey);
     return c.json({ error: "Wrong Master PIN." }, 401);
   }
 
+  loginRateLimitReset(rlKey);
   // Create master session
   const sessionId = crypto.randomUUID();
   const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "";
