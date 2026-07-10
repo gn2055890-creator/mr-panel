@@ -3264,7 +3264,7 @@ function DeleteAllMessagesSection({ appId, onDeleted, msgCount }: { appId: strin
 /* ════════════════════════════════════════
    LOGIN PAGE
 ════════════════════════════════════════ */
-function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void; appId: string; appName: string; panelToken: string }) {
+export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () => void; appId: string; appName: string; panelToken: string }) {
   const t = useTheme();
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
@@ -4300,7 +4300,13 @@ export default function WebDashboard() {
     setAuthed(false);
   }
 
-  if (!authed) return <LoginPage onAuth={() => setAuthed(true)} appId={appId} appName={appName} panelToken={panelToken} />;
+  if (!authed) {
+      const dest = `${import.meta.env.BASE_URL}login?appId=${encodeURIComponent(appId)}${panelToken ? `&pt=${encodeURIComponent(panelToken)}` : ""}`;
+      if (typeof window !== "undefined" && window.location.pathname + window.location.search !== dest) {
+        window.location.replace(dest);
+      }
+      return null;
+    }
 
   const theme = isZeroTrace ? ZT : (effectiveDark ? DT : LT);
   // Zero Trace accent helpers (used in login page + SVGs)
@@ -4580,3 +4586,28 @@ export default function WebDashboard() {
 }
 
 
+
+  export function SubAdminLoginPage() {
+    const params = new URLSearchParams(window.location.search);
+    const appId = params.get("appId") || "SKY-APP-2026-X9F3";
+    const panelToken = params.get("pt") || localStorage.getItem(`mrrobot_panel_token_${appId}`) || "";
+    const [appName, setAppName] = useState("");
+
+    useEffect(() => {
+      apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
+    }, [appId]);
+
+    function handleAuth() {
+      const dest = `${import.meta.env.BASE_URL}preview/dashboard/WebDashboard?appId=${encodeURIComponent(appId)}${panelToken ? `&pt=${encodeURIComponent(panelToken)}` : ""}`;
+      window.location.replace(dest);
+    }
+
+    const isDark = typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+
+    return (
+      <ThemeCtx.Provider value={isDark ? DT : LT}>
+        <LoginPage onAuth={handleAuth} appId={appId} appName={appName} panelToken={panelToken} />
+      </ThemeCtx.Provider>
+    );
+  }
+  
