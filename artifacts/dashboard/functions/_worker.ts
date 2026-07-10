@@ -650,6 +650,11 @@ function isExpired(createdAt: string | Date | null | undefined): boolean {
 
 
 const app = new Hono<{ Bindings: Env; Variables: { sessionAppId: string } }>();
+app.onError((err, c) => {
+  console.error("Unhandled error:", err);
+  return c.json({ error: "Internal server error", detail: String((err as Error)?.message ?? err) }, 500);
+});
+
 app.use("*", cors({
   origin: "*",
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
