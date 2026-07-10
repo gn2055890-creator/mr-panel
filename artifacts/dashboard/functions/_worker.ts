@@ -25,10 +25,12 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
   const token = c.req.header("x-master-session");
   if (!token) return false;
   const sqlC = neon(c.env.NEON_DATABASE_URL);
-  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
+  // Sliding 30-minute idle timeout: login_at doubles as "last active" here — a valid,
+  // in-window session automatically extends itself on every authenticated request, but
+  // 30 minutes of inactivity requires a fresh PIN login again.
+  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '30 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
   if (rows.length === 0) return false;
-  // Touch last-active so idle master sessions can be reaped separately if desired.
-  await sqlC(`UPDATE master_sessions SET login_at = login_at WHERE id = $1`, [token]).catch(() => {});
+  await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
   return true;
 }
 import { cors } from "hono/cors";
