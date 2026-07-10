@@ -1719,14 +1719,32 @@ app.get("/api/master/apps", async (c) => {
     `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '30 minutes' GROUP BY app_id`,
   ) as Array<{ app_id: string; cnt: string }>;
   const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
+  // SECURITY: pin / panelToken / deleteProtectionPin are intentionally NOT included here.
+  // A single master-pin call must never dump every app's secrets at once — use
+  // GET /api/master/apps/:appId/secret to fetch one app's credentials at a time.
   return c.json(rows.map(r => ({
-    id: r.id, appId: r.appId, name: r.name, pin: r.pin,
-    panelToken: r.panelToken ?? null,
+    id: r.id, appId: r.appId, name: r.name,
+    hasPanelToken: !!r.panelToken,
     status: r.status,
     createdAt: isoReq(r.createdAt),
-    deleteProtectionPin: r.deleteProtectionPin ?? null,
+    hasDeleteProtectionPin: !!r.deleteProtectionPin,
     deleteProtectionEnabled: r.deleteProtectionEnabled ?? false,
+    loginLimit: r.loginLimit ?? 20,
+    activeSessions: sessionMap[r.appId] ?? 0,
   })));
+});
+
+// Master admin: fetch sensitive credentials (pin, panelToken, delete-protection pin) for ONE app at a time.
+// Kept separate from the list endpoint so a single call never dumps every app's secrets at once.
+app.get("/api/master/apps/:appId/secret", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const db = getDb(c.env);
+  const [row] = await db.select().from(apps).where(eq(apps.appId, c.req.param("appId"))).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  const resp = c.json({ pin: row.pin, panelToken: row.panelToken ?? null, deleteProtectionPin: row.deleteProtectionPin ?? null });
+  resp.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  return resp;
 });
 
 // Master admin: create app — requires x-master-pin header
