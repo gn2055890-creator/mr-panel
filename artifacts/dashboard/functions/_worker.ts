@@ -1044,14 +1044,15 @@ app.get("/api/devices", async (c) => {
   const userId = c.req.query("userId");
   const appId = c.req.query("appId");
   const _im1=(decodeMasterPinHeader(c.req.header("x-master-pin"))??"")===await getMasterPin(c.env);
+  // SECURITY: appId is required for EVERYONE, including master PIN callers — this is a
+  // per-app device view, not a global dump. Use /api/master/all-devices for an intentional
+  // cross-app overview instead.
+  if(!appId)return c.json({error:"appId required"},400);
   if(!_im1){
-    if(!appId)return c.json({error:"appId required"},400);
     if(c.get('sessionAppId') !== appId)return c.json({error:"Unauthorized"},401);
   }
-  const where = appId ? eq(devices.appId, appId) : userId ? eq(devices.userId, userId) : undefined;
-  const rows = where
-    ? await db.select().from(devices).where(where)
-    : await db.select().from(devices);
+  const where = eq(devices.appId, appId);
+  const rows = await db.select().from(devices).where(where);
   return c.json(rows.map(mapDevice));
 });
 
@@ -1132,9 +1133,11 @@ app.get("/api/messages", async (c) => {
   const searchTerm = c.req.query("search")?.trim() ?? "";
   const cursor = c.req.query("cursor"); // last message id for cursor pagination
   const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  // SECURITY: appId is required for EVERYONE, including master — this is a per-app inbox,
+  // not a global cross-app message dump.
+  if (!appId) return c.json({ error: "appId required" }, 400);
   // Non-master: session must belong to requested appId (prevents cross-app IDOR)
   if (!isMaster) {
-    if (!appId) return c.json({ error: "appId required" }, 400);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -1297,6 +1300,14 @@ app.delete("/api/data/:id", async (c) => {
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
   const [existing] = await db.select().from(formData).where(eq(formData.id, id)).limit(1);
   if (!existing) return c.json({ error: "Not found" }, 404);
+  // SECURITY: a valid session for THIS app (or master PIN) is required before delete — this
+  // used to only be gated by the optional delete-protection PIN, which is OFF by default,
+  // meaning anyone who knew the id could delete it unauthenticated.
+  const isMasterDD1 = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  if (!isMasterDD1) {
+    if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
+    if (c.get('sessionAppId') !== existing.appId) return c.json({ error: "Unauthorized" }, 401);
+  }
   const dpCheck2 = await requireDeleteProtection(c, existing.appId, db);
   if (dpCheck2) return dpCheck2;
   const [row] = await db.delete(formData).where(eq(formData.id, id)).returning();
@@ -1312,6 +1323,13 @@ app.delete("/api/data", async (c) => {
   const appId = c.req.query("appId");
   const deviceId = c.req.query("deviceId");
   if (!appId || !deviceId) return c.json({ error: "appId and deviceId are required" }, 400);
+  // SECURITY: same fix as /api/data/:id — require a valid session for this app or master PIN,
+  // independent of the optional (default-off) delete-protection PIN.
+  const isMasterDD2 = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  if (!isMasterDD2) {
+    if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
+    if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+  }
   const dpCheck3 = await requireDeleteProtection(c, appId, db);
   if (dpCheck3) return dpCheck3;
   const rows = await db.delete(formData)
