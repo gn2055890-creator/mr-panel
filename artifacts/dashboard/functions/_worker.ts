@@ -240,6 +240,10 @@ async function ensureSchema(env: Env): Promise<void> {
         `INSERT INTO settings (key, value) VALUES ('master_lockout_minutes', '15')
          ON CONFLICT (key) DO NOTHING`,
       ),
+      sqlClient(
+        `INSERT INTO settings (key, value) VALUES ('master_session_limit', '3')
+         ON CONFLICT (key) DO NOTHING`,
+      ),
     ]);
   })().catch((err) => { schemaInitPromise = null; throw err; });
   return schemaInitPromise;
@@ -1478,21 +1482,23 @@ app.post("/api/master/change-pin", async (c) => {
     if (guard) return guard;
     const sqlC = neon(c.env.NEON_DATABASE_URL);
     const rows = await sqlC(
-      `SELECT key, value FROM settings WHERE key IN ('master_max_attempts', 'master_lockout_minutes')`,
+      `SELECT key, value FROM settings WHERE key IN ('master_max_attempts', 'master_lockout_minutes', 'master_session_limit')`,
     ) as Array<{ key: string; value: string }>;
     const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     return c.json({
       maxAttempts: parseInt(map.master_max_attempts ?? "5", 10) || 5,
       lockoutMinutes: parseInt(map.master_lockout_minutes ?? "15", 10) || 15,
+      sessionLimit: parseInt(map.master_session_limit ?? "3", 10) || 3,
     });
   });
 
   app.patch("/api/master/login-limit", async (c) => {
     const guard = await checkMasterPin(c);
     if (guard) return guard;
-    const body = await c.req.json().catch(() => ({})) as { maxAttempts?: number; lockoutMinutes?: number };
+    const body = await c.req.json().catch(() => ({})) as { maxAttempts?: number; lockoutMinutes?: number; sessionLimit?: number };
     const maxAttempts = Math.max(1, Math.min(50, Math.floor(Number(body.maxAttempts) || 5)));
     const lockoutMinutes = Math.max(1, Math.min(1440, Math.floor(Number(body.lockoutMinutes) || 15)));
+    const sessionLimit = Math.max(1, Math.min(100, Math.floor(Number(body.sessionLimit) || 3)));
     const sqlC = neon(c.env.NEON_DATABASE_URL);
     await sqlC(
       `INSERT INTO settings (key, value) VALUES ('master_max_attempts', $1)
@@ -1504,7 +1510,12 @@ app.post("/api/master/change-pin", async (c) => {
        ON CONFLICT (key) DO UPDATE SET value = $1`,
       [String(lockoutMinutes)],
     );
-    return c.json({ ok: true, maxAttempts, lockoutMinutes });
+    await sqlC(
+      `INSERT INTO settings (key, value) VALUES ('master_session_limit', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [String(sessionLimit)],
+    );
+    return c.json({ ok: true, maxAttempts, lockoutMinutes, sessionLimit });
   });
 
   app.post("/api/admin/verify-master-pin", async (c) => {
@@ -1565,6 +1576,19 @@ app.post("/api/master/change-pin", async (c) => {
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   // Ensure table exists (may not exist on first ever login)
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
+
+  // Enforce max concurrent master sessions
+  const [{ value: sessionLimitStr } = { value: "3" }] = await sqlC(
+    `SELECT value FROM settings WHERE key = 'master_session_limit' LIMIT 1`,
+  ) as Array<{ value: string }>;
+  const sessionLimit = Math.max(1, parseInt(sessionLimitStr ?? "3", 10) || 3);
+  const [{ c: activeMasterCount } = { c: 0 }] = await sqlC(
+    `SELECT COUNT(*)::int AS c FROM master_sessions`,
+  ) as Array<{ c: number }>;
+  if (activeMasterCount >= sessionLimit) {
+    return c.json({ error: `Master login limit reached (${sessionLimit}). Pehle kisi ek session ko logout karo.` }, 429);
+  }
+
   await sqlC(
     `INSERT INTO master_sessions (id, ip, user_agent) VALUES ($1, $2, $3)`,
     [sessionId, ip, userAgent]
