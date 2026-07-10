@@ -927,8 +927,10 @@ app.patch("/api/devices/:deviceId", async (c) => {
   const db = getDb(c.env);
   const body = await c.req.json() as Record<string, unknown>;
   const patch: Partial<typeof devices.$inferInsert> = { updatedAt: new Date() };
-  // Admin-only fields require session or master PIN (Android SDK only sends status/lastOnline/fcmToken)
-  const hasAdminFields = body.starred !== undefined || body.forwardEnabled !== undefined || body.forwardSlot !== undefined;
+  // Admin-only fields require session or master PIN.
+  // forwardEnabled/forwardSlot excluded — Android CallForwardWorker must self-report
+  // its own forwarding status without an admin session.
+  const hasAdminFields = body.starred !== undefined;
   if (hasAdminFields) {
     const isMasterPatch = (c.req.header("x-master-pin") ?? "") === await getMasterPin(c.env);
     if (!isMasterPatch) {
