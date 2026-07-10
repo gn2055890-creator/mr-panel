@@ -15,13 +15,16 @@ const T = {
 };
 
 type App = {
-  id: number; appId: string; name: string; pin: string;
+  id: number; appId: string; name: string;
   status: string; createdAt: string;
-  deleteProtectionPin: string | null;
+  hasDeleteProtectionPin: boolean;
   deleteProtectionEnabled: boolean;
-  panelToken: string | null;
+  hasPanelToken: boolean;
   loginLimit?: number;
+  activeSessions?: number;
 };
+// Fetched on-demand via GET /api/master/apps/:appId/secret — never bundled with the app list.
+type AppSecret = { pin: string; panelToken: string | null; deleteProtectionPin: string | null };
 type FullDevice = {
   id: number; deviceId: string; appId: string; userId: string; name: string;
   androidVersion: number;
@@ -131,11 +134,17 @@ function CopyBtn({ value, label = "Copy" }: { value: string; label?: string }) {
 }
 
 /* ── PIN Copy Button — direct copy, no password ── */
-function PinCopyBtn({ value }: { value: string }) {
+function PinCopyBtn({ appId, masterPin }: { appId: string; masterPin: string }) {
   const [copied, setCopied] = useState(false);
-  function handleClick(e: React.MouseEvent) {
+  async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
-    copyToClipboard(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+    try {
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(appId)}/secret`, { headers: { "x-master-pin": masterPin } });
+      if (!r.ok) { alert("❌ Could not fetch PIN"); return; }
+      const secret = await r.json() as AppSecret;
+      await copyToClipboard(secret.pin);
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch { alert("❌ Network error"); }
   }
   if (copied) return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, background: T.green + "18", border: `1px solid ${T.green}60`, color: T.green, fontSize: 11, fontWeight: 600 }}><Ic.Check /> Copied</span>
@@ -386,7 +395,7 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
     if (!name.trim()) { setErr("Name required"); return; }
     setErr(""); setLoading(true);
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim(), pin: app.pin }) });
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim() }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onUpdated(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
@@ -413,7 +422,7 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
         <div style={{ marginBottom: 14 }}>
           <FieldLabel>Login PIN</FieldLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.inputBg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "10px 14px" }}>
-            <span style={{ flex: 1, fontFamily: "monospace", fontSize: 15, letterSpacing: 4, color: T.muted }}>{"•".repeat(app.pin?.length ?? 4)}</span>
+            <span style={{ flex: 1, fontFamily: "monospace", fontSize: 15, letterSpacing: 4, color: T.muted }}>{"••••"}</span>
             <button type="button" onClick={handleResetPin} disabled={loading || resetDone} style={{ padding: "5px 12px", borderRadius: 8, background: resetDone ? T.green + "22" : "rgba(239,68,68,0.15)", border: `1px solid ${resetDone ? T.green + "50" : "rgba(239,68,68,0.35)"}`, color: resetDone ? T.green : "#f87171", fontWeight: 700, fontSize: 12, cursor: loading || resetDone ? "default" : "pointer", whiteSpace: "nowrap" }}>
               {resetDone ? "✓ Reset ho gaya" : loading ? "…" : "Reset → 1234"}
             </button>
@@ -553,8 +562,8 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           <div style={{ background: T.inputBg, borderRadius: 9, padding: "7px 10px", border: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>PIN</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{"•".repeat(app.pin?.length ?? 4)}</span>
-              <PinCopyBtn value={app.pin} />
+              <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{"••••"}</span>
+              <PinCopyBtn appId={app.appId} masterPin={masterPin} />
               </div>
             </div>
           </div>
@@ -574,12 +583,12 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
               {savingLoginLimitId === app.appId ? "..." : "Save"}
             </button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 9, background: app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border: `1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom: 7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 9, background: app.hasDeleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border: `1px solid ${app.hasDeleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom: 7 }}>
           <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", flexShrink: 0 }}>Del Password</span>
           <span style={{ flex: 1 }} />
-          {app.deleteProtectionPin ? (
+          {app.hasDeleteProtectionPin ? (
             <>
-              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>{app.deleteProtectionPin}</span>
+              <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>••••</span>
               <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border: `1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}` }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
             </>
           ) : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Not set</span>}
@@ -2366,7 +2375,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
   }, [apps]);
 
   useEffect(() => {
-    if (dpApp) { setDpEnabled(dpApp.deleteProtectionEnabled); setDpHasPin(!!dpApp.deleteProtectionPin); }
+    if (dpApp) { setDpEnabled(dpApp.deleteProtectionEnabled); setDpHasPin(dpApp.hasDeleteProtectionPin); }
     setDpMsg(""); setDpNewPin(""); setDpCurrentPin("");
   }, [dpAppFilter]);
 
@@ -2868,16 +2877,17 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     } catch { alert("❌ Network error"); } finally { setResetApkId(null); }
   }
 
-  function copyUrl(app: App) {
-    if (!app.panelToken) {
-      alert("⚠️ Access link not ready yet. Please refresh the page and try again.");
-      return;
-    }
-    const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}&pt=${app.panelToken}`;
-    copyToClipboard(url).then(() => {
+  async function copyUrl(app: App) {
+    try {
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/secret`, { headers: { "x-master-pin": masterPin } });
+      if (!r.ok) { alert("⚠️ Access link not ready yet. Please refresh the page and try again."); return; }
+      const secret = await r.json() as AppSecret;
+      if (!secret.panelToken) { alert("⚠️ Access link not ready yet. Please refresh the page and try again."); return; }
+      const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}&pt=${secret.panelToken}`;
+      await copyToClipboard(url);
       setCopyMsg(p => ({ ...p, [app.appId]: "Copied!" }));
       setTimeout(() => setCopyMsg(p => ({ ...p, [app.appId]: "" })), 2000);
-    });
+    } catch { alert("❌ Network error"); }
   }
 
   async function regenToken(app: App) {
@@ -2887,7 +2897,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
       const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}/regenerate-token`, { method: "POST", headers: { "x-master-pin": masterPin } });
       const j = await r.json() as { ok?: boolean; error?: string; panelToken?: string };
       if (r.ok && j.panelToken) {
-        setAppList(prev => prev.map(a => a.appId === app.appId ? { ...a, panelToken: j.panelToken! } : a));
+        setAppList(prev => prev.map(a => a.appId === app.appId ? { ...a, hasPanelToken: true } : a));
         const url = `${window.location.origin}/preview/dashboard/WebDashboard?appId=${app.appId}&pt=${j.panelToken}`;
         copyToClipboard(url).then(() => {
           setCopyMsg(p => ({ ...p, [app.appId]: "New link copied!" }));
