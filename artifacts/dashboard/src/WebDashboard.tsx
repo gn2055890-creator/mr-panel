@@ -4,14 +4,31 @@ import { CircularLoader } from "@/components/ui/circular-loader";
 import { CopyIconButton } from "@/components/ui/copy-icon-button";
 import { DeleteIconButton } from "@/components/ui/delete-icon-button";
 
-function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
-  const h = new Headers(opts.headers);
-  // Use session token for auth — API key must NOT be embedded in frontend bundle
-  const _appId = new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3";
-  const _sess = localStorage.getItem(`mrrobot_session_id_${_appId}`);
-  if (_sess) h.set("x-session-token", _sess);
-  return fetch(url, { ...opts, headers: h });
-}
+// Header values must be ISO-8859-1 (Latin-1) only -- the Headers API throws
+    // synchronously if they contain other characters (emoji, Rupee sign, Hindi text, etc).
+    // A corrupted/invalid stored value used to crash the whole app on every
+    // fetch call. We now validate before attaching, and drop bad values instead
+    // of throwing.
+    function isSafeHeaderValue(v: string): boolean {
+    return /^[\x20-\x7E]+$/.test(v);
+    }
+
+    function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+    const h = new Headers(opts.headers);
+    // Use session token for auth -- API key must NOT be embedded in frontend bundle
+    const _appId = new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3";
+    const _sessKey = `mrrobot_session_id_${_appId}`;
+    const _sess = localStorage.getItem(_sessKey);
+    if (_sess) {
+      if (isSafeHeaderValue(_sess)) {
+        h.set("x-session-token", _sess);
+      } else {
+        // Corrupted/invalid session value -- drop it instead of crashing the app.
+        localStorage.removeItem(_sessKey);
+      }
+    }
+    return fetch(url, { ...opts, headers: h });
+    }
 
 const DEVELOPER_TELEGRAM = "@mrrobot_dev";
 const DEVELOPER_WHATSAPP = "+91 98765 43210";
