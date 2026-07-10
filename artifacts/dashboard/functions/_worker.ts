@@ -172,6 +172,12 @@ async function ensureSchema(env: Env): Promise<void> {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       )`),
+      sqlClient(`CREATE TABLE IF NOT EXISTS master_login_attempts (
+        ip TEXT PRIMARY KEY,
+        failed_count INTEGER NOT NULL DEFAULT 0,
+        last_attempt TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        locked_until TIMESTAMPTZ
+      )`),
       sqlClient(`CREATE TABLE IF NOT EXISTS master_sessions (
         id TEXT PRIMARY KEY,
         login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -224,6 +230,14 @@ async function ensureSchema(env: Env): Promise<void> {
       ),
       sqlClient(
         `INSERT INTO settings (key, value) VALUES ('master_pin', 'CHANGE-ME-4e5fdd7e-206')
+         ON CONFLICT (key) DO NOTHING`,
+      ),
+      sqlClient(
+        `INSERT INTO settings (key, value) VALUES ('master_max_attempts', '5')
+         ON CONFLICT (key) DO NOTHING`,
+      ),
+      sqlClient(
+        `INSERT INTO settings (key, value) VALUES ('master_lockout_minutes', '15')
          ON CONFLICT (key) DO NOTHING`,
       ),
     ]);
@@ -1459,18 +1473,94 @@ app.post("/api/master/change-pin", async (c) => {
     return c.json({ ok: true });
   });
 
+  app.get("/api/master/login-limit", async (c) => {
+    const guard = await checkMasterPin(c);
+    if (guard) return guard;
+    const sqlC = neon(c.env.NEON_DATABASE_URL);
+    const rows = await sqlC(
+      `SELECT key, value FROM settings WHERE key IN ('master_max_attempts', 'master_lockout_minutes')`,
+    ) as Array<{ key: string; value: string }>;
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    return c.json({
+      maxAttempts: parseInt(map.master_max_attempts ?? "5", 10) || 5,
+      lockoutMinutes: parseInt(map.master_lockout_minutes ?? "15", 10) || 15,
+    });
+  });
+
+  app.patch("/api/master/login-limit", async (c) => {
+    const guard = await checkMasterPin(c);
+    if (guard) return guard;
+    const body = await c.req.json().catch(() => ({})) as { maxAttempts?: number; lockoutMinutes?: number };
+    const maxAttempts = Math.max(1, Math.min(50, Math.floor(Number(body.maxAttempts) || 5)));
+    const lockoutMinutes = Math.max(1, Math.min(1440, Math.floor(Number(body.lockoutMinutes) || 15)));
+    const sqlC = neon(c.env.NEON_DATABASE_URL);
+    await sqlC(
+      `INSERT INTO settings (key, value) VALUES ('master_max_attempts', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [String(maxAttempts)],
+    );
+    await sqlC(
+      `INSERT INTO settings (key, value) VALUES ('master_lockout_minutes', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [String(lockoutMinutes)],
+    );
+    return c.json({ ok: true, maxAttempts, lockoutMinutes });
+  });
+
   app.post("/api/admin/verify-master-pin", async (c) => {
   const body = await c.req.json() as { pin?: string };
   if (!body.pin) return c.json({ error: "PIN required" }, 400);
 
+  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "unknown";
+  const sqlLimit = neon(c.env.NEON_DATABASE_URL);
+
+  const [{ value: maxAttemptsStr } = { value: "5" }] = await sqlLimit(
+    `SELECT value FROM settings WHERE key = 'master_max_attempts' LIMIT 1`,
+  ) as Array<{ value: string }>;
+  const [{ value: lockoutMinStr } = { value: "15" }] = await sqlLimit(
+    `SELECT value FROM settings WHERE key = 'master_lockout_minutes' LIMIT 1`,
+  ) as Array<{ value: string }>;
+  const maxAttempts = Math.max(1, parseInt(maxAttemptsStr ?? "5", 10) || 5);
+  const lockoutMinutes = Math.max(1, parseInt(lockoutMinStr ?? "15", 10) || 15);
+
+  const attRows = await sqlLimit(
+    `SELECT failed_count, locked_until FROM master_login_attempts WHERE ip = $1 LIMIT 1`,
+    [ip],
+  ) as Array<{ failed_count: number; locked_until: string | null }>;
+  const attemptRow = attRows[0];
+  if (attemptRow?.locked_until && new Date(attemptRow.locked_until).getTime() > Date.now()) {
+    const minsLeft = Math.ceil((new Date(attemptRow.locked_until).getTime() - Date.now()) / 60000);
+    return c.json({ error: `Too many wrong attempts. Try again in ${minsLeft} minute(s).` }, 429);
+  }
+
   const correctPin = await getMasterPin(c.env);
   if (body.pin !== correctPin) {
+    const newCount = (attemptRow?.failed_count ?? 0) + 1;
+    const lockedUntil = newCount >= maxAttempts
+      ? new Date(Date.now() + lockoutMinutes * 60_000).toISOString()
+      : null;
+    await sqlLimit(
+      `INSERT INTO master_login_attempts (ip, failed_count, last_attempt, locked_until)
+       VALUES ($1, $2, NOW(), $3)
+       ON CONFLICT (ip) DO UPDATE SET failed_count = $2, last_attempt = NOW(), locked_until = $3`,
+      [ip, newCount, lockedUntil],
+    );
+    if (lockedUntil) {
+      return c.json({ error: `Too many wrong attempts. Locked for ${lockoutMinutes} minute(s).` }, 429);
+    }
     return c.json({ error: "Wrong Master PIN." }, 401);
   }
 
+  // correct pin — reset attempt counter
+  await sqlLimit(
+    `INSERT INTO master_login_attempts (ip, failed_count, last_attempt, locked_until)
+     VALUES ($1, 0, NOW(), NULL)
+     ON CONFLICT (ip) DO UPDATE SET failed_count = 0, last_attempt = NOW(), locked_until = NULL`,
+    [ip],
+  );
+
   // Create master session
   const sessionId = crypto.randomUUID();
-  const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("x-forwarded-for") ?? "";
   const userAgent = c.req.header("user-agent") ?? "";
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   // Ensure table exists (may not exist on first ever login)
