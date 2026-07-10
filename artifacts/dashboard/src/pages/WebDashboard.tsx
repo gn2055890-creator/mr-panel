@@ -898,7 +898,7 @@ function HomePage({
    PAGE — MESSAGES
 ════════════════════════════════════════ */
 function MessagesPage({
-  appId, messages, devices, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange, favoritesOnly, recentOnly,
+  appId, messages, devices, onOpenDevice, scrollToMsgId, onScrollDone, initialCount, onCountChange, favoritesOnly, recentOnly, liveTotal,
 }: {
   appId: string;
   messages: DbMessage[];
@@ -908,6 +908,10 @@ function MessagesPage({
   onScrollDone?: () => void;
   initialCount?: number;
   onCountChange?: (n: number) => void;
+  // Live server-side total, kept in sync by the parent's WebSocket handlers (message_added /
+  // message_deleted / bulk_deleted / device_deleted). Replaces a one-shot REST count fetch
+  // that never reflected live deletes/adds without a full page refresh.
+  liveTotal?: number;
   favoritesOnly?: boolean;
   recentOnly?: boolean;
 }) {
@@ -975,14 +979,8 @@ function MessagesPage({
     });
   }, [messages, searchResults, debouncedSearch, filterSensitive, deviceMap, favoritesOnly, recentOnly]);
 
-  // Fetch real total from server (client may have only partial batch loaded)
-  const [totalCount, setTotalCount] = useState<number | null>(null);
-  useEffect(() => {
-    apiFetch(`/api/messages/count?appId=${encodeURIComponent(appId)}`, { headers: { "x-silent": "1" } })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { count?: number } | null) => { if (d?.count !== undefined) setTotalCount(d.count); })
-      .catch(() => {});
-  }, [appId]);
+  // Live total comes straight from the parent (WS-synced) — no separate REST fetch needed.
+  const totalCount = liveTotal ?? null;
 
   const { visible: visibleMsgsFeed, sentinelRef: feedSentinel, loading: feedLoading, resetCount: resetFeed } = useInfiniteScroll(filtered, 20, initialCount, onCountChange);
 
@@ -4044,6 +4042,13 @@ export default function WebDashboard() {
           if (payload.appId !== appId) return;
           setMessages(prev => prev.filter(m => m.id !== payload.id));
           setTotalMsgCount(prev => Math.max(0, prev - 1));
+        } else if (event === "bulk_deleted") {
+          // Master "clear all messages for app" — was previously only reflected after a
+          // manual refresh because no client-side handler existed for this event at all.
+          const payload = data as { appId: string; count: number };
+          if (payload.appId !== appId) return;
+          setMessages([]);
+          setTotalMsgCount(0);
         } else if (event === "device_deleted") {
           const payload = data as { appId: string; deviceId: string };
           if (payload.appId !== appId) return;
@@ -4427,7 +4432,7 @@ export default function WebDashboard() {
           <>
             <div id="main-scroll" style={{ flex: 1, overflowY: "auto", minHeight: 0, overscrollBehavior: "contain" }}>
               {page === "home" && <HomePage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "home" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={homeMsgCountRef.current} onCountChange={n => { homeMsgCountRef.current = n; }} favoritesOnly={filterFavorites} recentOnly={filterRecent} />}
-              {page === "messages" && <MessagesPage appId={appId} messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} favoritesOnly={filterFavorites} recentOnly={filterRecent} />}
+              {page === "messages" && <MessagesPage appId={appId} messages={messages} devices={devices} onOpenDevice={onOpenDevice} scrollToMsgId={backPage === "messages" ? scrollToMsgId : null} onScrollDone={() => setScrollToMsgId(null)} initialCount={msgPageCountRef.current} onCountChange={n => { msgPageCountRef.current = n; }} favoritesOnly={filterFavorites} recentOnly={filterRecent} liveTotal={totalMsgCount} />}
               {page === "groups" && <GroupsPage devices={devices} messages={messages} formData={formData} onOpenDevice={onOpenDevice} initialCount={groupsCountRef.current} onCountChange={n => { groupsCountRef.current = n; }} favoritesOnly={filterFavorites} recentOnly={filterRecent} />}
               {page === "devices" && <DevicesPage appId={appId} devices={displayDevices} messages={messages} formData={formData} initialDevice={selectedDevice} onBack={onBack} initialCount={devicesCountRef.current} onCountChange={n => { devicesCountRef.current = n; }} />}
               {page === "settings" && <SettingsPage appId={appId} isDark={effectiveDark} onToggleDark={toggleDark} devices={displayDevices} onLogout={handleLogout} msgCount={totalMsgCount || messages.length} isZeroTrace={isZeroTrace} onDeleteProtEnabledChange={setDeleteProtEnabled} panelToken={panelToken} onPanelTokenChange={setPanelToken} />}
