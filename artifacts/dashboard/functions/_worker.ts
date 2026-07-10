@@ -2220,7 +2220,13 @@ app.post("/api/admin/sessions", async (c) => {
       return c.json({ sessionId: id });
     }
     // Enforce per-app login limit — count currently active sessions (device-distinct logins)
-    const limit = appRow.loginLimit ?? 20;
+    // Stale sessions (tab closed / app crashed / network dropped without a
+      // proper logout) never got deleted, so they piled up forever and silently
+      // ate every login-limit slot -- a real re-login would then get blocked
+      // with "limit reached" even though nobody was actually still logged in.
+      // Purge anything that hasn't pinged in 10+ minutes before counting.
+      await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '10 minutes'`, [appId]).catch(() => {});
+      const limit = appRow.loginLimit ?? 20;
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
