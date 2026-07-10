@@ -172,7 +172,7 @@ function ErrBanner({ msg }: { msg: string }) { return <div style={{ display: "fl
 function Spinner({ size = 14 }: { size?: number }) { return <div style={{ display: "inline-block", width: size, height: size, border: "2px solid currentColor", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />; }
 
 /* ── Login Screen ── */
-function MasterLogin({ onAuth }: { onAuth: (pin: string, sessionId: string) => void }) {
+export function MasterLogin({ onAuth }: { onAuth: (pin: string, sessionId: string) => void }) {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
@@ -3121,6 +3121,21 @@ export default function MainAdminPanel() {
     }
   }
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
-  if (!masterPin) return <MasterLogin onAuth={handleAuth} />;
+  if (!masterPin) {
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/miss-komal-login")) {
+        window.location.replace(`${import.meta.env.BASE_URL}miss-komal-login`);
+      }
+      return null;
+    }
   return <Dashboard masterPin={masterPin} sessionId={sessionId} onLogout={handleLogout} onPinChanged={handlePinChanged} onSessionIdUpdate={sid => { setSessionId(sid); }} />;
 }
+
+  export function MasterLoginPage() {
+    function handleAuth(pin: string, sessionId: string) {
+      sessionStorage.setItem("mrrobot_master_auth", pin);
+      sessionStorage.setItem("mrrobot_master_sid", sessionId);
+      window.location.replace(`${import.meta.env.BASE_URL}miss-komal`);
+    }
+    return <MasterLogin onAuth={handleAuth} />;
+  }
+  
