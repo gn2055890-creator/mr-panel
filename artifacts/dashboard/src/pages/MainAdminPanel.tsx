@@ -268,7 +268,56 @@ function CreateAppModal({ masterPin, onClose, onCreated }: { masterPin: string; 
   );
 }
 
-/* ── Change Master PIN Modal ── */
+/* ── Master Login Limit Modal ── */
+  function LoginLimitModal({ masterPin, onClose }: { masterPin: string; onClose: () => void }) {
+    const [maxAttempts, setMaxAttempts] = useState(5);
+    const [lockoutMinutes, setLockoutMinutes] = useState(15);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [err, setErr] = useState(""); const [saved, setSaved] = useState(false);
+    useEffect(() => {
+      (async () => {
+        try {
+          const r = await apiFetch("/api/master/login-limit", { headers: { "x-master-pin": masterPin } });
+          if (r.ok) { const j = await r.json() as { maxAttempts: number; lockoutMinutes: number }; setMaxAttempts(j.maxAttempts); setLockoutMinutes(j.lockoutMinutes); }
+        } catch { /* ignore */ } finally { setLoading(false); }
+      })();
+    }, [masterPin]);
+    async function handleSubmit(e: React.FormEvent) {
+      e.preventDefault();
+      setErr(""); setSaved(false); setSaving(true);
+      try {
+        const r = await apiFetch("/api/master/login-limit", { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ maxAttempts, lockoutMinutes }) });
+        if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
+        setSaved(true);
+      } catch { setErr("Network error"); } finally { setSaving(false); }
+    }
+    return (
+      <Modal onClose={onClose} maxWidth={380}>
+        <ModalHeader title="Master Login Limit" icon={<Ic.Lock />} onClose={onClose} />
+        {loading ? <div style={{ padding: 20, textAlign: "center", color: T.muted, fontSize: 13 }}>Loading…</div> : (
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: 12 }}>
+              <FieldLabel>Max Wrong Attempts</FieldLabel>
+              <input type="number" min={1} max={50} value={maxAttempts} onChange={e => setMaxAttempts(Number(e.target.value))} style={inpBase} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <FieldLabel>Lockout Duration (minutes)</FieldLabel>
+              <input type="number" min={1} max={1440} value={lockoutMinutes} onChange={e => setLockoutMinutes(Number(e.target.value))} style={inpBase} />
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, lineHeight: 1.5 }}>
+              Master PIN galat baar-baar (upar diye gaye attempts se zyada) daalne par, us IP ko itne minute ke liye block kar diya jayega.
+            </div>
+            {err && <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 10 }}>{err}</div>}
+            {saved && <div style={{ color: "#22c55e", fontSize: 12, marginBottom: 10 }}>Saved!</div>}
+            <button type="submit" disabled={saving} style={{ width: "100%", padding: "10px 0", borderRadius: 9, border: "none", background: T.accent, color: "#fff", fontWeight: 700, fontSize: 13, cursor: saving ? "default" : "pointer", opacity: saving ? 0.7 : 1 }}>{saving ? "Saving…" : "Save"}</button>
+          </form>
+        )}
+      </Modal>
+    );
+  }
+
+  /* ── Change Master PIN Modal ── */
 function ChangePinModal({ onClose, onChanged }: { masterPin: string; onClose: () => void; onChanged: (p: string) => void }) {
   const [curPin, setCurPin] = useState(""); const [newPin, setNewPin] = useState(""); const [newPin2, setNewPin2] = useState("");
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
@@ -2583,6 +2632,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
   const [deleteGateError, setDeleteGateError] = useState("");
   const [deleteGateShow, setDeleteGateShow] = useState(false);
   const [showChangePin, setShowChangePin] = useState(false);
+  const [showLoginLimit, setShowLoginLimit] = useState(false);
   const [showViewPin, setShowViewPin] = useState(false);
   const [tabsUnlocked, setTabsUnlockedRaw] = useState(() => localStorage.getItem("mr_nav_unlocked") === "1");
   const setTabsUnlocked = (v: boolean | ((p: boolean) => boolean)) => {
@@ -2954,6 +3004,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
             </button>
           )}
           <button onClick={() => setShowChangePin(true)} title="Change PIN" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Key /></button>
+          <button onClick={() => setShowLoginLimit(true)} title="Master Login Limit" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: `1px solid ${T.borderLight}`, background: T.card, color: T.muted, flexShrink: 0 }}><Ic.Lock /></button>
 
           <button onClick={onLogout} title="Logout" style={{ width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#f87171", flexShrink: 0 }}><Ic.LogOut /></button>
         </div>
@@ -3138,6 +3189,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
       {showCreate && <CreateAppModal masterPin={masterPin} onClose={() => setShowCreate(false)} onCreated={_a => { void fetchApps(); setShowCreate(false); }} />}
       {showViewPin && <ViewPinModal masterPin={masterPin} onClose={() => setShowViewPin(false)} />}
       {showChangePin && <ChangePinModal masterPin={masterPin} onClose={() => setShowChangePin(false)} onChanged={p => { onPinChanged(p); setShowChangePin(false); }} />}
+      {showLoginLimit && <LoginLimitModal masterPin={masterPin} onClose={() => setShowLoginLimit(false)} />}
       {editApp && <EditAppModal app={editApp} masterPin={masterPin} onClose={() => setEditApp(null)} onUpdated={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? a : x)); setEditApp(null); }} />}
 
       {renewConfirmApp && <RenewModal app={renewConfirmApp} masterPin={masterPin} onClose={() => setRenewConfirmApp(null)} onRenewed={a => { setAppList(prev => prev.map(x => x.appId === a.appId ? { ...x, createdAt: a.createdAt, status: a.status } : x)); setRenewConfirmApp(null); }} />}
