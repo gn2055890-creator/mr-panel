@@ -259,18 +259,18 @@ async function ensureSchema(env: Env): Promise<void> {
       sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS app_id TEXT NOT NULL DEFAULT ''`),
       sqlClient(`CREATE INDEX IF NOT EXISTS admin_sessions_app_idx ON admin_sessions(app_id)`),
     sqlClient(`UPDATE apps SET created_at = NOW() WHERE created_at > NOW() + INTERVAL '1 day'`),
-      // Migration (legacy DBs): login_limit used to live on apps directly; keep it addable
-      // here so older rows can still be picked up by the app_secrets backfill below.
-      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 5`),
       sqlClient(`ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS login_limit INTEGER NOT NULL DEFAULT 20`),
+      // NOTE: the one-time legacy migrations that used to ADD pin/delete_protection_pin/
+      // delete_protection_enabled/panel_token/login_limit onto the "apps" table (so they
+      // could be backfilled into app_secrets/app_panel_tokens below) have been removed.
+      // Running ADD COLUMN + DROP COLUMN on every Worker cold start silently exhausted
+      // Postgres's hard 1600-attnum-per-table cap (dropped columns never free their attnum
+      // slot without a VACUUM FULL), which eventually made ensureSchema() throw
+      // "tables can have at most 1600 columns" and broke every route that awaits it. The
+      // migration already ran successfully long ago; these columns no longer exist on
+      // "apps" and must not be re-added.
       // Migration: add created_at for older DBs that predated this column
       sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`),
-      // Migration (legacy DBs): these columns used to live on apps directly; keep them
-      // addable here so older rows can still be picked up by the app_secrets backfill below.
-      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS pin TEXT NOT NULL DEFAULT '1234'`),
-      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_pin TEXT`),
-      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE`),
-      sqlClient(`ALTER TABLE apps ADD COLUMN IF NOT EXISTS panel_token TEXT`),
       // Migration: add starred column to devices
       sqlClient(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS starred BOOLEAN NOT NULL DEFAULT FALSE`),
       // Migration: add master_only column for message interception
@@ -651,8 +651,9 @@ function isExpired(createdAt: string | Date | null | undefined): boolean {
 
 const app = new Hono<{ Bindings: Env; Variables: { sessionAppId: string } }>();
 app.onError((err, c) => {
+  // Log full detail server-side only — never leak internals (queries, stack traces) to clients.
   console.error("Unhandled error:", err);
-  return c.json({ error: "Internal server error", detail: String((err as Error)?.message ?? err) }, 500);
+  return c.json({ error: "Internal server error" }, 500);
 });
 
 app.use("*", cors({
