@@ -20,6 +20,7 @@ type App = {
   deleteProtectionPin: string | null;
   deleteProtectionEnabled: boolean;
   panelToken: string | null;
+  loginLimit?: number;
 };
 type FullDevice = {
   id: number; deviceId: string; appId: string; userId: string; name: string;
@@ -462,12 +463,14 @@ function RenewModal({ app, masterPin, onClose, onRenewed }: { app: App; masterPi
 }
 
 /* ── App Card ── */
-function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, onRegenToken, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId, regenTokenId }: {
+function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onResetApk, onRenew, onRegenToken, onSaveLoginLimit, onResetLoginLimit, copyMsg, deletingId, togglingId, logoutAllId, resetApkId, renewId, regenTokenId, savingLoginLimitId, resetLoginLimitId }: {
   app: App; onEdit: (a: App) => void; onDelete: (a: App) => void;
   onToggle: (a: App) => void; onLogoutAll: (a: App) => void; onCopyUrl: (a: App) => void;
   onResetApk: (a: App) => void; onRenew: (a: App) => void; onRegenToken: (a: App) => void;
+  onSaveLoginLimit: (a: App, value: number) => void; onResetLoginLimit: (a: App) => void;
   copyMsg: Record<string, string>; deletingId: string | null; togglingId: string | null;
   logoutAllId: string | null; resetApkId: string | null; renewId: string | null; regenTokenId: string | null;
+  savingLoginLimitId: string | null; resetLoginLimitId: string | null;
 }) {
   const isActive = app.status === "active";
   const dt = new Date(app.createdAt);
@@ -498,10 +501,26 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontSize: 14, color: T.text, fontFamily: "monospace", letterSpacing: 4, fontWeight: 700 }}>{"•".repeat(app.pin?.length ?? 4)}</span>
               <PinCopyBtn value={app.pin} />
+              </div>
             </div>
           </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 9, background: app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border: `1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom: 7 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11, background: T.inputBg, borderRadius: 9, padding: "7px 10px", border: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 9, color: T.muted, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>Login Limit</div>
+            <input
+              type="number" min={1} defaultValue={app.loginLimit ?? 5} key={app.appId + "-ll-" + (app.loginLimit ?? 5)}
+              onKeyDown={e => { if (e.key === "Enter") { const v = Number((e.target as HTMLInputElement).value); if (Number.isFinite(v) && v >= 1) onSaveLoginLimit(app, Math.floor(v)); } }}
+              id={`ll-input-${app.appId}`}
+              style={{ width: 55, padding: "4px 6px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, outline: "none" }}
+            />
+            <button
+              onClick={() => { const el = document.getElementById(`ll-input-${app.appId}`) as HTMLInputElement | null; const v = Number(el?.value); if (Number.isFinite(v) && v >= 1) onSaveLoginLimit(app, Math.floor(v)); }}
+              disabled={savingLoginLimitId === app.appId}
+              style={{ padding: "4px 10px", borderRadius: 6, background: T.accent, border: "none", color: "#fff", fontSize: 11, fontWeight: 700, cursor: savingLoginLimitId === app.appId ? "wait" : "pointer", opacity: savingLoginLimitId === app.appId ? 0.6 : 1 }}
+            >
+              {savingLoginLimitId === app.appId ? "..." : "Save"}
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderRadius: 9, background: app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a18" : "#1a274080") : "#1a274050", border: `1px solid ${app.deleteProtectionPin ? (app.deleteProtectionEnabled ? "#16a34a40" : T.borderLight) : T.border}`, marginBottom: 7 }}>
           <span style={{ fontSize: 10, color: T.muted, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase", flexShrink: 0 }}>Del Password</span>
           <span style={{ flex: 1 }} />
           {app.deleteProtectionPin ? (
@@ -526,8 +545,11 @@ function AppCard({ app, onEdit, onDelete, onToggle, onLogoutAll, onCopyUrl, onRe
           </button>
           <button onClick={() => onRegenToken(app)} disabled={regenTokenId === app.appId} title="Regenerate Link (invalidate old link if leaked)" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#dc262614", border: "1px solid #dc262640", color: "#f87171", opacity: regenTokenId === app.appId ? 0.45 : 1, cursor: regenTokenId === app.appId ? "wait" : "pointer" }}>
             {regenTokenId === app.appId ? <Spinner /> : <Ic.Key />}
-          </button>
-          <button onClick={() => onRenew(app)} disabled={renewId === app.appId} title="Renew Licence +30 Days" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#16a34a14", border: "1px solid #16a34a40", color: "#4ade80", opacity: renewId === app.appId ? 0.45 : 1, cursor: renewId === app.appId ? "wait" : "pointer" }}>
+            </button>
+            <button onClick={() => onResetLoginLimit(app)} disabled={resetLoginLimitId === app.appId} title="Reset Login Limit (clear active logins)" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#ca8a0414", border: "1px solid #ca8a0440", color: "#facc15", opacity: resetLoginLimitId === app.appId ? 0.45 : 1, cursor: resetLoginLimitId === app.appId ? "wait" : "pointer" }}>
+              {resetLoginLimitId === app.appId ? <Spinner /> : <Ic.Refresh />}
+            </button>
+            <button onClick={() => onRenew(app)} disabled={renewId === app.appId} title="Renew Licence +30 Days" style={{ flex: 1, height: 36, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", outline: "none", background: "#16a34a14", border: "1px solid #16a34a40", color: "#4ade80", opacity: renewId === app.appId ? 0.45 : 1, cursor: renewId === app.appId ? "wait" : "pointer" }}>
             <Ic.CalendarPlus />
           </button>
           <div style={{ width: 1, height: 22, background: T.border, flexShrink: 0 }} />
@@ -2582,6 +2604,8 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
   const [resetApkId, setResetApkId] = useState<string | null>(null);
   const [renewId, setRenewId] = useState<string | null>(null);
   const [regenTokenId, setRegenTokenId] = useState<string | null>(null);
+    const [savingLoginLimitId, setSavingLoginLimitId] = useState<string | null>(null);
+    const [resetLoginLimitId, setResetLoginLimitId] = useState<string | null>(null);
   const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month"|"30plus">("all");
@@ -2758,7 +2782,27 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     catch { /* ignore */ } finally { setLogoutAllId(null); }
   }
 
-  async function resetApk(app: App) {
+  async function saveLoginLimit(app: App, value: number) {
+      setSavingLoginLimitId(app.appId);
+      try {
+        const r = await apiFetch(`/api/apps/${encodeURIComponent(app.appId)}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin },
+          body: JSON.stringify({ loginLimit: value }),
+        });
+        const j = await r.json().catch(() => ({})) as { error?: string; loginLimit?: number };
+        if (!r.ok) { alert(`❌ Error: ${j.error ?? "Unknown error"}`); return; }
+        setAppList(prev => prev.map(a => a.appId === app.appId ? { ...a, loginLimit: value } : a));
+      } catch { alert("❌ Network error"); } finally { setSavingLoginLimitId(null); }
+    }
+
+    async function resetLoginLimit(app: App) {
+      if (!confirm(`Reset login limit for "${app.name}"?\n\nThis clears ALL active logins for this app so it starts counting from zero again.`)) return;
+      setResetLoginLimitId(app.appId);
+      try { await apiFetch(`/api/admin/sessions?appId=${encodeURIComponent(app.appId)}`, { method: "DELETE", headers: { "x-master-pin": masterPin } }); }
+      catch { /* ignore */ } finally { setResetLoginLimitId(null); }
+    }
+
+    async function resetApk(app: App) {
     if (!confirm(`Reset APK selection for "${app.name}"?`)) return;
     setResetApkId(app.appId);
     try {
@@ -2993,7 +3037,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                 {filteredApps.map(app => (
-                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} onRegenToken={regenToken} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} regenTokenId={regenTokenId} />
+                  <AppCard key={app.appId} app={app} onEdit={setEditApp} onDelete={deleteApp} onToggle={toggleStatus} onLogoutAll={logoutAll} onCopyUrl={copyUrl} onResetApk={resetApk} onRenew={a => setRenewConfirmApp(a)} onRegenToken={regenToken} onSaveLoginLimit={saveLoginLimit} onResetLoginLimit={resetLoginLimit} copyMsg={copyMsg} deletingId={deletingId} togglingId={togglingId} logoutAllId={logoutAllId} resetApkId={resetApkId} renewId={renewId} regenTokenId={regenTokenId} savingLoginLimitId={savingLoginLimitId} resetLoginLimitId={resetLoginLimitId} />
                 ))}
               </div>
             )}
