@@ -3929,6 +3929,11 @@ export default function WebDashboard() {
       // Single /api/init call — replaces 3 parallel requests → 1 round-trip to DB
       const initRes = await apiFetch(`/api/init?appId=${appId}&limit=${FIRST_PAGE}`, { headers: h, signal: controller.signal });
       if (initRes.status === 401) {
+        // Delete the orphaned session server-side too, not just locally --
+        // otherwise it keeps eating a login-limit slot forever with nobody
+        // actually logged in on it.
+        const staleSid = localStorage.getItem(`mrrobot_session_id_${appId}`);
+        if (staleSid) apiFetch(`/api/admin/sessions/${staleSid}`, { method: "DELETE" }).catch(() => {});
         localStorage.removeItem(`mrrobot_auth_${appId}`);
         localStorage.removeItem(`mrrobot_session_id_${appId}`);
         setAuthed(false); return;
