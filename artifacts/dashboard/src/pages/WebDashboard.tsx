@@ -4381,10 +4381,10 @@ export default function WebDashboard() {
                 {[0,1].map(i => (
                   <span key={i} style={{ fontSize: 12, fontWeight: 700, color: tkText, letterSpacing: 0.4, paddingRight: 60, display: "inline-flex", alignItems: "center", gap: 10 }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>इंस्टॉलेशन की समस्या पूरी तरह ठीक हो गई है। कुछ छोटी समस्याएं बाकी हैं — आज शाम 7 बजे तक ठीक कर दी जाएंगी।</span>
+                    <span>Zaroori suchna: Unauthorized access ki samasya poori tarah theek kar di gayi hai. Apne panel ki suraksha ke liye kripya ek strong, unique password/PIN istemal karein.</span>
                     <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Installation issue fully fixed. A few small issues remain — will be fixed by 7 PM today.</span>
+                    <span>Important notice: The unauthorized access issue has been fully resolved. Please use a strong, unique password/PIN to keep your panel secure.</span>
                   </span>
                 ))}
               </div>
