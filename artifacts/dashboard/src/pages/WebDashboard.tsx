@@ -3807,28 +3807,6 @@ export default function WebDashboard() {
     return () => clearInterval(t);
   }, [authed, appId]);
 
-    // Kill the session the instant the tab/app is actually closed or navigated
-    // away from -- instead of waiting on a timeout to guess it's dead. This is
-    // what actually eliminates ghost sessions (closed devices) from ever
-    // occupying a login-limit slot; the 24h purge on the server is only a
-    // safety net for hard crashes/force-kills where this event can't fire.
-    useEffect(() => {
-      if (!authed) return;
-      const killSession = () => {
-        const sid = localStorage.getItem(`mrrobot_session_id_${appId}`);
-        if (!sid) return;
-        try {
-          apiFetch(`/api/admin/sessions/${sid}`, { method: "DELETE", keepalive: true }).catch(() => {});
-        } catch { /* ignore */ }
-      };
-      window.addEventListener("pagehide", killSession);
-      window.addEventListener("beforeunload", killSession);
-      return () => {
-        window.removeEventListener("pagehide", killSession);
-        window.removeEventListener("beforeunload", killSession);
-      };
-    }, [authed, appId]);
-
   const [darkMode, setDarkMode] = useState<boolean>(() => localStorage.getItem("mrrobot_dark") === "1");
   const [deleteProtEnabled, setDeleteProtEnabled] = useState(false);
   const [totalMsgCount, setTotalMsgCount] = useState(0);
