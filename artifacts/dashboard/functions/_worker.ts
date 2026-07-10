@@ -3250,15 +3250,11 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
         await adminNotify('❌ Usage: /reply &lt;appId&gt; &lt;message&gt;\nOr just /reply to pick from list.');
         return c.json({ ok: true });
       }
-      try {
-        await sqlClient(`CREATE TABLE IF NOT EXISTS complaint_replies (id SERIAL PRIMARY KEY, app_id TEXT NOT NULL, message TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now())`);
-        await sqlClient(`INSERT INTO complaint_replies (app_id, message) VALUES ($1, $2)`, [replyAppId, replyMsg]);
-        await sqlClient(`DELETE FROM complaint_replies WHERE app_id=$1 AND id NOT IN (SELECT id FROM complaint_replies WHERE app_id=$1 ORDER BY created_at DESC LIMIT 50)`, [replyAppId]);
-        const safe = replyMsg.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        await adminNotify(`✅ Reply sent!\n📱 <code>${replyAppId}</code>\n💬 "${safe}"`);
-      } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
-      return c.json({ ok: true });
-    }
+      // Replying back to the login-page complaint box is disabled -- the bot
+        // is receive-only now (admin can read complaints, not message the user back).
+        await adminNotify('Reply feature disabled. Complaints yahan sirf padhne ke liye hain.');
+        return c.json({ ok: true });
+      }
 
     // /unlock — clear app lock for this chat
     if (txt === '/unlock') {
