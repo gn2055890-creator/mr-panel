@@ -2220,15 +2220,9 @@ app.post("/api/admin/sessions", async (c) => {
       return c.json({ sessionId: id });
     }
     // Enforce per-app login limit — count currently active sessions (device-distinct logins)
-    // Stale sessions (tab closed / app crashed / network dropped without a
-      // proper logout) never got deleted, so they piled up forever and silently
-      // ate every login-limit slot. IMPORTANT: this must stay a LONG window --
-      // a genuinely logged-in device that's just idle/backgrounded/asleep for a
-      // while must NOT lose its slot, or a second device with the same PIN
-      // could steal it while the real user is still logged in. Only purge
-      // sessions that have been silent long enough to be certainly abandoned
-      // (app closed/uninstalled), not merely idle.
-      await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '24 hours'`, [appId]).catch(() => {});
+    // No auto-expiry: a session is only ever removed by an explicit logout
+      // (or "Logout All"), never by a time-based guess. This means a device
+      // keeps its login-limit slot until the user actually logs it out.
       const limit = appRow.loginLimit ?? 20;
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
