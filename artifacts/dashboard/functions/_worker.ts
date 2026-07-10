@@ -266,10 +266,18 @@ async function ensureSchema(env: Env): Promise<void> {
           ON CONFLICT (app_id) DO NOTHING
         `).catch(() => {});
         // panelToken now lives in its own dedicated table, split apart from pin/delete-protection.
+        // Backfill from BOTH legacy sources before dropping either: apps.panel_token (oldest
+        // schema) and app_secrets.panel_token (the more recent source, since apps.panel_token
+        // was already migrated into app_secrets by the block above in older deploys).
         await sqlClient(`
           INSERT INTO app_panel_tokens (app_id, panel_token)
           SELECT app_id, panel_token FROM apps WHERE panel_token IS NOT NULL
           ON CONFLICT (app_id) DO NOTHING
+        `).catch(() => {});
+        await sqlClient(`
+          INSERT INTO app_panel_tokens (app_id, panel_token)
+          SELECT app_id, panel_token FROM app_secrets WHERE panel_token IS NOT NULL
+          ON CONFLICT (app_id) DO UPDATE SET panel_token = COALESCE(app_panel_tokens.panel_token, EXCLUDED.panel_token)
         `).catch(() => {});
         await sqlClient(`ALTER TABLE app_secrets DROP COLUMN IF EXISTS panel_token`).catch(() => {});
         // Auto-generate panel_token for existing apps that don't have one
