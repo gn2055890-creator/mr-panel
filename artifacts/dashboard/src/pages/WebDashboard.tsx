@@ -13,6 +13,14 @@ function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
   return fetch(url, { ...opts, headers: h });
 }
 
+    // PINs must stay plain ASCII -- keeping them free of emoji, Rupee sign, or
+    // regional-script characters avoids header-encoding edge cases and keeps
+    // them easy to re-type on another device. Enforce this at PIN-set time.
+    function isSafePinValue(v: string): boolean {
+    return /^[\x20-\x7E]+$/.test(v);
+    }
+    const PIN_CHAR_ERROR = "PIN me sirf English letters, numbers aur symbols (jaise ! @ # $ %) allowed hain -- emoji, ₹ ya doosri language ke characters allowed nahi hain.";
+
   function getDeviceId(): string {
     let id = localStorage.getItem("mrrobot_device_id");
     if (!id) { id = crypto.randomUUID(); localStorage.setItem("mrrobot_device_id", id); }
@@ -2293,6 +2301,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
   async function dpSetPin() {
     setDpLoading(true); setDpSetErr("");
+    if (!isSafePinValue(dpPinNew)) { setDpSetErr(PIN_CHAR_ERROR); setDpLoading(false); return; }
     try {
       const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew }) });
       if (!r.ok) { setDpSetErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
@@ -2312,6 +2321,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
   async function dpChangePin() {
     setDpLoading(true); setDpChangePinErr("");
+    if (!isSafePinValue(dpPinNew)) { setDpChangePinErr(PIN_CHAR_ERROR); setDpLoading(false); return; }
     try {
       const r = await fetch(`/api/apps/${appId}/delete-protection/set-pin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: dpPinNew, currentPin: dpCurrentPin }) });
       if (!r.ok) { setDpChangePinErr(((await r.json()) as { error?: string }).error || "Failed"); return; }
@@ -2363,6 +2373,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
     try {
       if (!cpCurrent) { setCpErr("Current PIN is required."); setCpLoading(false); return; }
       if (cpNew.length < 4) { setCpErr("New PIN must be at least 4 characters."); return; }
+      if (!isSafePinValue(cpNew)) { setCpErr(PIN_CHAR_ERROR); return; }
       if (cpNew !== cpNew2) { setCpErr("PINs do not match."); return; }
       const r = await apiFetch(`/api/apps/${appId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
