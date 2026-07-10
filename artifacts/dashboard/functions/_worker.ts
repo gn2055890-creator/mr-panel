@@ -240,7 +240,7 @@ function isoReq(d: Date | string): string {
   return typeof d === "string" ? d : d.toISOString();
 }
 function mapApp(r: typeof apps.$inferSelect) {
-  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false };
+  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false, loginLimit: r.loginLimit ?? 5 };
 }
 function mapDevice(r: typeof devices.$inferSelect) {
   return {
@@ -793,10 +793,15 @@ app.patch("/api/apps/:appId", async (c) => {
   }
 
   const db = getDb(c.env);
-  const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; };
+  const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; loginLimit?: number };
   const patch: Partial<typeof apps.$inferInsert> = {};
   if (body.name !== undefined) patch.name = body.name;
   if (body.status !== undefined) patch.status = body.status;
+  if (body.loginLimit !== undefined) {
+    const n = Number(body.loginLimit);
+    if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
+    patch.loginLimit = Math.floor(n);
+  }
 
   // Changing PIN — master can always; session owner needs currentPin as confirmation
   if (body.pin !== undefined) {
@@ -1795,25 +1800,11 @@ app.post("/api/master/apps/:appId/regenerate-token", async (c) => {
 // Sub-admin: rotate own panel token — session authenticated (x-session-token header)
 // New token invalidates the old login link; all OTHER sessions are dropped so leaked
 // links cannot be reused. The caller's own session is preserved so they stay logged in.
+// Sub-admin self-service token rotation REMOVED — only master admin can rotate the
+// login link now (see /api/master/apps/:appId/regenerate-token). Kept as a stub that
+// always denies, in case any old client still calls it.
 app.post("/api/apps/:appId/regenerate-token", async (c) => {
-  const appId = c.req.param("appId");
-  const sessionToken = c.req.header("x-session-token") ?? "";
-  if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
-  const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const sess = await sqlClient(
-    `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2 LIMIT 1`,
-    [sessionToken, appId]
-  ) as Array<{ id: string }>;
-  if (sess.length === 0) return c.json({ error: "Unauthorized" }, 401);
-  const db = getDb(c.env);
-  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
-  if (!row) return c.json({ error: "App not found" }, 404);
-  const newToken = crypto.randomUUID();
-  await db.update(apps).set({ panelToken: newToken }).where(eq(apps.appId, appId));
-  // Delete ALL sessions for this app — everyone using the old link is immediately logged out.
-  // The sub-admin must re-open their new link to create a fresh session.
-  await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
-  return c.json({ ok: true, panelToken: newToken });
+  return c.json({ error: "Only the master admin can change the login link. Please contact your admin." }, 403);
 });
 
 // Sub-admin: fetch admin replies for complaint chat (polled every 5s by dashboard)
@@ -1975,7 +1966,7 @@ app.post("/api/admin/sessions", async (c) => {
     if (!appId || !pin) return c.json({ error: "appId and pin required" }, 400);
 
     const db = getDb(c.env);
-    const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId })
+    const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId, loginLimit: apps.loginLimit })
       .from(apps).where(eq(apps.appId, appId)).limit(1);
     if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
     // Hard-enforce panel token — must match the link issued by the master admin.
@@ -2006,6 +1997,13 @@ app.post("/api/admin/sessions", async (c) => {
       const id = existing[0].id;
       await sqlClient(`UPDATE admin_sessions SET last_active = NOW(), ip = $2, user_agent = $3, device_id = COALESCE($4, device_id) WHERE id = $1`, [id, ip, ua, deviceId || null]);
       return c.json({ sessionId: id });
+    }
+    // Enforce per-app login limit — count currently active sessions (device-distinct logins)
+    const limit = appRow.loginLimit ?? 5;
+    const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
+    const activeCount = countRows[0]?.c ?? 0;
+    if (activeCount >= limit) {
+      return c.json({ error: `Login limit reached (${limit} device${limit === 1 ? "" : "s"}). Ask admin to increase or reset the login limit.` }, 403);
     }
     const id = crypto.randomUUID();
     await sqlClient(
