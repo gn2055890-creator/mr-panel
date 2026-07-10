@@ -1,9 +1,32 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 
-function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
-  const h = new Headers(opts.headers);
-  return fetch(url, { ...opts, headers: h });
-}
+// Header values must be ISO-8859-1 (Latin-1) only -- the Headers API throws
+    // synchronously if they contain other characters (emoji, Rupee sign, Hindi text, etc).
+    // A master PIN containing such a character used to crash the whole master
+    // panel on load, since it's sent as the "x-master-pin" header on nearly
+    // every request. We now strip unsafe header values instead of crashing.
+    function isSafeHeaderValue(v: string): boolean {
+    return /^[\x20-\x7E]+$/.test(v);
+    }
+
+    function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
+    const h = new Headers();
+    const rawHeaders = opts.headers as Record<string, string> | undefined;
+    if (rawHeaders) {
+      for (const [key, value] of Object.entries(rawHeaders)) {
+        if (typeof value === "string" && !isSafeHeaderValue(value)) {
+          if (key.toLowerCase() === "x-master-pin") {
+            // Corrupted/invalid master PIN -- clear it so the user is prompted
+            // to re-enter a valid one instead of the panel crashing.
+            sessionStorage.removeItem("mrrobot_master_auth");
+          }
+          continue; // drop the unsafe header instead of throwing
+        }
+        h.set(key, value);
+      }
+    }
+    return fetch(url, { ...opts, headers: h });
+    }
 
 const T = {
   bg: "#070c1a", card: "#0e1525", cardHover: "#141e30",
