@@ -3704,13 +3704,6 @@ const [showComplaint,    setShowComplaint]    = useState(false);
 export default function WebDashboard() {
   const [appId] = useState<string>(() => new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3");
 
-  // Old panel-token (?pt=) links no longer needed for access — redirect to the clean appId-only link
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("pt")) {
-      window.location.replace(`${window.location.pathname}?appId=${encodeURIComponent(appId)}`);
-    }
-  }, []);
 
   const [panelToken, setPanelToken] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -4457,12 +4450,6 @@ export default function WebDashboard() {
     const panelToken = params.get("pt") || localStorage.getItem(`mrrobot_panel_token_${appId}`) || "";
     const [appName, setAppName] = useState("");
 
-    // Old panel-token (?pt=) links no longer needed for login — redirect to the clean appId-only link
-    useEffect(() => {
-      if (params.has("pt")) {
-        window.location.replace(`${window.location.pathname}?appId=${encodeURIComponent(appId)}`);
-      }
-    }, []);
 
     useEffect(() => {
       apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
