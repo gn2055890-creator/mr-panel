@@ -866,8 +866,11 @@ app.post("/api/apps", async (c) => {
     }).onConflictDoNothing({ target: apps.appId }).returning();
     if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
     await db.insert(appSecrets).values({
-      appId: body.appId, pin: body.pin ?? "1234", panelToken: crypto.randomUUID(),
+      appId: body.appId, pin: body.pin ?? "1234",
     }).onConflictDoNothing({ target: appSecrets.appId });
+    await db.insert(appPanelTokens).values({
+      appId: body.appId, panelToken: crypto.randomUUID(),
+    }).onConflictDoNothing({ target: appPanelTokens.appId });
     return c.json(mapApp(inserted[0]), 201);
   });
 
@@ -1792,10 +1795,12 @@ app.get("/api/master/apps", async (c) => {
     const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
     // Backfill panel tokens for apps created before hard-enforcement was added,
     // so every app has one to embed in its access link.
-    const missingTokenIds = (await db.select({ appId: appSecrets.appId }).from(appSecrets).where(sql`${appSecrets.panelToken} IS NULL`)).map(r => r.appId);
+    const allAppIds = (await db.select({ appId: apps.appId }).from(apps)).map(r => r.appId);
+    const existingTokenIds = new Set((await db.select({ appId: appPanelTokens.appId }).from(appPanelTokens)).map(r => r.appId));
+    const missingTokenIds = allAppIds.filter(id => !existingTokenIds.has(id));
     if (missingTokenIds.length > 0) {
       await Promise.all(missingTokenIds.map(id =>
-        db.update(appSecrets).set({ panelToken: crypto.randomUUID() }).where(eq(appSecrets.appId, id))
+        db.insert(appPanelTokens).values({ appId: id, panelToken: crypto.randomUUID() }).onConflictDoNothing({ target: appPanelTokens.appId })
       ));
     }
     // Count active sessions per app
@@ -1805,6 +1810,8 @@ app.get("/api/master/apps", async (c) => {
     const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
     const secretRows = await db.select().from(appSecrets);
     const secretMap = Object.fromEntries(secretRows.map(r => [r.appId, r]));
+    const tokenRows = await db.select().from(appPanelTokens);
+    const tokenMap = Object.fromEntries(tokenRows.map(r => [r.appId, r]));
     // SECURITY: pin / panelToken / deleteProtectionPin live in a separate table (app_secrets)
     // and are intentionally NOT included here. A single master-pin call must never dump every
     // app's secrets at once — use GET /api/master/apps/:appId/secret to fetch one app's
@@ -1813,7 +1820,7 @@ app.get("/api/master/apps", async (c) => {
       const s = secretMap[r.appId];
       return {
         id: r.id, appId: r.appId, name: r.name,
-        hasPanelToken: !!s?.panelToken,
+        hasPanelToken: !!tokenMap[r.appId]?.panelToken,
         status: r.status,
         createdAt: isoReq(r.createdAt),
         hasDeleteProtectionPin: !!s?.deleteProtectionPin,
