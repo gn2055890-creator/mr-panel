@@ -1112,16 +1112,14 @@ app.patch("/api/devices/:deviceId", async (c) => {
 app.get("/api/messages/count", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
-  // Non-master: require appId + session must belong to that appId (prevents cross-app IDOR)
+  // SECURITY: appId is required for EVERYONE, including master — no global cross-app count.
+  if (!appId) return c.json({ error: "appId required" }, 400);
   const _isMasterCaller = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
   if (!_isMasterCaller) {
-    if (!appId) return c.json({ error: "appId required" }, 400);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
-  const where = appId ? eq(messages.appId, appId) : undefined;
-  const rows = where
-    ? await db.select({ count: sql`COUNT(*)` }).from(messages).where(where)
-    : await db.select({ count: sql`COUNT(*)` }).from(messages);
+  const where = eq(messages.appId, appId);
+  const rows = await db.select({ count: sql`COUNT(*)` }).from(messages).where(where);
   return c.json({ count: Number(rows[0]?.count ?? 0) });
 });
 
@@ -1256,6 +1254,9 @@ app.get("/api/data", async (c) => {
   if (!appId) {
     return c.json({ error: "appId is required" }, 400);
   }
+  // SECURITY: a session for app A must not be able to read app B's form data by just
+  // changing the appId query param (IDOR) — the master branch above already returned.
+  if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   const where = deviceId
     ? and(eq(formData.appId, appId), eq(formData.deviceId, deviceId))
     : eq(formData.appId, appId);
