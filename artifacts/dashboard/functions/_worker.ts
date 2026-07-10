@@ -51,12 +51,19 @@ const apps = pgTable("apps", {
   // separate table on purpose. If the apps table (or a query against it) ever leaks, the
   // secrets are NOT sitting right there in the same row.
   const appSecrets = pgTable("app_secrets", {
-    appId: text("app_id").primaryKey(),
-    pin: text("pin").notNull().default("1234"),
-    panelToken: text("panel_token"),
-    deleteProtectionPin: text("delete_protection_pin"),
-    deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
-  });
+      appId: text("app_id").primaryKey(),
+      pin: text("pin").notNull().default("1234"),
+      deleteProtectionPin: text("delete_protection_pin"),
+      deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
+    });
+
+    // panelToken (the access-link "pt" credential) lives in its OWN table, split apart
+    // from the PIN/delete-protection secrets above. A leak/dump of either table alone
+    // never hands over both credential types together.
+    const appPanelTokens = pgTable("app_panel_tokens", {
+      appId: text("app_id").primaryKey(),
+      panelToken: text("panel_token"),
+    });
 
 const devices = pgTable("devices", {
   id: serial("id").primaryKey(),
@@ -143,12 +150,15 @@ async function ensureSchema(env: Env): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`),
         sqlClient(`CREATE TABLE IF NOT EXISTS app_secrets (
-          app_id TEXT PRIMARY KEY,
-          pin TEXT NOT NULL DEFAULT '1234',
-          panel_token TEXT,
-          delete_protection_pin TEXT,
-          delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE
-        )`),
+            app_id TEXT PRIMARY KEY,
+            pin TEXT NOT NULL DEFAULT '1234',
+            delete_protection_pin TEXT,
+            delete_protection_enabled BOOLEAN NOT NULL DEFAULT FALSE
+          )`),
+          sqlClient(`CREATE TABLE IF NOT EXISTS app_panel_tokens (
+            app_id TEXT PRIMARY KEY,
+            panel_token TEXT
+          )`),
       sqlClient(`CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
         device_id TEXT NOT NULL,
@@ -251,12 +261,25 @@ async function ensureSchema(env: Env): Promise<void> {
       // table and into the dedicated app_secrets table, then drop them from apps so they
       // physically can't be returned by a query against apps anymore.
       await sqlClient(`
-        INSERT INTO app_secrets (app_id, pin, panel_token, delete_protection_pin, delete_protection_enabled)
-        SELECT app_id, pin, panel_token, delete_protection_pin, delete_protection_enabled FROM apps
-        ON CONFLICT (app_id) DO NOTHING
-      `).catch(() => {});
-      // Auto-generate panel_token for existing apps that don't have one
-      await sqlClient(`UPDATE app_secrets SET panel_token = gen_random_uuid()::text WHERE panel_token IS NULL`).catch(() => {});
+          INSERT INTO app_secrets (app_id, pin, delete_protection_pin, delete_protection_enabled)
+          SELECT app_id, pin, delete_protection_pin, delete_protection_enabled FROM apps
+          ON CONFLICT (app_id) DO NOTHING
+        `).catch(() => {});
+        // panelToken now lives in its own dedicated table, split apart from pin/delete-protection.
+        await sqlClient(`
+          INSERT INTO app_panel_tokens (app_id, panel_token)
+          SELECT app_id, panel_token FROM apps WHERE panel_token IS NOT NULL
+          ON CONFLICT (app_id) DO NOTHING
+        `).catch(() => {});
+        await sqlClient(`ALTER TABLE app_secrets DROP COLUMN IF EXISTS panel_token`).catch(() => {});
+        // Auto-generate panel_token for existing apps that don't have one
+        await sqlClient(`UPDATE app_panel_tokens SET panel_token = gen_random_uuid()::text WHERE panel_token IS NULL`).catch(() => {});
+        await sqlClient(`
+          INSERT INTO app_panel_tokens (app_id, panel_token)
+          SELECT a.app_id, gen_random_uuid()::text FROM apps a
+          LEFT JOIN app_panel_tokens t ON t.app_id = a.app_id
+          WHERE t.app_id IS NULL
+        `).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS pin`).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS panel_token`).catch(() => {});
       await sqlClient(`ALTER TABLE apps DROP COLUMN IF EXISTS delete_protection_pin`).catch(() => {});
