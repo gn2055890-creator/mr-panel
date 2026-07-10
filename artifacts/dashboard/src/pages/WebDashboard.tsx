@@ -3224,13 +3224,15 @@ const [showComplaint,    setShowComplaint]    = useState(false);
           setPin(""); return;
         }
         setErr(
-          apiErr.includes("expired") || apiErr.includes("Licence") ? "Login restricted. Please contact admin." :
-          apiErr.includes("disabled") ? "Login restricted. Please contact admin." :
-          apiErr.includes("access link") ? "Invalid or missing access link. Please ask your admin for the correct link." :
-          apiErr.includes("attempt") ? apiErr :
-          "Wrong PIN. Try again."
-        );
-        setPin(""); return;
+            apiErr.includes("not found") ? "This App ID doesn't exist. Please check the App ID and try again." :
+            apiErr.includes("expired") || apiErr.includes("Licence") ? "This app's licence has expired. Please contact admin to renew." :
+            apiErr.includes("disabled") ? "This app has been disabled by admin. Please contact admin." :
+            apiErr.includes("access link") ? "Invalid or missing access link. Please ask your admin for the correct link." :
+            apiErr.includes("attempt") ? apiErr :
+            apiErr.includes("Wrong PIN") ? "Wrong PIN. Please try again." :
+            apiErr || "Login failed. Please try again."
+          );
+          setPin(""); return;
       }
 
       // Step 2: create session — required for data access
