@@ -31,7 +31,7 @@ const apps = pgTable("apps", {
   pin: text("pin").notNull().default("1234"),
   panelToken: text("panel_token"),
   status: text("status").notNull().default("active"),
-  loginLimit: integer("login_limit").notNull().default(5),
+  loginLimit: integer("login_limit").notNull().default(20),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   deleteProtectionPin: text("delete_protection_pin"),
   deleteProtectionEnabled: boolean("delete_protection_enabled").notNull().default(false),
@@ -258,7 +258,7 @@ function isoReq(d: Date | string): string {
   return typeof d === "string" ? d : d.toISOString();
 }
 function mapApp(r: typeof apps.$inferSelect) {
-  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false, loginLimit: r.loginLimit ?? 5 };
+  return { id: r.id, appId: r.appId, name: r.name, status: r.status, createdAt: isoReq(r.createdAt), deleteProtectionEnabled: r.deleteProtectionEnabled ?? false, loginLimit: r.loginLimit ?? 20 };
 }
 function mapDevice(r: typeof devices.$inferSelect) {
   return {
@@ -861,11 +861,117 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
 
   const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
   if (!row) return c.json({ error: "App not found" }, 404);
-  // Hard-enforce panel token — appId + PIN alone are NOT enough anymore. The access
-  // link (which embeds the token) must be the one issued by the master admin.
-  if (row.panelToken) {
-    if (!body.panelToken || body.panelToken !== row.panelToken) return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
+  if (row.appId !== DEFAULT_APP_ID && row.status === "active" && row.createdAt && isExpired(row.createdAt)) {
+      await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
+      const [updated] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+      return c.json(updated ? [mapApp(updated)] : [mapApp(row)]);
+    }
+    return c.json([mapApp(row)]);
   }
+  // Master: return all apps (existing behaviour)
+  const rows = await db.select().from(apps).orderBy(desc(apps.createdAt));
+  for (const r of rows) {
+    if (r.appId === DEFAULT_APP_ID && r.status !== "active") {
+      await db.update(apps).set({ status: "active" }).where(eq(apps.appId, r.appId));
+    } else if (r.appId !== DEFAULT_APP_ID && r.status === "active" && r.createdAt && isExpired(r.createdAt)) {
+      await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, r.appId));
+    }
+  }
+  const fresh = await db.select().from(apps).orderBy(desc(apps.createdAt));
+  return c.json(fresh.map(mapApp));
+});
+
+app.get("/api/apps/:appId", async (c) => {
+  const db = getDb(c.env);
+  const appId = c.req.param("appId");
+  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
+  if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
+    await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
+    const [updated] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+    return c.json(updated ? mapApp(updated) : mapApp(row));
+  }
+  return c.json(mapApp(row));
+});
+
+app.post("/api/apps", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const db = getDb(c.env);
+  const body = await c.req.json() as { appId?: string; name?: string; pin?: string; status?: string };
+  if (!body.appId || !body.name) return c.json({ error: "appId and name are required" }, 400);
+  const inserted = await db.insert(apps).values({
+    appId: body.appId, name: body.name,
+    pin: body.pin ?? "1234", status: body.status ?? "active",
+    panelToken: crypto.randomUUID(),
+  }).onConflictDoNothing({ target: apps.appId }).returning();
+  if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
+  return c.json(mapApp(inserted[0]), 201);
+});
+
+app.patch("/api/apps/:appId", async (c) => {
+  const appId = c.req.param("appId");
+  const masterPin = await getMasterPin(c.env);
+  const isMaster = (c.req.header("x-master-pin") ?? "") === masterPin;
+  const sessionToken = c.req.header("x-session-token") ?? "";
+
+  // Master PIN → full access. Session → must belong to THIS appId. Neither → deny.
+  if (!isMaster) {
+    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+    if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const db = getDb(c.env);
+  const body = await c.req.json() as { name?: string; pin?: string; status?: string; currentPin?: string; loginLimit?: number };
+  const patch: Partial<typeof apps.$inferInsert> = {};
+  if (body.name !== undefined) patch.name = body.name;
+  if (body.status !== undefined) patch.status = body.status;
+  if (body.loginLimit !== undefined) {
+    const n = Number(body.loginLimit);
+    if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
+    patch.loginLimit = Math.floor(n);
+  }
+
+  // Changing PIN — master can always; session owner needs currentPin as confirmation
+  if (body.pin !== undefined) {
+    if (!isMaster) {
+      const [existing] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+      if (!existing) return c.json({ error: "App not found" }, 404);
+      if (!body.currentPin) return c.json({ error: "currentPin required to change PIN" }, 400);
+      if (body.currentPin !== existing.pin) return c.json({ error: "Wrong current PIN" }, 401);
+    }
+    patch.pin = body.pin;
+  }
+
+  if (Object.keys(patch).length === 0) return c.json({ error: "No fields to update" }, 400);
+  const [row] = await db.update(apps).set(patch).where(eq(apps.appId, c.req.param("appId"))).returning();
+  if (!row) return c.json({ error: "App not found" }, 404);
+  // PIN change — purani saari sessions delete karo taaki attacker ka access khatam ho
+  if (patch.pin !== undefined) {
+    const sqlC = neon(c.env.NEON_DATABASE_URL);
+    await sqlC(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
+    for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
+  }
+  return c.json(mapApp(row));
+});
+
+app.delete("/api/apps/:appId", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const db = getDb(c.env);
+  const [row] = await db.delete(apps).where(eq(apps.appId, c.req.param("appId"))).returning();
+  if (!row) return c.json({ error: "App not found" }, 404);
+  return c.json({ ok: true });
+});
+
+app.post("/api/apps/:appId/verify-pin", async (c) => {
+  const db = getDb(c.env);
+  const appId = c.req.param("appId");
+  const body = await c.req.json() as { pin?: string; panelToken?: string };
+  if (!body.pin) return c.json({ error: "PIN required" }, 400);
+
+  const [row] = await db.select().from(apps).where(eq(apps.appId, appId)).limit(1);
+  if (!row) return c.json({ error: "App not found" }, 404);
   if (row.appId !== DEFAULT_APP_ID && row.status === "active" && isExpired(row.createdAt)) {
     await db.update(apps).set({ status: "disabled" }).where(eq(apps.appId, appId));
     return c.json({ error: "Licence expired. Please contact admin." }, 403);
@@ -2099,8 +2205,6 @@ app.post("/api/admin/sessions", async (c) => {
     const [appRow] = await db.select({ pin: apps.pin, status: apps.status, panelToken: apps.panelToken, createdAt: apps.createdAt, appId: apps.appId, loginLimit: apps.loginLimit })
       .from(apps).where(eq(apps.appId, appId)).limit(1);
     if (!appRow) return c.json({ error: "Invalid credentials" }, 401);
-    // Hard-enforce panel token — must match the link issued by the master admin.
-    if (appRow.panelToken && appRow.panelToken !== panelToken) return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
     // Check licence expiry before anything else (non-default apps only)
     if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
@@ -2129,7 +2233,7 @@ app.post("/api/admin/sessions", async (c) => {
       return c.json({ sessionId: id });
     }
     // Enforce per-app login limit — count currently active sessions (device-distinct logins)
-    const limit = appRow.loginLimit ?? 5;
+    const limit = appRow.loginLimit ?? 20;
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
