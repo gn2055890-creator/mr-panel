@@ -28,14 +28,23 @@ async function getMasterPin(): Promise<string> {
   return result.rows[0]?.value ?? DEFAULT_MASTER_PIN;
 }
 
-async function requireMasterPin(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const pin = req.headers["x-master-pin"] as string | undefined;
-  if (!pin) { res.status(401).json({ error: "Master PIN required" }); return; }
-  const stored = await getMasterPin();
-  if (pin !== stored) { res.status(401).json({ error: "Invalid master PIN" }); return; }
-  next();
-}
+function decodeHeaderValue(v: string): string {
+    try {
+      return decodeURIComponent(v);
+    } catch {
+      return v;
+    }
+    }
 
+    async function requireMasterPin(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const rawPin = req.headers["x-master-pin"] as string | undefined;
+    if (!rawPin) { res.status(401).json({ error: "Master PIN required" }); return; }
+    const pin = decodeHeaderValue(rawPin);
+    const stored = await getMasterPin();
+    if (pin !== stored) { res.status(401).json({ error: "Invalid master PIN" }); return; }
+    next();
+    }
+    
 function stripPin<T extends { pin?: unknown; deleteProtectionPin?: unknown }>(obj: T) {
   const { pin: _p, deleteProtectionPin: _dp, ...rest } = obj;
   return rest;
