@@ -1112,14 +1112,16 @@ app.patch("/api/devices/:deviceId", async (c) => {
 app.get("/api/messages/count", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
-  // SECURITY: appId is required for EVERYONE, including master — no global cross-app count.
-  if (!appId) return c.json({ error: "appId required" }, 400);
+  // Master may omit appId for a global cross-app count (MainAdminPanel feature).
   const _isMasterCaller = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
   if (!_isMasterCaller) {
+    if (!appId) return c.json({ error: "appId required" }, 400);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
-  const where = eq(messages.appId, appId);
-  const rows = await db.select({ count: sql`COUNT(*)` }).from(messages).where(where);
+  const where = appId ? eq(messages.appId, appId) : undefined;
+  const rows = where
+    ? await db.select({ count: sql`COUNT(*)` }).from(messages).where(where)
+    : await db.select({ count: sql`COUNT(*)` }).from(messages);
   return c.json({ count: Number(rows[0]?.count ?? 0) });
 });
 
@@ -1131,11 +1133,10 @@ app.get("/api/messages", async (c) => {
   const searchTerm = c.req.query("search")?.trim() ?? "";
   const cursor = c.req.query("cursor"); // last message id for cursor pagination
   const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
-  // SECURITY: appId is required for EVERYONE, including master — this is a per-app inbox,
-  // not a global cross-app message dump.
-  if (!appId) return c.json({ error: "appId required" }, 400);
-  // Non-master: session must belong to requested appId (prevents cross-app IDOR)
+  // Master may omit appId for the global cross-app inbox view (MainAdminPanel feature).
+  // Non-master: appId is required and session must belong to that appId (prevents cross-app IDOR).
   if (!isMaster) {
+    if (!appId) return c.json({ error: "appId required" }, 400);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -1238,12 +1239,10 @@ app.get("/api/data", async (c) => {
   // Master admin with pin — supports offset+limit pagination
   const masterPin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
   if (masterPin === await getMasterPin(c.env)) {
-    // SECURITY: appId is required even for master here — this endpoint returns raw form
-    // submissions (PAN/Aadhaar numbers etc). No global cross-app dump.
-    if (!appId) return c.json({ error: "appId is required" }, 400);
+    // Master may omit appId for the global cross-app form-data view (MainAdminPanel feature).
     const pgLimit = Math.min(Number(c.req.query("limit") ?? "1000"), 2000);
     const pgOffset = Number(c.req.query("offset") ?? "0");
-    const whereClause = eq(formData.appId, appId);
+    const whereClause = appId ? eq(formData.appId, appId) : undefined;
     const [cntRow] = await db.select({ c: sql`count(*)` }).from(formData).where(whereClause);
     const total = Number(cntRow?.c ?? 0);
     const rows = await db.select().from(formData)
