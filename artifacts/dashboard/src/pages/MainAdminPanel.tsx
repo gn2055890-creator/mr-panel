@@ -155,7 +155,30 @@ function PinCopyBtn({ appId, masterPin }: { appId: string; masterPin: string }) 
     </button>
   );
 }
-function Modal({ children, onClose, maxWidth = 420 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
+
+  function DelPinCopyBtn({ appId, masterPin }: { appId: string; masterPin: string }) {
+    const [copied, setCopied] = useState(false);
+    async function handleClick(e: React.MouseEvent) {
+      e.stopPropagation();
+      try {
+        const r = await apiFetch(`/api/master/apps/${encodeURIComponent(appId)}/secret`, { headers: { "x-master-pin": masterPin } });
+        if (!r.ok) { alert("❌ Could not fetch delete password"); return; }
+        const secret = await r.json() as AppSecret;
+        if (!secret.deleteProtectionPin) { alert("Not set"); return; }
+        await copyToClipboard(secret.deleteProtectionPin);
+        setCopied(true); setTimeout(() => setCopied(false), 2000);
+      } catch { alert("❌ Network error"); }
+    }
+    if (copied) return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 6, background: T.green + "18", border: `1px solid ${T.green}60`, color: T.green, fontSize: 10, fontWeight: 600 }}><Ic.Check /> Copied</span>
+    );
+    return (
+      <button onClick={handleClick} title="Copy delete password" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "2px 7px", borderRadius: 6, border: `1px solid ${T.borderLight}`, background: T.border + "80", color: T.mutedLight, cursor: "pointer", fontSize: 10, fontWeight: 600, gap: 4, whiteSpace: "nowrap" }}>
+        <Ic.Copy />
+      </button>
+    );
+  }
+  function Modal({ children, onClose, maxWidth = 420 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.80)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16, backdropFilter: "blur(3px)" }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -589,6 +612,7 @@ function AppCard({ app, masterPin, onEdit, onDelete, onToggle, onLogoutAll, onCo
           {app.hasDeleteProtectionPin ? (
             <>
               <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: app.deleteProtectionEnabled ? "#4ade80" : T.mutedLight, letterSpacing: 1 }}>••••</span>
+              <DelPinCopyBtn appId={app.appId} masterPin={masterPin ?? ""} />
               <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99, background: app.deleteProtectionEnabled ? "#16a34a22" : T.border, color: app.deleteProtectionEnabled ? "#4ade80" : T.muted, border: `1px solid ${app.deleteProtectionEnabled ? "#16a34a44" : "transparent"}` }}>{app.deleteProtectionEnabled ? "ON" : "OFF"}</span>
             </>
           ) : <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>Not set</span>}
