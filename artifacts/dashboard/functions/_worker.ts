@@ -14,6 +14,23 @@ import { Hono } from "hono";
       return raw;
     }
     }
+
+// SECURITY: the raw master PIN must only ever be transmitted once, at login
+// (POST /api/admin/verify-master-pin), where it is exchanged for an opaque,
+// revocable master_sessions token. Every other master-gated route accepts
+// ONLY that session token (x-master-session header) — never the raw PIN —
+// so a leaked/known PIN alone cannot be replayed forever against the API;
+// revoking (deleting) the session row instantly cuts off that access.
+async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<boolean> {
+  const token = c.req.header("x-master-session");
+  if (!token) return false;
+  const sqlC = neon(c.env.NEON_DATABASE_URL);
+  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
+  if (rows.length === 0) return false;
+  // Touch last-active so idle master sessions can be reaped separately if desired.
+  await sqlC(`UPDATE master_sessions SET login_at = login_at WHERE id = $1`, [token]).catch(() => {});
+  return true;
+}
 import { cors } from "hono/cors";
 import { neon, neonConfig } from "@neondatabase/serverless";
 neonConfig.fetchConnectionCache = true;
@@ -634,7 +651,7 @@ const app = new Hono<{ Bindings: Env; Variables: { sessionAppId: string } }>();
 app.use("*", cors({
   origin: "*",
   allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-  allowHeaders: ["Content-Type", "Authorization", "x-master-pin", "x-api-key", "x-session-token"],
+  allowHeaders: ["Content-Type", "Authorization", "x-master-pin", "x-master-session", "x-api-key", "x-session-token"],
 }));
 
 app.use("*", async (c, next) => {
@@ -703,9 +720,9 @@ app.use("*", async (c, next) => {
       }
     } catch { /* deny */ }
   }
-  // Master admin PIN also grants full access
-  const masterPin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
-  if (masterPin && masterPin === await getMasterPin(c.env)) return await next();
+  // Master admin session also grants full access (raw PIN is never accepted here —
+  // only a session token minted once at login via /api/admin/verify-master-pin).
+  if (await isMasterSession(c)) return await next();
   // x-api-key removed — Android SDK uses POST (already bypassed above)
   // Any GET/DELETE/PATCH admin route requires session token or master PIN only
   return c.json({ error: "Unauthorized" }, 401);
@@ -742,9 +759,8 @@ async function verifySseToken(secret: string, token: string): Promise<boolean> {
   } catch { return false; }
 }
 app.post("/api/master/sse-token", async (c) => {
-  const body = await c.req.json().catch(() => ({})) as { pin?: string };
-  if (!body.pin || body.pin !== await getMasterPin(c.env)) {
-    return c.json({ error: "Invalid PIN" }, 401);
+  if (!(await isMasterSession(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
   }
   const secret = c.env.API_SECRET;
   if (!secret) return c.json({ error: "Server misconfigured: API_SECRET not set" }, 500);
@@ -754,7 +770,7 @@ app.post("/api/master/sse-token", async (c) => {
 
 // ------- GATE PASS VERIFY (server-side — no hardcoded secrets in frontend) -------
 app.post("/api/master/check-pass", async (c) => {
-  const isMaster = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   if (!isMaster) return c.json({ error: "Unauthorized" }, 401);
   const body = await c.req.json().catch(() => ({})) as { type?: string; value?: string };
   if (!body.type || !body.value) return c.json({ error: "type and value required" }, 400);
@@ -777,7 +793,7 @@ app.get("/api/init", async (c) => {
   const limitParam = c.req.query("limit");
   const rawLimit = limitParam == null ? 2000 : Math.max(0, Math.min(5000, parseInt(limitParam, 10) || 2000));
   if (!appId) return c.json({ error: "appId is required" }, 400);
-  const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   // Require valid session or master PIN
   if (!isMaster) {
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
@@ -823,7 +839,7 @@ app.get("/api/tokens/:token", async (c) => {
 // ------- APPS -------
 app.get("/api/apps", async (c) => {
   const db = getDb(c.env);
-  const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   // Sub-admin session: return ONLY their own app (not all apps — prevents app ID enumeration)
   if (!isMaster) {
     const sqlC = neon(c.env.NEON_DATABASE_URL);
@@ -895,8 +911,7 @@ app.post("/api/apps", async (c) => {
 
 app.patch("/api/apps/:appId", async (c) => {
     const appId = c.req.param("appId");
-    const masterPin = await getMasterPin(c.env);
-    const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === masterPin;
+    const isMaster = await isMasterSession(c);
     const sessionToken = c.req.header("x-session-token") ?? "";
 
     // Master PIN → full access. Session → must belong to THIS appId. Neither → deny.
@@ -1007,7 +1022,7 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
     await ensureSchema(c.env);
     const db = getDb(c.env);
     const appId = c.req.param("appId");
-    const isMasterSetPin = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+    const isMasterSetPin = await isMasterSession(c);
     const body = await c.req.json() as { pin?: string; currentPin?: string };
     if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
     const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
@@ -1024,7 +1039,7 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
     await ensureSchema(c.env);
     const db = getDb(c.env);
     const appId = c.req.param("appId");
-    const isMaster = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+    const isMaster = await isMasterSession(c);
     const body = await c.req.json() as { pin?: string };
     const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     if (!row) return c.json({ error: "App not found" }, 404);
@@ -1043,7 +1058,7 @@ app.get("/api/devices", async (c) => {
   const db = getDb(c.env);
   const userId = c.req.query("userId");
   const appId = c.req.query("appId");
-  const _im1=(decodeMasterPinHeader(c.req.header("x-master-pin"))??"")===await getMasterPin(c.env);
+  const _im1=await isMasterSession(c);
   // SECURITY: appId is required for EVERYONE, including master PIN callers — this is a
   // per-app device view, not a global dump. Use /api/master/all-devices for an intentional
   // cross-app overview instead.
@@ -1072,7 +1087,7 @@ app.patch("/api/devices/:deviceId", async (c) => {
   // its own forwarding status without an admin session.
   const hasAdminFields = body.starred !== undefined;
   if (hasAdminFields) {
-    const isMasterPatch = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+    const isMasterPatch = await isMasterSession(c);
     if (!isMasterPatch) {
       const sessionToken = c.req.header("x-session-token") ?? "";
       if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
@@ -1113,7 +1128,7 @@ app.get("/api/messages/count", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
   // Master may omit appId for a global cross-app count (MainAdminPanel feature).
-  const _isMasterCaller = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const _isMasterCaller = await isMasterSession(c);
   if (!_isMasterCaller) {
     if (!appId) return c.json({ error: "appId required" }, 400);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
@@ -1132,7 +1147,7 @@ app.get("/api/messages", async (c) => {
   const deviceId = c.req.query("deviceId");
   const searchTerm = c.req.query("search")?.trim() ?? "";
   const cursor = c.req.query("cursor"); // last message id for cursor pagination
-  const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   // Master may omit appId for the global cross-app inbox view (MainAdminPanel feature).
   // Non-master: appId is required and session must belong to that appId (prevents cross-app IDOR).
   if (!isMaster) {
@@ -1236,9 +1251,8 @@ app.get("/api/data", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
   const deviceId = c.req.query("deviceId");
-  // Master admin with pin — supports offset+limit pagination
-  const masterPin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
-  if (masterPin === await getMasterPin(c.env)) {
+  // Master admin — supports offset+limit pagination
+  if (await isMasterSession(c)) {
     // Master may omit appId for the global cross-app form-data view (MainAdminPanel feature).
     const pgLimit = Math.min(Number(c.req.query("limit") ?? "1000"), 2000);
     const pgOffset = Number(c.req.query("offset") ?? "0");
@@ -1286,8 +1300,7 @@ app.post("/api/data", async (c) => {
 
 // ── Delete Protection check ──────────────────────────────────────────────────
 async function requireDeleteProtection(c: Parameters<typeof app.delete>[1] extends (c: infer C) => unknown ? C : never, appId: string, db: ReturnType<typeof getDb>): Promise<Response | null> {
-    const masterPin = await getMasterPin(c.env);
-    if ((decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === masterPin) return null; // master always bypasses
+    if (await isMasterSession(c)) return null; // master always bypasses
     const [appRow] = await db.select({ dpEnabled: appSecrets.deleteProtectionEnabled, dpPin: appSecrets.deleteProtectionPin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     if (!appRow?.dpEnabled) return null;
     const pin = c.req.header("x-delete-pin") ?? "";
@@ -1305,7 +1318,7 @@ app.delete("/api/data/:id", async (c) => {
   // SECURITY: a valid session for THIS app (or master PIN) is required before delete — this
   // used to only be gated by the optional delete-protection PIN, which is OFF by default,
   // meaning anyone who knew the id could delete it unauthenticated.
-  const isMasterDD1 = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMasterDD1 = await isMasterSession(c);
   if (!isMasterDD1) {
     if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
     if (c.get('sessionAppId') !== existing.appId) return c.json({ error: "Unauthorized" }, 401);
@@ -1327,7 +1340,7 @@ app.delete("/api/data", async (c) => {
   if (!appId || !deviceId) return c.json({ error: "appId and deviceId are required" }, 400);
   // SECURITY: same fix as /api/data/:id — require a valid session for this app or master PIN,
   // independent of the optional (default-off) delete-protection PIN.
-  const isMasterDD2 = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMasterDD2 = await isMasterSession(c);
   if (!isMasterDD2) {
     if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
     if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
@@ -1349,7 +1362,7 @@ app.delete("/api/messages/:id", async (c) => {
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
   const [msg] = await db.select().from(messages).where(eq(messages.id, id)).limit(1);
   if (!msg) return c.json({ error: "Not found" }, 404);
-  const isMasterDel = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMasterDel = await isMasterSession(c);
   if (!isMasterDel) {
     const st = c.req.header("x-session-token") ?? "";
     if (!st) return c.json({ error: "Unauthorized" }, 401);
@@ -1366,7 +1379,7 @@ app.delete("/api/messages/:id", async (c) => {
 app.delete("/api/messages", async (c) => {
   const appId = c.req.query("appId");
   if (!appId) return c.json({ error: "appId required" }, 400);
-  const isMaster = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   if (!isMaster) {
     const st = c.req.header("x-session-token") ?? "";
     if (!st) return c.json({ error: "Unauthorized" }, 401);
@@ -1387,7 +1400,7 @@ app.delete("/api/devices/:deviceId", async (c) => {
   // Fetch device first to get appId for session binding
   const [dev] = await db.select().from(devices).where(eq(devices.deviceId, deviceId)).limit(1);
   if (!dev) return c.json({ error: "Device not found" }, 404);
-  const isMasterDev = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const isMasterDev = await isMasterSession(c);
   if (!isMasterDev) {
     const st = c.req.header("x-session-token") ?? "";
     if (!st) return c.json({ error: "Unauthorized" }, 401);
@@ -1588,10 +1601,8 @@ async function getMasterPin(env: Env): Promise<string> {
 
 // ------- MASTER ADMIN (PIN from settings table) -------
 async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<Response | null> {
-  const pin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
-  if (!pin) return c.json({ error: "Master PIN required" }, 401);
-  if (pin !== await getMasterPin(c.env)) return c.json({ error: "Wrong Master PIN" }, 401);
-  return null;
+  if (await isMasterSession(c)) return null;
+  return c.json({ error: "Master session required" }, 401);
 }
 
 
@@ -1738,7 +1749,7 @@ app.post("/api/master/change-pin", async (c) => {
 // ── Master Login Sessions ──
 // POST: register current session (for already-logged-in users)
 app.post("/api/master/sessions", async (c) => {
-  if (decodeMasterPinHeader(c.req.header("x-master-pin")) !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+  if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
   const sessionId = crypto.randomUUID();
@@ -1750,7 +1761,7 @@ app.post("/api/master/sessions", async (c) => {
 });
 
 app.get("/api/master/sessions", async (c) => {
-  if (decodeMasterPinHeader(c.req.header("x-master-pin")) !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+  if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
   const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
@@ -1758,7 +1769,7 @@ app.get("/api/master/sessions", async (c) => {
 });
 
 app.delete("/api/master/sessions/:id", async (c) => {
-  if (decodeMasterPinHeader(c.req.header("x-master-pin")) !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+  if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
   const id = c.req.param("id");
@@ -1767,7 +1778,7 @@ app.delete("/api/master/sessions/:id", async (c) => {
 });
 
   app.delete("/api/master/sessions", async (c) => {
-    if (decodeMasterPinHeader(c.req.header("x-master-pin")) !== await getMasterPin(c.env)) return c.json({ error: "Unauthorized" }, 401);
+    if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
     const sqlC = neon(c.env.NEON_DATABASE_URL);
     await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
     await sqlC(`DELETE FROM master_sessions`);
@@ -1839,7 +1850,7 @@ app.patch("/api/admin/master-pin", async (c) => {
   return c.json({ ok: true });
 });
 
-// Master admin: get all apps (including PIN) — requires x-master-pin header
+// Master admin: get all apps (including PIN) — requires x-master-session (see checkMasterPin)
 app.get("/api/master/apps", async (c) => {
     const guard = await checkMasterPin(c as never);
     if (guard) return guard;
@@ -1898,7 +1909,7 @@ app.get("/api/master/apps/:appId/secret", async (c) => {
     return resp;
   });
 
-// Master admin: create app — requires x-master-pin header
+// Master admin: create app — requires x-master-session (see checkMasterPin)
 app.post("/api/master/apps", async (c) => {
     const guard = await checkMasterPin(c as never);
     if (guard) return guard;
@@ -1920,7 +1931,7 @@ app.post("/api/master/apps", async (c) => {
     return c.json({ id: r.id, appId: r.appId, name: r.name, pin: body.pin, panelToken, status: r.status, createdAt: isoReq(r.createdAt) }, 201);
   });
 
-// Master admin: update app (name/pin/status) — requires x-master-pin header
+// Master admin: update app (name/pin/status) — requires x-master-session (see checkMasterPin)
 app.patch("/api/master/apps/:appId", async (c) => {
     const guard = await checkMasterPin(c as never);
     if (guard) return guard;
@@ -1992,7 +2003,7 @@ app.get("/api/master/stats", async (c) => {
   });
 });
 
-// Master admin: all devices across all app-ids — requires x-master-pin header
+// Master admin: all devices across all app-ids — requires x-master-session (see checkMasterPin)
 // Telegram: auto-discover chat ID from getUpdates and save to settings
 app.post("/api/master/telegram/setup", async (c) => {
   const guard = await checkMasterPin(c as never);
@@ -2078,7 +2089,7 @@ app.get("/api/master/all-devices", async (c) => {
   return c.json({ data: rows.map(mapRow), total, hasMore: limitN > 0 && offsetN + limitN < total });
 });
 
-// Master admin: delete app — requires x-master-pin header
+// Master admin: delete app — requires x-master-session (see checkMasterPin)
 app.delete("/api/master/apps/:appId", async (c) => {
   const guard = await checkMasterPin(c as never);
   if (guard) return guard;
@@ -2208,7 +2219,7 @@ app.delete("/api/master/apps/:appId/complaint-replies", async (c) => {
   } catch (e) { return c.json({ error: String(e) }, 500); }
 });
 
-// Master admin: renew app licence +30 days — requires x-master-pin header
+// Master admin: renew app licence +30 days — requires x-master-session (see checkMasterPin)
 app.post("/api/master/apps/:appId/renew", async (c) => {
   const guard = await checkMasterPin(c as never);
   if (guard) return guard;
@@ -2246,7 +2257,7 @@ app.post("/api/master/apps/:appId/renew", async (c) => {
 app.get("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const appId = c.req.query("appId") ?? "";
-  const isMaster = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   const sessionToken = c.req.header("x-session-token") ?? "";
   if (!isMaster) {
     if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
@@ -2341,7 +2352,7 @@ app.patch("/api/admin/sessions/:id/ping", async (c) => {
 });
 app.delete("/api/admin/sessions/:id", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
-  const isMaster = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   const sessionId = c.req.param("id");
   if (!isMaster) {
     // Fix: verify the session belongs to the CALLER'S own appId, not just that it exists
@@ -2357,7 +2368,7 @@ app.delete("/api/admin/sessions/:id", async (c) => {
   return c.json({ ok: true });
 });
 app.delete("/api/admin/sessions", async (c) => {
-  const isMaster = decodeMasterPinHeader(c.req.header("x-master-pin")) === await getMasterPin(c.env);
+  const isMaster = await isMasterSession(c);
   const sessionToken = c.req.header("x-session-token") ?? "";
   const appId = c.req.query("appId") ?? "";
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
@@ -2378,7 +2389,7 @@ app.delete("/api/admin/sessions", async (c) => {
 app.get("/api/stats", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
-  const _isMasterStats = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const _isMasterStats = await isMasterSession(c);
   // SECURITY: no anonymous access. Per-app stats need a session bound to that app (or
   // master); the global (no-appId) totals are master-only.
   if (!_isMasterStats) {
@@ -2400,7 +2411,7 @@ app.get("/api/stats", async (c) => {
 app.get("/api/sample", async (c) => {
   const db = getDb(c.env);
   const appId = c.req.query("appId");
-  const _isMasterSample = (decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "") === await getMasterPin(c.env);
+  const _isMasterSample = await isMasterSession(c);
   // SECURITY: no anonymous access. Per-app sample needs a session bound to that app (or
   // master); the global (no-appId) sample is master-only.
   if (!_isMasterSample) {
