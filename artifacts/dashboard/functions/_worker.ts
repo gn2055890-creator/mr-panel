@@ -25,10 +25,11 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
   const token = c.req.header("x-master-session");
   if (!token) return false;
   const sqlC = neon(c.env.NEON_DATABASE_URL);
-  // Sliding 30-minute idle timeout: login_at doubles as "last active" here — a valid,
-  // in-window session automatically extends itself on every authenticated request, but
-  // 30 minutes of inactivity requires a fresh PIN login again.
-  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '30 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
+  // Ping-based liveness: the master panel calls POST /api/master/ping every ~15s while the
+  // browser tab is actually open, which (like every authenticated request) bumps login_at.
+  // If the browser/tab is closed, no more pings arrive, so login_at goes stale and the
+  // session is treated as dead within ~45s — no reliance on unload events or client storage.
+  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '45 seconds' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
   if (rows.length === 0) return false;
   await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
   return true;
@@ -1737,8 +1738,11 @@ app.post("/api/master/change-pin", async (c) => {
     `SELECT value FROM settings WHERE key = 'master_session_limit' LIMIT 1`,
   ) as Array<{ value: string }>;
   const sessionLimit = Math.max(1, parseInt(sessionLimitStr ?? "3", 10) || 3);
+  // Drop dead sessions (no ping in 45s = browser/tab closed) before counting, so a closed
+  // session frees up its login-limit slot right away instead of lingering until the 20-row cap.
+  await sqlC(`DELETE FROM master_sessions WHERE login_at < NOW() - INTERVAL '45 seconds'`).catch(() => {});
   const [{ c: activeMasterCount } = { c: 0 }] = await sqlC(
-    `SELECT COUNT(*)::int AS c FROM master_sessions`,
+    `SELECT COUNT(*)::int AS c FROM master_sessions WHERE login_at > NOW() - INTERVAL '45 seconds'`,
   ) as Array<{ c: number }>;
   if (activeMasterCount >= sessionLimit) {
     return c.json({ error: `Master login limit reached (${sessionLimit}). Pehle kisi ek session ko logout karo.` }, 429);
@@ -1772,8 +1776,15 @@ app.get("/api/master/sessions", async (c) => {
   if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
-  const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
+  const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions WHERE login_at > NOW() - INTERVAL '45 seconds' ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
   return c.json(rows);
+});
+
+// Lightweight heartbeat the master panel calls every ~15s while its tab is open — this is
+// the entire "is the browser still open" signal; isMasterSession() bumps login_at on any hit.
+app.post("/api/master/ping", async (c) => {
+  if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
+  return c.json({ ok: true });
 });
 
 app.delete("/api/master/sessions/:id", async (c) => {
