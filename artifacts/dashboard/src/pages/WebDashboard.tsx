@@ -3929,7 +3929,7 @@ export default function WebDashboard() {
       } catch { /* ignore network errors */ }
     }
     pingSession();
-    const t = setInterval(pingSession, 15000);
+    const t = setInterval(pingSession, 600000);
     return () => clearInterval(t);
   }, [authed, appId]);
 
