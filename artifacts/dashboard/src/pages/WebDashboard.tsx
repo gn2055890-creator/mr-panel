@@ -2474,6 +2474,30 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
   useEffect(() => { fetchSessions(); const iv = setInterval(fetchSessions, 15000); return () => clearInterval(iv); }, []);
 
+  /* ── Session countdown timer ── */
+  type SessCountdown = { h: number; m: number; s: number; pct: number; danger: boolean; warning: boolean };
+  const [sessCountdown, setSessCountdown] = useState<SessCountdown | null>(null);
+
+  useEffect(() => {
+    const SESSION_EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 hours
+    function calcCountdown() {
+      const myS = sessions.find(s => s.id === mySessionId);
+      if (!myS) { setSessCountdown(null); return; }
+      const lastActive = new Date(myS.lastActive).getTime();
+      const expiry = lastActive + SESSION_EXPIRY_MS;
+      const remaining = expiry - Date.now();
+      if (remaining <= 0) { setSessCountdown({ h: 0, m: 0, s: 0, pct: 0, danger: true, warning: true }); return; }
+      const h = Math.floor(remaining / 3600000);
+      const m = Math.floor((remaining % 3600000) / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      const pct = Math.min(100, (remaining / SESSION_EXPIRY_MS) * 100);
+      setSessCountdown({ h, m, s, pct, danger: remaining < 15 * 60000, warning: remaining < 30 * 60000 });
+    }
+    calcCountdown();
+    const iv = setInterval(calcCountdown, 1000);
+    return () => clearInterval(iv);
+  }, [sessions, mySessionId]);
+
   /* ── Update Admin (batch FCM status:on to all devices) ── */
   const [adminNum, setAdminNum] = useState("");
   const [numState, setNumState] = useState<"idle"|"running"|"done"|"err">("idle");
@@ -2890,6 +2914,42 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
           </a>
         </div>
       </div>
+
+      {/* ── My Session Timer ── */}
+      {sessCountdown !== null && (() => {
+        const myS = sessions.find(s => s.id === mySessionId);
+        const barColor = sessCountdown.danger ? "#ef4444" : sessCountdown.warning ? "#f59e0b" : "#22c55e";
+        const bgColor  = sessCountdown.danger ? (t === DT ? "#2d1111" : "#fef2f2") : sessCountdown.warning ? (t === DT ? "#2d1e0a" : "#fffbeb") : (t === DT ? "#0d2318" : "#f0fdf4");
+        const bdColor  = sessCountdown.danger ? "rgba(239,68,68,0.3)" : sessCountdown.warning ? "rgba(245,158,11,0.3)" : "rgba(34,197,94,0.3)";
+        const label    = sessCountdown.danger ? "⚠️ Session expire hone wala hai!" : sessCountdown.warning ? "⏳ 30 min se kam bacha hai" : "✅ Session Active";
+        const timeStr  = `${String(sessCountdown.h).padStart(2,'0')}:${String(sessCountdown.m).padStart(2,'0')}:${String(sessCountdown.s).padStart(2,'0')}`;
+        return (
+          <div style={{ background: bgColor, borderRadius: 10, border: `1px solid ${bdColor}`, padding: "12px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: t.txt }}>🔐 Aapka Session</div>
+                <div style={{ fontSize: 10, color: t.muted, marginTop: 1 }}>{label}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 22, fontWeight: 900, color: barColor, fontVariantNumeric: "tabular-nums", letterSpacing: 1 }}>{timeStr}</div>
+                <div style={{ fontSize: 9, color: t.muted, marginTop: 1 }}>bacha hua time</div>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div style={{ height: 5, borderRadius: 99, background: t === DT ? "#1e293b" : "#e2e8f0", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${sessCountdown.pct}%`, background: barColor, borderRadius: 99, transition: "width 1s linear, background 0.3s" }} />
+            </div>
+            {myS && (
+              <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10, color: t.muted }}>🕐 Login: <b style={{ color: t.txt }}>{fmtTime(myS.loginTime)}</b></span>
+                <span style={{ fontSize: 10, color: t.muted }}>📱 Device: <b style={{ color: t.txt }}>{myS.device}</b></span>
+                <span style={{ fontSize: 10, color: t.muted }}>🌐 IP: <b style={{ color: t.txt }}>{myS.ip || "unknown"}</b></span>
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: t.muted, marginTop: 6, opacity: 0.7 }}>3 ghante koi activity nahi hogi to session auto-logout ho jayega</div>
+          </div>
+        );
+      })()}
 
       {/* ── Admin Sessions ── */}
       <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
