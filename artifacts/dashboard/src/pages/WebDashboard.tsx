@@ -4467,8 +4467,8 @@ export default function WebDashboard() {
 
 
         
-        {/* ── Announcement Ticker — show only when messages >= 2000 ── */}
-        {(totalMsgCount >= 2000) && (() => {
+        {/* ── Announcement Ticker — always visible ── */}
+        {(() => {
           const tkBg   = effectiveDark ? "#0f172a" : "#fffbeb";
           const tkText = effectiveDark ? "#fbbf24" : "#92400e";
           const tkIcon = effectiveDark ? "#f97316" : "#d97706";
