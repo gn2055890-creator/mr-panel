@@ -701,6 +701,10 @@ app.use("*", async (c, next) => {
   if (method === "GET" && path.endsWith("/complaint-replies")) {
     return await next();
   }
+  // Public notice ticker — no auth needed (read-only, non-sensitive)
+  if (method === "GET" && path === "/api/notice") {
+    return await next();
+  }
   // Submitting a complaint is public — no login needed (matches previous client-side behavior)
   if (method === "POST" && path.endsWith("/complaint")) {
     return await next();
