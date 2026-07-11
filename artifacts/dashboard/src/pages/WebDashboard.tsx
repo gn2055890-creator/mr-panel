@@ -2479,7 +2479,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [sessCountdown, setSessCountdown] = useState<SessCountdown | null>(null);
 
   useEffect(() => {
-    const SESSION_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
+    const SESSION_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
     function calcCountdown() {
       const myS = sessions.find(s => s.id === mySessionId);
       if (!myS) { setSessCountdown(null); return; }

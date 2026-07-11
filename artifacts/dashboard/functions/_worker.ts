@@ -737,7 +737,7 @@ app.use("*", async (c, next) => {
     }
     try {
       const sqlC = neon(c.env.NEON_DATABASE_URL);
-      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '30 minutes' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '1 hour' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
       if (rows.length > 0) {
         const appId = rows[0].app_id ?? '';
         // bump last_active so activity resets the 3hr clock
@@ -1124,7 +1124,7 @@ app.patch("/api/devices/:deviceId", async (c) => {
       } else {
         try {
           const sqlC = neon(c.env.NEON_DATABASE_URL);
-          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '30 minutes' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '1 hour' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
           if (rows.length > 0) {
             _sessionCache.set(sessionToken, { expiry: Date.now() + 60_000, appId: rows[0].app_id ?? "" });
             valid = true;
@@ -1903,7 +1903,7 @@ app.get("/api/master/apps", async (c) => {
     }
     // Count active sessions per app
     const sessionCounts = await sqlClient(
-      `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '30 minutes' GROUP BY app_id`,
+      `SELECT app_id, COUNT(*) as cnt FROM admin_sessions WHERE last_active > NOW() - INTERVAL '1 hour' GROUP BY app_id`,
     ) as Array<{ app_id: string; cnt: string }>;
     const sessionMap = Object.fromEntries(sessionCounts.map(r => [r.app_id, Number(r.cnt)]));
     const secretRows = await db.select().from(appSecrets);
@@ -2423,7 +2423,7 @@ app.post("/api/admin/sessions", async (c) => {
       // keeps its login-limit slot until the user actually logs it out.
       const limit = secretRow?.loginLimit ?? 20;
     // Auto-clean sessions inactive for 3+ hours before counting (housekeeping)
-    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '30 minutes'`, [appId]).catch(() => {});
+    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '1 hour'`, [appId]).catch(() => {});
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
