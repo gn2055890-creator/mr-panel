@@ -2479,7 +2479,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [sessCountdown, setSessCountdown] = useState<SessCountdown | null>(null);
 
   useEffect(() => {
-    const SESSION_EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 hours
+    const SESSION_EXPIRY_MS = 2.5 * 60 * 60 * 1000; // 2 hours 30 minutes
     function calcCountdown() {
       const myS = sessions.find(s => s.id === mySessionId);
       if (!myS) { setSessCountdown(null); return; }
@@ -2922,7 +2922,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
         return (
           <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, padding: "10px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: t.muted }}>Session</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: t.muted }}>Session Timeout</span>
               <span style={{ fontSize: 20, fontWeight: 900, color: barColor, fontVariantNumeric: "tabular-nums", letterSpacing: 1 }}>{timeStr}</span>
             </div>
             <div style={{ height: 4, borderRadius: 99, background: t === DT ? "#1e293b" : "#e2e8f0", overflow: "hidden" }}>

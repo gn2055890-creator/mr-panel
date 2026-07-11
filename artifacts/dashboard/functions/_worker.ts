@@ -737,7 +737,7 @@ app.use("*", async (c, next) => {
     }
     try {
       const sqlC = neon(c.env.NEON_DATABASE_URL);
-      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '3 hours' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '2 hours 30 minutes' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
       if (rows.length > 0) {
         const appId = rows[0].app_id ?? '';
         // bump last_active so activity resets the 3hr clock
@@ -1124,7 +1124,7 @@ app.patch("/api/devices/:deviceId", async (c) => {
       } else {
         try {
           const sqlC = neon(c.env.NEON_DATABASE_URL);
-          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '3 hours' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '2 hours 30 minutes' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
           if (rows.length > 0) {
             _sessionCache.set(sessionToken, { expiry: Date.now() + 60_000, appId: rows[0].app_id ?? "" });
             valid = true;
@@ -2423,7 +2423,7 @@ app.post("/api/admin/sessions", async (c) => {
       // keeps its login-limit slot until the user actually logs it out.
       const limit = secretRow?.loginLimit ?? 20;
     // Auto-clean sessions inactive for 3+ hours before counting (housekeeping)
-    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '3 hours'`, [appId]).catch(() => {});
+    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '2 hours 30 minutes'`, [appId]).catch(() => {});
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
