@@ -3314,26 +3314,39 @@ export default function MainAdminPanel() {
   // If the browser is closed and never reopened, the marker just sits unused — the existing
   // 30-minute idle timeout on the server is the fallback that cleans it up in that case.
   useEffect(() => {
-    const KILL_KEY = "mrrobot_pending_kill_sid";
+    // NOTE: this earlier used the Navigation Timing API's entry.type ("reload" vs "navigate")
+    // to tell a real close apart from a refresh — but some browsers' "restore previous
+    // session" feature reopens a closed tab AND restores its sessionStorage, which can look
+    // just like a same-tab reload to that API even though real minutes/hours passed and the
+    // browser was genuinely closed in between. Timing is a more reliable signal than the
+    // browser's own classification: an actual refresh unloads+reloads in well under a
+    // second, so any gap bigger than a few seconds means the tab was really closed (whether
+    // it was reopened manually or via session-restore) — kill the stale session either way.
+    const KILL_KEY = "mrrobot_pending_kill";
     try {
-      const navEntry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
-      const isContinuation = navEntry?.type === "reload" || navEntry?.type === "back_forward";
-      const pendingSid = localStorage.getItem(KILL_KEY);
-      if (pendingSid) {
-        if (isContinuation) {
-          localStorage.removeItem(KILL_KEY);
-        } else {
-          apiFetch(`/api/master/sessions/${encodeURIComponent(pendingSid)}`, { method: "DELETE", headers: { "x-master-session": pendingSid } })
-            .catch(() => {})
-            .finally(() => localStorage.removeItem(KILL_KEY));
+      const raw = localStorage.getItem(KILL_KEY);
+      localStorage.removeItem(KILL_KEY);
+      if (raw) {
+        const { sid, ts } = JSON.parse(raw) as { sid: string; ts: number };
+        const gap = Date.now() - ts;
+        if (gap > 4000) {
+          if (sid === sessionStorage.getItem("mrrobot_master_sid")) {
+            // This very tab's session is the stale one (browser was closed and restored
+            // with old sessionStorage intact) — log out locally right away instead of
+            // waiting for the next API call to 401.
+            handleLogout();
+          } else {
+            apiFetch(`/api/master/sessions/${encodeURIComponent(sid)}`, { method: "DELETE", headers: { "x-master-session": sid } }).catch(() => {});
+          }
         }
       }
-    } catch { /* Navigation Timing unsupported — fall back to the 30-min idle timeout only */ }
+    } catch { /* localStorage/JSON unsupported or corrupt marker — fall back to the 30-min idle timeout */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (!sessionId) return;
-    const KILL_KEY = "mrrobot_pending_kill_sid";
-    const markPending = () => { try { localStorage.setItem(KILL_KEY, sessionId); } catch {} };
+    const KILL_KEY = "mrrobot_pending_kill";
+    const markPending = () => { try { localStorage.setItem(KILL_KEY, JSON.stringify({ sid: sessionId, ts: Date.now() })); } catch {} };
     window.addEventListener("pagehide", markPending);
     return () => window.removeEventListener("pagehide", markPending);
   }, [sessionId]);
