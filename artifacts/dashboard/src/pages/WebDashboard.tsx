@@ -2263,12 +2263,42 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [apkSuccess, setApkSuccess] = useState(false);
 
     useEffect(() => {
-    fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store" })
-      .then(r => r.json())
-      .then((d: { enabled: boolean; hasPin: boolean }) => {
-        setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true);
-        onDeleteProtEnabledChange(d.enabled);
-      }).catch(() => setDpLoaded(true));
+    let cancelled = false;
+    // Sub-admins sometimes saw this whole section vanish because a single slow/cold-start
+    // request (or a transient network blip) never resolved into a usable response, and
+    // dpLoaded just stayed false forever with nothing retrying it. Now: each attempt gets an
+    // 8s timeout, and a failed/timed-out/non-2xx attempt is retried (up to 3 tries, short
+    // backoff) before giving up — only then do we fall back to a default state.
+    async function loadOnce(): Promise<{ enabled: boolean; hasPin: boolean } | null> {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const r = await fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
+        if (!r.ok) return null;
+        return await r.json();
+      } catch {
+        return null;
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    (async () => {
+      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+        const d = await loadOnce();
+        if (d) {
+          if (!cancelled) {
+            setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true);
+            onDeleteProtEnabledChange(d.enabled);
+          }
+          return;
+        }
+        if (attempt < 2) await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+      }
+      // All retries exhausted — show the section anyway with a safe default rather than
+      // leaving it invisible; a manual reopen of Settings will try loading again.
+      if (!cancelled) setDpLoaded(true);
+    })();
+    return () => { cancelled = true; };
   }, [appId]);
 
   // Fetch licence createdAt
