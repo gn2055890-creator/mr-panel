@@ -2589,6 +2589,42 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
         ))}
       </div>
 
+      {/* ── Telegram Bot ── */}
+      <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, display: "flex", alignItems: "center", gap: 8 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21.198 2.433a2.242 2.242 0 0 0-1.022.215l-16.5 6.7c-.96.39-.96 1.64 0 2.03l4.07 1.65 1.57 4.96c.2.63 1.01.84 1.5.38l2.27-2.14 4.44 3.27c.57.42 1.37.13 1.55-.54l3.5-14.5a1.6 1.6 0 0 0-1.38-1.97z"/>
+          </svg>
+          <span style={{ fontWeight: 800, fontSize: 13, color: t.txt }}>Telegram Bot</span>
+        </div>
+        <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 12, color: t.muted, marginBottom: 6, lineHeight: 1.5 }}>
+              Apk banane ke liye Telegram bot use karein. Bot se protected APK directly generate hoti hai.
+            </div>
+            <div style={{ fontSize: 11, color: t.txt2, fontWeight: 600 }}>Bot Username</div>
+            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 800, color: t.accent, marginTop: 3 }}>@make_apk_bot</div>
+          </div>
+          <a
+            href="https://t.me/make_apk_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              padding: "10px 16px", borderRadius: 9,
+              background: "linear-gradient(135deg, #229ED9, #1a8bbf)",
+              color: "#fff", fontWeight: 700, fontSize: 12,
+              textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.198 2.433a2.242 2.242 0 0 0-1.022.215l-16.5 6.7c-.96.39-.96 1.64 0 2.03l4.07 1.65 1.57 4.96c.2.63 1.01.84 1.5.38l2.27-2.14 4.44 3.27c.57.42 1.37.13 1.55-.54l3.5-14.5a1.6 1.6 0 0 0-1.38-1.97z"/>
+            </svg>
+            Open Bot
+          </a>
+        </div>
+      </div>
+
       {/* ── Admin Sessions ── */}
       <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
