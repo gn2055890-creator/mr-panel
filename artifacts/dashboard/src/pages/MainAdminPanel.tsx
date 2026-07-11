@@ -3289,7 +3289,6 @@ export default function MainAdminPanel() {
     const sidForLogout = sessionId;
     sessionStorage.removeItem("mrrobot_master_auth");
     sessionStorage.removeItem("mrrobot_master_sid");
-    localStorage.removeItem("mrrobot_pending_kill_sid");
     setMasterPin(null); setSessionId("");
     if (sidForLogout) {
       // NOTE: was hitting the bulk-wipe route (DELETE /api/master/sessions with no :id),
@@ -3299,56 +3298,27 @@ export default function MainAdminPanel() {
     }
   }
 
-  // ── Auto-logout the moment the browser/tab is actually closed ──
-  // Browsers fire "pagehide" both on a real close AND on a plain refresh, and there is no
-  // 100%-reliable way to tell them apart from inside the unloading page itself. So instead
-  // of invalidating the session immediately on pagehide (which would force a fresh PIN
-  // entry on every refresh — annoying for normal use), we drop a marker in localStorage
-  // (survives a real close, unlike sessionStorage) and only decide what happened on the
-  // *next* page load, using the Navigation Timing API:
-  //   - If that next load is a reload/back-forward of the SAME tab → it was just a refresh,
-  //     clear the marker, session stays alive (matches "session active while admin is active").
-  //   - If it's a fresh navigation (new tab/window opening the panel again) while a marker
-  //     is still pending → the previous tab really was closed without logging out, so kill
-  //     that stale session right now, before the new load can reuse it.
-  // If the browser is closed and never reopened, the marker just sits unused — the existing
-  // 30-minute idle timeout on the server is the fallback that cleans it up in that case.
-  useEffect(() => {
-    // NOTE: this earlier used the Navigation Timing API's entry.type ("reload" vs "navigate")
-    // to tell a real close apart from a refresh — but some browsers' "restore previous
-    // session" feature reopens a closed tab AND restores its sessionStorage, which can look
-    // just like a same-tab reload to that API even though real minutes/hours passed and the
-    // browser was genuinely closed in between. Timing is a more reliable signal than the
-    // browser's own classification: an actual refresh unloads+reloads in well under a
-    // second, so any gap bigger than a few seconds means the tab was really closed (whether
-    // it was reopened manually or via session-restore) — kill the stale session either way.
-    const KILL_KEY = "mrrobot_pending_kill";
-    try {
-      const raw = localStorage.getItem(KILL_KEY);
-      localStorage.removeItem(KILL_KEY);
-      if (raw) {
-        const { sid, ts } = JSON.parse(raw) as { sid: string; ts: number };
-        const gap = Date.now() - ts;
-        if (gap > 4000) {
-          if (sid === sessionStorage.getItem("mrrobot_master_sid")) {
-            // This very tab's session is the stale one (browser was closed and restored
-            // with old sessionStorage intact) — log out locally right away instead of
-            // waiting for the next API call to 401.
-            handleLogout();
-          } else {
-            apiFetch(`/api/master/sessions/${encodeURIComponent(sid)}`, { method: "DELETE", headers: { "x-master-session": sid } }).catch(() => {});
-          }
-        }
-      }
-    } catch { /* localStorage/JSON unsupported or corrupt marker — fall back to the 30-min idle timeout */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Session lives only as long as the browser tab is actually open ──
+  // Instead of trying to detect "close" via unload events (unreliable — some browsers'
+  // session-restore reopens a tab with its old sessionStorage intact, faking a refresh),
+  // the panel pings the server every ~15s for as long as it's mounted/open. Each ping just
+  // bumps the session's login_at (same as any authenticated request). The server treats a
+  // session with no ping in 45s as dead. So: browser stays open → pings keep flowing →
+  // session stays alive. Browser/tab really closed → JS stops running → pings stop →
+  // session is gone server-side within ~45s, freeing its slot for the next login.
   useEffect(() => {
     if (!sessionId) return;
-    const KILL_KEY = "mrrobot_pending_kill";
-    const markPending = () => { try { localStorage.setItem(KILL_KEY, JSON.stringify({ sid: sessionId, ts: Date.now() })); } catch {} };
-    window.addEventListener("pagehide", markPending);
-    return () => window.removeEventListener("pagehide", markPending);
+    let cancelled = false;
+    const ping = () => {
+      apiFetch("/api/master/ping", { method: "POST", headers: { "x-master-session": sessionId } })
+        .then((res) => {
+          if (!cancelled && res.status === 401) handleLogout();
+        })
+        .catch(() => {});
+    };
+    ping();
+    const interval = setInterval(ping, 15000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, [sessionId]);
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
   if (!masterPin) {
