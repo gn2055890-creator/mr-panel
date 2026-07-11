@@ -2972,10 +2972,19 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
       )}
 
       {/* ── Delete Protection ── */}
-      {dpLoaded && (
-        <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
+      {/* Card shell is always rendered immediately (title/layout are static) — only the
+          inner state (loading vs set-password vs enabled/disabled) is dynamic, so the
+          section itself never appears to "vanish" while the status fetch is in flight. */}
+      <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
           <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, fontSize: 12, fontWeight: 700, color: t.txt2 }}>Delete Protection</div>
           <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {!dpLoaded ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.cardB}80`, flexShrink: 0 }} />
+                <div style={{ fontSize: 12, color: t.muted }}>Loading…</div>
+              </div>
+            ) : (
+              <>
             {/* Toggle row */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3012,9 +3021,10 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 Change Password
               </button>
             )}
+              </>
+            )}
           </div>
         </div>
-      )}
 
       {/* ── Delete Protection — Toggle Dialog ── */}
       {dpShowToggleDialog && createPortal(
