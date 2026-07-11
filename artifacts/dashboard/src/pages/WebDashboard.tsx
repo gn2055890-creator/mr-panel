@@ -2917,36 +2917,17 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
 
       {/* ── My Session Timer ── */}
       {sessCountdown !== null && (() => {
-        const myS = sessions.find(s => s.id === mySessionId);
         const barColor = sessCountdown.danger ? "#ef4444" : sessCountdown.warning ? "#f59e0b" : "#22c55e";
-        const bgColor  = sessCountdown.danger ? (t === DT ? "#2d1111" : "#fef2f2") : sessCountdown.warning ? (t === DT ? "#2d1e0a" : "#fffbeb") : (t === DT ? "#0d2318" : "#f0fdf4");
-        const bdColor  = sessCountdown.danger ? "rgba(239,68,68,0.3)" : sessCountdown.warning ? "rgba(245,158,11,0.3)" : "rgba(34,197,94,0.3)";
-        const label    = sessCountdown.danger ? "⚠️ Session expire hone wala hai!" : sessCountdown.warning ? "⏳ 30 min se kam bacha hai" : "✅ Session Active";
         const timeStr  = `${String(sessCountdown.h).padStart(2,'0')}:${String(sessCountdown.m).padStart(2,'0')}:${String(sessCountdown.s).padStart(2,'0')}`;
         return (
-          <div style={{ background: bgColor, borderRadius: 10, border: `1px solid ${bdColor}`, padding: "12px 14px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: t.txt }}>🔐 Aapka Session</div>
-                <div style={{ fontSize: 10, color: t.muted, marginTop: 1 }}>{label}</div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 22, fontWeight: 900, color: barColor, fontVariantNumeric: "tabular-nums", letterSpacing: 1 }}>{timeStr}</div>
-                <div style={{ fontSize: 9, color: t.muted, marginTop: 1 }}>bacha hua time</div>
-              </div>
+          <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, padding: "10px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: t.muted }}>Session</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color: barColor, fontVariantNumeric: "tabular-nums", letterSpacing: 1 }}>{timeStr}</span>
             </div>
-            {/* Progress bar */}
-            <div style={{ height: 5, borderRadius: 99, background: t === DT ? "#1e293b" : "#e2e8f0", overflow: "hidden" }}>
+            <div style={{ height: 4, borderRadius: 99, background: t === DT ? "#1e293b" : "#e2e8f0", overflow: "hidden" }}>
               <div style={{ height: "100%", width: `${sessCountdown.pct}%`, background: barColor, borderRadius: 99, transition: "width 1s linear, background 0.3s" }} />
             </div>
-            {myS && (
-              <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 10, color: t.muted }}>🕐 Login: <b style={{ color: t.txt }}>{fmtTime(myS.loginTime)}</b></span>
-                <span style={{ fontSize: 10, color: t.muted }}>📱 Device: <b style={{ color: t.txt }}>{myS.device}</b></span>
-                <span style={{ fontSize: 10, color: t.muted }}>🌐 IP: <b style={{ color: t.txt }}>{myS.ip || "unknown"}</b></span>
-              </div>
-            )}
-            <div style={{ fontSize: 10, color: t.muted, marginTop: 6, opacity: 0.7 }}>3 ghante koi activity nahi hogi to session auto-logout ho jayega</div>
           </div>
         );
       })()}
