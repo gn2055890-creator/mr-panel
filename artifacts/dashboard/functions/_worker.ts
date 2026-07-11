@@ -2310,13 +2310,8 @@ app.post("/api/admin/sessions", async (c) => {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
     }
     if (appRow.status !== "active" || !secretRow || secretRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
-    // Access-link token ("pt") required here too — same rule as verify-pin.
-    if (appId !== DEFAULT_APP_ID) {
-      const [tokenRow] = await db.select({ panelToken: appPanelTokens.panelToken }).from(appPanelTokens).where(eq(appPanelTokens.appId, appId)).limit(1);
-      if (!tokenRow?.panelToken || !panelToken || panelToken !== tokenRow.panelToken) {
-        return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
-      }
-    }
+    // NOTE: "pt" access-link token check removed here too (same product decision as
+    // verify-pin) — bare PIN is sufficient, "pt" is no longer verified anywhere.
     // Ensure device_id column exists (persistent per-browser fingerprint, avoids
     // mobile-carrier IP rotation from creating a fresh "duplicate" session per request)
     await sqlClient(`ALTER TABLE admin_sessions ADD COLUMN IF NOT EXISTS device_id TEXT`).catch(() => {});
