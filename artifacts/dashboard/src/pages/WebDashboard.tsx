@@ -2266,16 +2266,17 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
     const [dpLoadAttempt, setDpLoadAttempt] = useState(0);
     useEffect(() => {
     let cancelled = false;
-    // The old version gave each attempt an 8s timeout and retried 3x with growing backoff —
-    // a bad run could pile up to ~25-30s of "Loading…", which is what "bahut late aata hai"
-    // was about. In practice normal responses are ~200ms; we only need enough retry budget
-    // to survive a rare slow/cold beat, not to keep waiting on a truly stuck request. Now:
-    // 3s timeout per attempt, only 2 attempts, near-zero gap — worst case ~6.3s. If both
-    // fail we stop and show an explicit "couldn't load, tap to retry" state instead of
-    // silently guessing a default (which could wrongly claim no password is set).
+    // Measured real backend latency for this endpoint: usually ~200-700ms, but it
+    // legitimately takes 6-9s sometimes (Neon serverless connection warming up) — a 3s
+    // timeout was shorter than that normal slow case, so it was aborting BEFORE the real
+    // answer ever arrived, on both attempts, every time on a slower network. That's why
+    // retry/reload kept failing outright instead of just being slow. Timeout is now 12s
+    // (comfortably above the observed slow case) with 2 attempts and no artificial gap —
+    // most loads still resolve almost instantly, occasional slow ones just take longer
+    // instead of failing, and a genuine double failure still shows "tap to retry".
     async function loadOnce(): Promise<{ enabled: boolean; hasPin: boolean } | null> {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 3000);
+      const timeout = setTimeout(() => ctrl.abort(), 12000);
       try {
         const r = await fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
         if (!r.ok) return null;
@@ -2297,7 +2298,6 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
           }
           return;
         }
-        if (attempt === 0) await new Promise(res => setTimeout(res, 300));
       }
       if (!cancelled) { setDpLoaded(true); setDpLoadError(true); }
     })();
