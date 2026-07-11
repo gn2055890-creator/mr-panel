@@ -1002,14 +1002,10 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
       return c.json({ error: "Licence expired. Please contact admin." }, 403);
     }
     if (row.status !== "active") return c.json({ error: "App is disabled. Please contact admin." }, 403);
-    // Access-link token ("pt") is a required credential alongside the PIN — a bare PIN
-    // without the correct pt in the URL/localStorage must never be enough to log in.
-    if (appId !== DEFAULT_APP_ID) {
-      const [tokenRow] = await db.select({ panelToken: appPanelTokens.panelToken }).from(appPanelTokens).where(eq(appPanelTokens.appId, appId)).limit(1);
-      if (!tokenRow?.panelToken || !body.panelToken || body.panelToken !== tokenRow.panelToken) {
-        return c.json({ error: "Invalid or missing access link. Please ask your admin for the correct link." }, 401);
-      }
-    }
+    // NOTE: the "pt" access-link token used to be a required second credential here
+    // alongside the PIN. Removed per product decision — bare PIN is now sufficient to log
+    // in; a "pt" param in the URL (from old shared links) is purely cosmetic/legacy now and
+    // is no longer checked against app_panel_tokens.
     const [secret] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     if (!secret || secret.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
     return c.json({ ok: true, appId: row.appId, name: row.name });
