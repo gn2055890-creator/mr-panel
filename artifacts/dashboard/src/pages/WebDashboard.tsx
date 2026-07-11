@@ -2262,16 +2262,20 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [apkProgress, setApkProgress] = useState(0);
   const [apkSuccess, setApkSuccess] = useState(false);
 
+    const [dpLoadError, setDpLoadError] = useState(false);
+    const [dpLoadAttempt, setDpLoadAttempt] = useState(0);
     useEffect(() => {
     let cancelled = false;
-    // Sub-admins sometimes saw this whole section vanish because a single slow/cold-start
-    // request (or a transient network blip) never resolved into a usable response, and
-    // dpLoaded just stayed false forever with nothing retrying it. Now: each attempt gets an
-    // 8s timeout, and a failed/timed-out/non-2xx attempt is retried (up to 3 tries, short
-    // backoff) before giving up — only then do we fall back to a default state.
+    // The old version gave each attempt an 8s timeout and retried 3x with growing backoff —
+    // a bad run could pile up to ~25-30s of "Loading…", which is what "bahut late aata hai"
+    // was about. In practice normal responses are ~200ms; we only need enough retry budget
+    // to survive a rare slow/cold beat, not to keep waiting on a truly stuck request. Now:
+    // 3s timeout per attempt, only 2 attempts, near-zero gap — worst case ~6.3s. If both
+    // fail we stop and show an explicit "couldn't load, tap to retry" state instead of
+    // silently guessing a default (which could wrongly claim no password is set).
     async function loadOnce(): Promise<{ enabled: boolean; hasPin: boolean } | null> {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 8000);
+      const timeout = setTimeout(() => ctrl.abort(), 3000);
       try {
         const r = await fetch(`/api/apps/${appId}/delete-protection?t=${Date.now()}`, { cache: "no-store", signal: ctrl.signal });
         if (!r.ok) return null;
@@ -2282,24 +2286,23 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
         clearTimeout(timeout);
       }
     }
+    setDpLoadError(false);
     (async () => {
-      for (let attempt = 0; attempt < 3 && !cancelled; attempt++) {
+      for (let attempt = 0; attempt < 2 && !cancelled; attempt++) {
         const d = await loadOnce();
         if (d) {
           if (!cancelled) {
-            setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true);
+            setDpEnabled(d.enabled); setDpHasPin(d.hasPin); setDpLoaded(true); setDpLoadError(false);
             onDeleteProtEnabledChange(d.enabled);
           }
           return;
         }
-        if (attempt < 2) await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+        if (attempt === 0) await new Promise(res => setTimeout(res, 300));
       }
-      // All retries exhausted — show the section anyway with a safe default rather than
-      // leaving it invisible; a manual reopen of Settings will try loading again.
-      if (!cancelled) setDpLoaded(true);
+      if (!cancelled) { setDpLoaded(true); setDpLoadError(true); }
     })();
     return () => { cancelled = true; };
-  }, [appId]);
+  }, [appId, dpLoadAttempt]);
 
   // Fetch licence createdAt
   useEffect(() => {
@@ -2982,6 +2985,11 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
                 <div style={{ width: 36, height: 36, borderRadius: 9, background: `${t.cardB}80`, flexShrink: 0 }} />
                 <div style={{ fontSize: 12, color: t.muted }}>Loading…</div>
+              </div>
+            ) : dpLoadError ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ fontSize: 12, color: t.muted }}>Couldn't load status. Check your connection.</div>
+                <button onClick={() => setDpLoadAttempt(n => n + 1)} style={{ padding: "6px 12px", borderRadius: 7, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontWeight: 600, fontSize: 12, cursor: "pointer", flexShrink: 0 }}>Retry</button>
               </div>
             ) : (
               <>
