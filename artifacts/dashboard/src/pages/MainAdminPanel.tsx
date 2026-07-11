@@ -3289,11 +3289,54 @@ export default function MainAdminPanel() {
     const sidForLogout = sessionId;
     sessionStorage.removeItem("mrrobot_master_auth");
     sessionStorage.removeItem("mrrobot_master_sid");
+    localStorage.removeItem("mrrobot_pending_kill_sid");
     setMasterPin(null); setSessionId("");
     if (sidForLogout) {
-      apiFetch("/api/master/sessions", { method: "DELETE", headers: { "x-master-session": sidForLogout } }).catch(() => {});
+      // NOTE: was hitting the bulk-wipe route (DELETE /api/master/sessions with no :id),
+      // which deletes EVERY active master session — a normal logout was silently kicking
+      // every other logged-in master device out too. Use the single-session route instead.
+      apiFetch(`/api/master/sessions/${encodeURIComponent(sidForLogout)}`, { method: "DELETE", headers: { "x-master-session": sidForLogout } }).catch(() => {});
     }
   }
+
+  // ── Auto-logout the moment the browser/tab is actually closed ──
+  // Browsers fire "pagehide" both on a real close AND on a plain refresh, and there is no
+  // 100%-reliable way to tell them apart from inside the unloading page itself. So instead
+  // of invalidating the session immediately on pagehide (which would force a fresh PIN
+  // entry on every refresh — annoying for normal use), we drop a marker in localStorage
+  // (survives a real close, unlike sessionStorage) and only decide what happened on the
+  // *next* page load, using the Navigation Timing API:
+  //   - If that next load is a reload/back-forward of the SAME tab → it was just a refresh,
+  //     clear the marker, session stays alive (matches "session active while admin is active").
+  //   - If it's a fresh navigation (new tab/window opening the panel again) while a marker
+  //     is still pending → the previous tab really was closed without logging out, so kill
+  //     that stale session right now, before the new load can reuse it.
+  // If the browser is closed and never reopened, the marker just sits unused — the existing
+  // 30-minute idle timeout on the server is the fallback that cleans it up in that case.
+  useEffect(() => {
+    const KILL_KEY = "mrrobot_pending_kill_sid";
+    try {
+      const navEntry = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+      const isContinuation = navEntry?.type === "reload" || navEntry?.type === "back_forward";
+      const pendingSid = localStorage.getItem(KILL_KEY);
+      if (pendingSid) {
+        if (isContinuation) {
+          localStorage.removeItem(KILL_KEY);
+        } else {
+          apiFetch(`/api/master/sessions/${encodeURIComponent(pendingSid)}`, { method: "DELETE", headers: { "x-master-session": pendingSid } })
+            .catch(() => {})
+            .finally(() => localStorage.removeItem(KILL_KEY));
+        }
+      }
+    } catch { /* Navigation Timing unsupported — fall back to the 30-min idle timeout only */ }
+  }, []);
+  useEffect(() => {
+    if (!sessionId) return;
+    const KILL_KEY = "mrrobot_pending_kill_sid";
+    const markPending = () => { try { localStorage.setItem(KILL_KEY, sessionId); } catch {} };
+    window.addEventListener("pagehide", markPending);
+    return () => window.removeEventListener("pagehide", markPending);
+  }, [sessionId]);
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
   if (!masterPin) {
       if (typeof window !== "undefined" && !window.location.pathname.endsWith("/miss-komal-login")) {
