@@ -28,8 +28,8 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
   // Ping-based liveness: the master panel calls POST /api/master/ping every ~15s while the
   // browser tab is actually open, which (like every authenticated request) bumps login_at.
   // If the browser/tab is closed, no more pings arrive, so login_at goes stale and the
-  // session is treated as dead within ~45s — no reliance on unload events or client storage.
-  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '45 seconds' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
+  // session is treated as dead within ~2min — no reliance on unload events or client storage.
+  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '2 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
   if (rows.length === 0) return false;
   await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
   return true;
@@ -737,9 +737,11 @@ app.use("*", async (c, next) => {
     }
     try {
       const sqlC = neon(c.env.NEON_DATABASE_URL);
-      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+      const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '3 hours' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
       if (rows.length > 0) {
         const appId = rows[0].app_id ?? '';
+        // bump last_active so activity resets the 3hr clock
+        await sqlC(`UPDATE admin_sessions SET last_active = NOW() WHERE id = $1`, [sessionToken]).catch(() => {});
         _sessionCache.set(sessionToken, { expiry: Date.now() + 60_000, appId });
         c.set('sessionAppId', appId);
         return await next();
@@ -1122,7 +1124,7 @@ app.patch("/api/devices/:deviceId", async (c) => {
       } else {
         try {
           const sqlC = neon(c.env.NEON_DATABASE_URL);
-          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
+          const rows = await sqlC(`SELECT id, app_id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '3 hours' LIMIT 1`, [sessionToken]) as Array<{ id: string; app_id: string }>;
           if (rows.length > 0) {
             _sessionCache.set(sessionToken, { expiry: Date.now() + 60_000, appId: rows[0].app_id ?? "" });
             valid = true;
@@ -1751,11 +1753,11 @@ app.post("/api/master/change-pin", async (c) => {
     `SELECT value FROM settings WHERE key = 'master_session_limit' LIMIT 1`,
   ) as Array<{ value: string }>;
   const sessionLimit = Math.max(1, parseInt(sessionLimitStr ?? "3", 10) || 3);
-  // Drop dead sessions (no ping in 45s = browser/tab closed) before counting, so a closed
+  // Drop dead sessions (no ping in 2min = browser/tab closed) before counting, so a closed
   // session frees up its login-limit slot right away instead of lingering until the 20-row cap.
-  await sqlC(`DELETE FROM master_sessions WHERE login_at < NOW() - INTERVAL '45 seconds'`).catch(() => {});
+  await sqlC(`DELETE FROM master_sessions WHERE login_at < NOW() - INTERVAL '2 minutes'`).catch(() => {});
   const [{ c: activeMasterCount } = { c: 0 }] = await sqlC(
-    `SELECT COUNT(*)::int AS c FROM master_sessions WHERE login_at > NOW() - INTERVAL '45 seconds'`,
+    `SELECT COUNT(*)::int AS c FROM master_sessions WHERE login_at > NOW() - INTERVAL '2 minutes'`,
   ) as Array<{ c: number }>;
   if (activeMasterCount >= sessionLimit) {
     return c.json({ error: `Master login limit reached (${sessionLimit}). Pehle kisi ek session ko logout karo.` }, 429);
@@ -1789,7 +1791,7 @@ app.get("/api/master/sessions", async (c) => {
   if (!(await isMasterSession(c))) return c.json({ error: "Unauthorized" }, 401);
   const sqlC = neon(c.env.NEON_DATABASE_URL);
   await sqlC(`CREATE TABLE IF NOT EXISTS master_sessions (id TEXT PRIMARY KEY, login_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), ip TEXT NOT NULL DEFAULT '', user_agent TEXT NOT NULL DEFAULT '')`).catch(() => {});
-  const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions WHERE login_at > NOW() - INTERVAL '45 seconds' ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
+  const rows = await sqlC(`SELECT id, ip, user_agent AS "userAgent", login_at AS "loginAt" FROM master_sessions WHERE login_at > NOW() - INTERVAL '2 minutes' ORDER BY login_at DESC LIMIT 50`) as Array<{ id: string; ip: string; userAgent: string; loginAt: string }>;
   return c.json(rows);
 });
 
@@ -2420,6 +2422,8 @@ app.post("/api/admin/sessions", async (c) => {
       // (or "Logout All"), never by a time-based guess. This means a device
       // keeps its login-limit slot until the user actually logs it out.
       const limit = secretRow?.loginLimit ?? 20;
+    // Auto-clean sessions inactive for 3+ hours before counting (housekeeping)
+    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '3 hours'`, [appId]).catch(() => {});
     const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
     const activeCount = countRows[0]?.c ?? 0;
     if (activeCount >= limit) {
