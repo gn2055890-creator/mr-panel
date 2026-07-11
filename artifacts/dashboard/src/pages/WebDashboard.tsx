@@ -3702,12 +3702,22 @@ const [showComplaint,    setShowComplaint]    = useState(false);
 export default function WebDashboard() {
   const [appId] = useState<string>(() => new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3");
 
+  // The "pt" access-link token is no longer required/verified for login — an old shared
+  // link that still carries it just gets cleaned up to the plain appId link on open.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("pt")) {
+      const dest = `${window.location.pathname}?appId=${encodeURIComponent(appId)}`;
+      window.location.replace(dest);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [panelToken, setPanelToken] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const aid = params.get("appId") || "SKY-APP-2026-X9F3";
-    // URL se pehle padho, agar ?pt= nahi hai to localStorage se fallback lo
-    return params.get("pt") || localStorage.getItem(`mrrobot_panel_token_${aid}`) || "";
+    const aid = new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3";
+    // Still read/stored for the Settings page's own "share access link" display — just no
+    // longer required to actually log in.
+    return localStorage.getItem(`mrrobot_panel_token_${aid}`) || "";
   });
   const DEVICE_KEY = `mrrobot_device_id_${appId}`;
   const [appName, setAppName] = useState("");
@@ -4163,7 +4173,7 @@ export default function WebDashboard() {
   }
 
   if (!authed) {
-      const dest = `${import.meta.env.BASE_URL}login?appId=${encodeURIComponent(appId)}${panelToken ? `&pt=${encodeURIComponent(panelToken)}` : ""}`;
+      const dest = `${import.meta.env.BASE_URL}login?appId=${encodeURIComponent(appId)}`;
       if (typeof window !== "undefined" && window.location.pathname + window.location.search !== dest) {
         window.location.replace(dest);
       }
@@ -4452,16 +4462,24 @@ export default function WebDashboard() {
   export function SubAdminLoginPage() {
     const params = new URLSearchParams(window.location.search);
     const appId = params.get("appId") || "SKY-APP-2026-X9F3";
-    const panelToken = params.get("pt") || localStorage.getItem(`mrrobot_panel_token_${appId}`) || "";
     const [appName, setAppName] = useState("");
 
+    // The "pt" access-link token is no longer required/verified — old shared links that
+    // still carry it just get cleaned up to the plain appId link on open.
+    useEffect(() => {
+      if (params.has("pt")) {
+        const dest = `${import.meta.env.BASE_URL}login?appId=${encodeURIComponent(appId)}`;
+        window.location.replace(dest);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
       apiFetch(`/api/apps/${appId}`).then(r => r.ok ? r.json() : null).then(app => { if (app?.name) setAppName(app.name); }).catch(() => {});
     }, [appId]);
 
     function handleAuth() {
-      const dest = `${import.meta.env.BASE_URL}preview/dashboard/WebDashboard?appId=${encodeURIComponent(appId)}${panelToken ? `&pt=${encodeURIComponent(panelToken)}` : ""}`;
+      const dest = `${import.meta.env.BASE_URL}preview/dashboard/WebDashboard?appId=${encodeURIComponent(appId)}`;
       window.location.replace(dest);
     }
 
@@ -4469,7 +4487,7 @@ export default function WebDashboard() {
 
     return (
       <ThemeCtx.Provider value={isDark ? DT : LT}>
-        <LoginPage onAuth={handleAuth} appId={appId} appName={appName} panelToken={panelToken} />
+        <LoginPage onAuth={handleAuth} appId={appId} appName={appName} panelToken="" />
       </ThemeCtx.Provider>
     );
   }
