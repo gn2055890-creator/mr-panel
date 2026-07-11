@@ -3895,6 +3895,21 @@ export default function WebDashboard() {
   const [darkMode, setDarkMode] = useState<boolean>(() => localStorage.getItem("mrrobot_dark") === "1");
   const [deleteProtEnabled, setDeleteProtEnabled] = useState(false);
   const [totalMsgCount, setTotalMsgCount] = useState(0);
+  // ── Dynamic notice ticker ──
+  const [tickerNotices, setTickerNotices] = useState<string[]>([]);
+  useEffect(() => {
+    async function fetchNotice() {
+      try {
+        const r = await fetch("/api/notice");
+        if (!r.ok) return;
+        const d = await r.json() as { notices: Array<{ id: number; text: string }> };
+        setTickerNotices((d.notices || []).map(n => n.text).filter(Boolean));
+      } catch { /* silent */ }
+    }
+    void fetchNotice();
+    const iv = setInterval(() => void fetchNotice(), 60_000); // refresh every 60s
+    return () => clearInterval(iv);
+  }, []);
 
   // Load delete protection status on mount so ALL tabs see correct state immediately
   useEffect(() => {
@@ -4467,23 +4482,21 @@ export default function WebDashboard() {
 
 
         
-        {/* ── Announcement Ticker — always visible ── */}
-        {(() => {
+        {/* ── Announcement Ticker — dynamic from DB ── */}
+        {tickerNotices.length > 0 && (() => {
           const tkBg   = effectiveDark ? "#0f172a" : "#fffbeb";
           const tkText = effectiveDark ? "#fbbf24" : "#92400e";
           const tkIcon = effectiveDark ? "#f97316" : "#d97706";
           const tkBdr  = effectiveDark ? "1.5px solid #f59e0b40" : "1.5px solid #d9770650";
+          const combined = tickerNotices.join("   ·   ");
           return (
             <div style={{ background: tkBg, overflow: "hidden", padding: "6px 0", borderBottom: tkBdr, borderTop: tkBdr }}>
               <style>{"@keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }"}</style>
               <div style={{ display: "inline-flex", whiteSpace: "nowrap", animation: "ticker-loop 30s linear infinite", willChange: "transform" }}>
                 {[0,1].map(i => (
-                  <span key={i} style={{ fontSize: 12, fontWeight: 700, color: tkText, letterSpacing: 0.4, paddingRight: 60, display: "inline-flex", alignItems: "center", gap: 10 }}>
+                  <span key={i} style={{ fontSize: 12, fontWeight: 700, color: tkText, letterSpacing: 0.4, paddingRight: 80, display: "inline-flex", alignItems: "center", gap: 10 }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Zaroori suchna: Unauthorized access ki samasya poori tarah theek kar di gayi hai. Apne panel ki suraksha ke liye kripya ek strong, unique password/PIN istemal karein.</span>
-                    <span style={{ opacity: 0.4, margin: "0 20px" }}>|</span>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={tkIcon} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    <span>Important notice: The unauthorized access issue has been fully resolved. Please use a strong, unique password/PIN to keep your panel secure.</span>
+                    <span>{combined}</span>
                   </span>
                 ))}
               </div>

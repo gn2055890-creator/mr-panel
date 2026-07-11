@@ -2385,6 +2385,44 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
   const [dpHasPin, setDpHasPin] = useState(false);
   const [dpMsg, setDpMsg] = useState("");
 
+  /* ── Notice Management ── */
+  type Notice = { id: number; text: string; active: boolean; created_at: string };
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [noticeLoading, setNoticeLoading] = useState(false);
+  const [noticeText, setNoticeText] = useState("");
+  const [noticePosting, setNoticePosting] = useState(false);
+  const [noticeMsg, setNoticeMsg] = useState("");
+
+  const fetchNotices = useCallback(async () => {
+    setNoticeLoading(true);
+    try {
+      const r = await apiFetch("/api/master/notices");
+      if (r.ok) setNotices((await r.json() as { notices: Notice[] }).notices);
+    } catch { /* ignore */ } finally { setNoticeLoading(false); }
+  }, [masterPin]);
+
+  useEffect(() => { void fetchNotices(); }, [fetchNotices]);
+
+  async function postNotice() {
+    if (!noticeText.trim()) return;
+    setNoticePosting(true); setNoticeMsg("");
+    try {
+      const r = await apiFetch("/api/master/notices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: noticeText.trim() }) });
+      if (r.ok) { setNoticeText(""); setNoticeMsg("Notice added!"); void fetchNotices(); setTimeout(() => setNoticeMsg(""), 2500); }
+      else { const j = await r.json() as { error?: string }; setNoticeMsg(j.error || "Failed"); }
+    } catch { setNoticeMsg("Network error"); } finally { setNoticePosting(false); }
+  }
+
+  async function toggleNotice(id: number, active: boolean) {
+    await apiFetch(`/api/master/notices/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }) });
+    setNotices(prev => prev.map(n => n.id === id ? { ...n, active } : n));
+  }
+
+  async function deleteNotice(id: number) {
+    await apiFetch(`/api/master/notices/${id}`, { method: "DELETE" });
+    setNotices(prev => prev.filter(n => n.id !== id));
+  }
+
   /* ── Master Login Sessions ── */
   const [mSessions, setMSessions] = useState<MasterSession[]>([]);
   const [mSessLoading, setMSessLoading] = useState(false);
@@ -2573,6 +2611,69 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
             );
           })}
         </div>
+      </div>
+
+      {/* ── Notice / Ticker Management ── */}
+      <div style={{ background: T.card, borderRadius: 13, border: `1px solid ${T.borderLight}`, padding: "14px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>📢 Ticker Notice</div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Ye notices sab users ke panel header mein scrolling ticker ke roop mein dikhte hain</div>
+          </div>
+          <button onClick={() => void fetchNotices()} style={{ padding: "5px 10px", borderRadius: 7, border: `1px solid ${T.borderLight}`, background: T.border, color: T.muted, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>↻</button>
+        </div>
+
+        {/* Add new notice */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <textarea
+            value={noticeText}
+            onChange={e => setNoticeText(e.target.value)}
+            placeholder="Naya notice type karo…"
+            rows={2}
+            style={{ flex: 1, padding: "9px 11px", borderRadius: 9, border: `1px solid ${T.borderLight}`, background: T.border, color: T.text, fontSize: 13, fontFamily: "inherit", resize: "vertical", outline: "none" }}
+          />
+          <button
+            onClick={() => void postNotice()}
+            disabled={noticePosting || !noticeText.trim()}
+            style={{ padding: "0 16px", borderRadius: 9, border: "none", background: noticeText.trim() ? T.accent : T.borderLight, color: noticeText.trim() ? "#fff" : T.muted, fontWeight: 700, fontSize: 13, cursor: noticeText.trim() ? "pointer" : "not-allowed", flexShrink: 0, opacity: noticePosting ? 0.6 : 1 }}
+          >
+            {noticePosting ? "…" : "+ Add"}
+          </button>
+        </div>
+        {noticeMsg && <div style={{ fontSize: 12, color: noticeMsg.includes("added") ? "#4ade80" : "#f87171", marginBottom: 8, fontWeight: 600 }}>{noticeMsg}</div>}
+
+        {/* Notice list */}
+        {noticeLoading ? (
+          <div style={{ textAlign: "center", padding: "12px 0", color: T.muted, fontSize: 12 }}>Loading…</div>
+        ) : notices.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "14px 0", color: T.muted, fontSize: 12 }}>Koi notice nahi hai. Upar se naya add karo.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {notices.map(n => (
+              <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 12px", borderRadius: 10, border: `1px solid ${n.active ? T.accent + "44" : T.borderLight}`, background: n.active ? T.accentGlow : T.border }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: T.text, lineHeight: 1.4, wordBreak: "break-word" }}>{n.text}</div>
+                  <div style={{ fontSize: 10, color: T.muted, marginTop: 4 }}>{new Date(n.created_at).toLocaleString("en-IN")}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {/* Toggle active */}
+                  <button
+                    onClick={() => void toggleNotice(n.id, !n.active)}
+                    title={n.active ? "Ticker se hatao" : "Ticker mein dikhao"}
+                    style={{ padding: "4px 10px", borderRadius: 7, border: `1px solid ${n.active ? "#22c55e44" : T.borderLight}`, background: n.active ? "#14532d" : T.border, color: n.active ? "#4ade80" : T.muted, fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                  >
+                    {n.active ? "ON" : "OFF"}
+                  </button>
+                  {/* Delete */}
+                  <button
+                    onClick={() => { if (confirm("Is notice ko delete karo?")) void deleteNotice(n.id); }}
+                    style={{ padding: "4px 9px", borderRadius: 7, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#f87171", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                  >✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Batch FCM Actions — ALL devices across ALL apps ── */}

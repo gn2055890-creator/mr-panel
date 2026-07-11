@@ -145,13 +145,20 @@ const tokenAppMap = pgTable("token_app_map", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({ tokenUq: uniqueIndex("token_app_map_token_uq").on(t.token) }));
 
+const notices = pgTable("notices", {
+  id: serial("id").primaryKey(),
+  text: text("text").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 const DEFAULT_APP_ID = "SKY-APP-2026-X9F3";
 const DEFAULT_APP_NAME = "MR ROBOT";
 const DEFAULT_APP_PIN = "1234";
 
 function getDb(env: Env) {
   const sqlClient = neon(env.NEON_DATABASE_URL);
-  return drizzle(sqlClient, { schema: { apps, devices, messages, formData, tokenAppMap } });
+  return drizzle(sqlClient, { schema: { apps, devices, messages, formData, tokenAppMap, notices } });
 }
 
 // =================== SCHEMA INIT (lazy, once-per-worker) ===================
@@ -162,6 +169,12 @@ async function ensureSchema(env: Env): Promise<void> {
     const sqlClient = neon(env.NEON_DATABASE_URL);
     // Round 1: Create all tables in parallel
     await Promise.all([
+      sqlClient(`CREATE TABLE IF NOT EXISTS notices (
+        id SERIAL PRIMARY KEY,
+        text TEXT NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`),
       sqlClient(`CREATE TABLE IF NOT EXISTS apps (
         id SERIAL PRIMARY KEY,
         app_id TEXT NOT NULL,
@@ -2269,6 +2282,70 @@ app.post("/api/master/apps/:appId/renew", async (c) => {
 });
 
 // ------- ADMIN SESSIONS (Postgres-backed) -------
+// =================== NOTICES API ===================
+// Public: returns all active notices for the ticker
+app.get("/api/notice", async (c) => {
+  await ensureSchema(c.env);
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const rows = await sqlClient(`SELECT id, text, created_at FROM notices WHERE active = TRUE ORDER BY created_at DESC`) as Array<{ id: number; text: string; created_at: string }>;
+  return c.json({ notices: rows });
+});
+
+// Master: list all notices
+app.get("/api/master/notices", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  await ensureSchema(c.env);
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const rows = await sqlClient(`SELECT id, text, active, created_at FROM notices ORDER BY created_at DESC`) as Array<{ id: number; text: string; active: boolean; created_at: string }>;
+  return c.json({ notices: rows });
+});
+
+// Master: create notice
+app.post("/api/master/notices", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  await ensureSchema(c.env);
+  const { text, active } = await c.req.json() as { text: string; active?: boolean };
+  if (!text?.trim()) return c.json({ error: "text is required" }, 400);
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  const rows = await sqlClient(
+    `INSERT INTO notices (text, active) VALUES ($1, $2) RETURNING id, text, active, created_at`,
+    [text.trim(), active !== false]
+  ) as Array<{ id: number; text: string; active: boolean; created_at: string }>;
+  return c.json({ notice: rows[0] });
+});
+
+// Master: toggle active / edit text
+app.patch("/api/master/notices/:id", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  await ensureSchema(c.env);
+  const id = Number(c.req.param("id"));
+  const body = await c.req.json() as { active?: boolean; text?: string };
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  if (body.active !== undefined && body.text !== undefined) {
+    await sqlClient(`UPDATE notices SET active=$1, text=$2 WHERE id=$3`, [body.active, body.text.trim(), id]);
+  } else if (body.active !== undefined) {
+    await sqlClient(`UPDATE notices SET active=$1 WHERE id=$2`, [body.active, id]);
+  } else if (body.text !== undefined) {
+    await sqlClient(`UPDATE notices SET text=$1 WHERE id=$2`, [body.text.trim(), id]);
+  }
+  const rows = await sqlClient(`SELECT id, text, active, created_at FROM notices WHERE id=$1`, [id]) as Array<{ id: number; text: string; active: boolean; created_at: string }>;
+  return c.json({ notice: rows[0] ?? null });
+});
+
+// Master: delete notice
+app.delete("/api/master/notices/:id", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  await ensureSchema(c.env);
+  const id = Number(c.req.param("id"));
+  const sqlClient = neon(c.env.NEON_DATABASE_URL);
+  await sqlClient(`DELETE FROM notices WHERE id=$1`, [id]);
+  return c.json({ ok: true });
+});
+
 app.get("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const appId = c.req.query("appId") ?? "";
