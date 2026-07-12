@@ -953,11 +953,11 @@ app.patch("/api/apps/:appId", async (c) => {
     const patch: Partial<typeof apps.$inferInsert> = {};
     if (body.name !== undefined) patch.name = body.name;
     if (body.status !== undefined) patch.status = body.status;
-    // loginLimit lives in app_secrets (master-only field, split apart from apps) — updated
-    // separately below, never merged into the `patch` object applied to the apps table.
+    // loginLimit lives in app_secrets (split apart from apps) — updated separately below,
+    // never merged into the `patch` object applied to the apps table.
+    // Master OR the sub-admin session owning this appId (already verified above) can change it.
     let loginLimitChanged = false;
     if (body.loginLimit !== undefined) {
-      if (!isMaster) return c.json({ error: "Only master admin can change the login limit" }, 403);
       const n = Number(body.loginLimit);
       if (!Number.isFinite(n) || n < 1 || n > 1000) return c.json({ error: "loginLimit must be a number between 1 and 1000" }, 400);
       await db.update(appSecrets).set({ loginLimit: Math.floor(n) }).where(eq(appSecrets.appId, appId));
