@@ -1132,6 +1132,11 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { app
   const [visibleCount, setVisibleCount] = useState(15);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchAbortRef = useRef(0); // increment to cancel in-flight background fetches
+  // Real device last-seen (heartbeat), keyed by deviceId — separate from form-submission
+  // time. Fetched per distinct appId seen in the loaded groups (cheap: one call per app,
+  // not per device).
+  const [deviceMeta, setDeviceMeta] = useState<Record<string, { lastOnline: string | null; status: string }>>({});
+  const fetchedAppIdsRef = useRef<Set<string>>(new Set());
 
   const fetchGroups = useCallback(async () => {
     setLoading(true);
@@ -1171,6 +1176,29 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { app
 
   useEffect(() => { void fetchGroups(); }, [fetchGroups]);
   useEffect(() => { setVisibleCount(15); }, [search, appFilter]);
+
+  // Fetch real device last-seen/status for any appId present in the loaded groups that
+  // we haven't fetched yet.
+  useEffect(() => {
+    const appIds = Array.from(new Set(groups.map(g => g.appId).filter(Boolean)));
+    const toFetch = appIds.filter(id => !fetchedAppIdsRef.current.has(id));
+    if (toFetch.length === 0) return;
+    toFetch.forEach(id => fetchedAppIdsRef.current.add(id));
+    (async () => {
+      for (const id of toFetch) {
+        try {
+          const r = await apiFetch(`/api/master/all-devices?appId=${encodeURIComponent(id)}`, { headers: { "x-master-pin": masterPin } });
+          if (!r.ok) continue;
+          const j = await r.json() as { data: { deviceId: string; lastOnline: string | null; status: string }[] };
+          setDeviceMeta(prev => {
+            const next = { ...prev };
+            for (const d of j.data) next[d.deviceId] = { lastOnline: d.lastOnline, status: d.status };
+            return next;
+          });
+        } catch { /* ignore — falls back to "—" */ }
+      }
+    })();
+  }, [groups, masterPin]);
 
   /* Group by userId+appId (master admin is cross-app) */
   const grouped = useMemo(() => {
@@ -1296,7 +1324,10 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { app
                 {uDevices.map((dev, di) => {
                   const devForm = dev.entries.slice().sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
                   const isLast = di === uDevices.length - 1;
-                  const lastOnline = devForm[0]?.submittedAt ?? null;
+                  // Real device heartbeat (from the devices table), not the form-submission time.
+                  const meta = deviceMeta[dev.deviceId];
+                  const isUninstalled = meta?.status === "uninstalled";
+                  const online = !isUninstalled && isRecentlyOnline(meta?.lastOnline);
 
                   return (
                     <div key={dev.deviceId} style={{ borderBottom: isLast ? "none" : `1px solid ${B}`, background: T.card }}>
@@ -1306,7 +1337,9 @@ function GroupsTab({ apps, masterPin, syncTick: _syncTick, onOpenDevice }: { app
                         <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: T.text, fontFamily: "monospace" }}>{dev.deviceId}</span>
                           <CopyIconBtn value={dev.deviceId} title="Copy device ID" />
-                          <span style={{ fontSize: 9, color: "#64748b" }}>{timeAgo(lastOnline)}</span>
+                          <span style={{ fontSize: 9, fontWeight: online ? 700 : 400, color: online ? "#16a34a" : "#64748b" }}>
+                            {isUninstalled ? "Uninstalled" : meta ? timeAgo(meta.lastOnline) : "…"}
+                          </span>
                         </div>
                         <span style={{ fontSize: 10, padding: "4px 8px", borderRadius: 7, background: T.headerBg, border: `1px solid ${B}`, color: T.mutedLight, fontWeight: 700, flexShrink: 0 }}>
                           {dev.entries.length} entr{dev.entries.length !== 1 ? "ies" : "y"}
