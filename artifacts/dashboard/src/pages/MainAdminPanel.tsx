@@ -3423,8 +3423,8 @@ export default function MainAdminPanel() {
   }, [sessionId]);
   function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
   if (!masterPin) {
-      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/miss-komal-login")) {
-        window.location.replace(`${import.meta.env.BASE_URL}miss-komal-login`);
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/mr-robot/mr-professior/mr-neon-login")) {
+        window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon-login`);
       }
       return null;
     }
@@ -3435,7 +3435,7 @@ export default function MainAdminPanel() {
     function handleAuth(pin: string, sessionId: string) {
       sessionStorage.setItem("mrrobot_master_auth", pin);
       sessionStorage.setItem("mrrobot_master_sid", sessionId);
-      window.location.replace(`${import.meta.env.BASE_URL}miss-komal`);
+      window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon`);
     }
     return <MasterLogin onAuth={handleAuth} />;
   }
