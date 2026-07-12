@@ -2796,7 +2796,17 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     try { const s = localStorage.getItem("mr_master_tab"); if (s && ["apps","messages","groups","devices","settings"].includes(s)) return s as Tab; } catch {}
     return "apps";
   });
-  const changeTab = (t: Tab) => { try { localStorage.setItem("mr_master_tab", t); } catch {} setTab(t); };
+  // Perf: tabs are lazy-mounted — each tab's data/WS/poll effects only start once the
+  // user actually opens it (previously all tabs mounted at once via display:none, so
+  // Messages/Groups/Devices/Settings all fetched + polled simultaneously on every load,
+  // even ones the master never opened. Once visited, a tab stays mounted (kept alive via
+  // display toggle below) so switching back doesn't re-fetch or lose scroll position.
+  const [visitedTabs, setVisitedTabs] = useState<Set<Tab>>(() => new Set([tab]));
+  const changeTab = (t: Tab) => {
+    try { localStorage.setItem("mr_master_tab", t); } catch {}
+    setTab(t);
+    setVisitedTabs(prev => (prev.has(t) ? prev : new Set(prev).add(t)));
+  };
   const [onlineFilter, setOnlineFilter] = useState(false);
   const [appList, setAppList] = useState<App[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
@@ -3287,14 +3297,14 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
           </>
         )}
 
-        <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
+        {visitedTabs.has("messages") && <div style={{ display: tab === "messages" ? "block" : "none" }}><MessagesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>}
         {/* Mobile FAB — New App (only on apps tab) */}
         {tab === "apps" && (
           <button className="ma-fab" onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} title="New App">＋</button>
         )}
-        <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>
-        <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>
-        <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} sessionId={sessionId} onSessionIdUpdate={onSessionIdUpdate} /></div>
+        {visitedTabs.has("groups") && <div style={{ display: tab === "groups" ? "block" : "none" }}><GroupsTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOpenDevice={openDevice} /></div>}
+        {visitedTabs.has("devices") && <div style={{ display: tab === "devices" ? "block" : "none" }}><DevicesTab apps={appList} masterPin={masterPin} syncTick={syncTick} onOnlineCount={setOnlineCount} onlineCount={onlineCount} onlineFilter={onlineFilter} onClearOnlineFilter={() => setOnlineFilter(false)} jumpDeviceId={jumpDeviceId} /></div>}
+        {visitedTabs.has("settings") && <div style={{ display: tab === "settings" ? "block" : "none" }}><SettingsTab apps={appList} masterPin={masterPin} sessionId={sessionId} onSessionIdUpdate={onSessionIdUpdate} /></div>}
         {tab === "stats" && <StatsTab data={statsData} onRefresh={() => void fetchStats()} />}
       </div>
 
