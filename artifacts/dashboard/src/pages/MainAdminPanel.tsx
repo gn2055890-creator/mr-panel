@@ -2836,7 +2836,8 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     const [resetLoginLimitId, setResetLoginLimitId] = useState<string | null>(null);
   const [renewConfirmApp, setRenewConfirmApp] = useState<App | null>(null);
   const [search, setSearch] = useState("");
-  const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month"|"30plus">("all");
+  const [dateFilter, setDateFilter] = useState<"all"|"today"|"yesterday"|"week"|"month">("all");
+  const [statusFilter, setStatusFilter] = useState<"all"|"disabled"|"expired">("all");
   const [pingState, setPingState] = useState<"idle" | "loading" | "running" | "done" | "err">("idle");
   const [pingDone, setPingDone] = useState(0);
   const [pingTotal, setPingTotal] = useState(0);
@@ -3085,7 +3086,11 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
       if (dateFilter === "yesterday" && (created < yesterday || created >= today)) return false;
       if (dateFilter === "week"      && created < weekAgo)   return false;
       if (dateFilter === "month"     && created < monthAgo)  return false;
-      if (dateFilter === "30plus"   && created >= monthAgo) return false;
+    }
+    if (statusFilter === "disabled" && a.status === "active") return false;
+    if (statusFilter === "expired") {
+      const expiry = new Date(a.createdAt).getTime() + 30 * 24 * 60 * 60 * 1000;
+      if (expiry >= Date.now()) return false;
     }
     if (search.trim() === "") return true;
     return a.appId.toLowerCase().includes(search.trim().toLowerCase()) || a.name.toLowerCase().includes(search.trim().toLowerCase());
@@ -3234,7 +3239,7 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
               <div>
                 <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>Sub-Admin Apps</div>
                 <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>
-                  {dateFilter === "all" ? "Sorted by newest first" : `Filtered: ${filteredApps.length} app${filteredApps.length !== 1 ? "s" : ""}`}
+                  {dateFilter === "all" && statusFilter === "all" ? "Sorted by newest first" : `Filtered: ${filteredApps.length} app${filteredApps.length !== 1 ? "s" : ""}`}
                 </div>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -3248,7 +3253,15 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
                   <option value="yesterday">Yesterday</option>
                   <option value="week">Last 7 Days</option>
                   <option value="month">Last 30 Days</option>
-                  <option value="30plus">30+ Days Old</option>
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+                  style={{ padding:"7px 30px 7px 12px", borderRadius:9, border:`1px solid ${T.borderLight}`, background:T.card, color:T.text, fontSize:12, fontWeight:600, cursor:"pointer", outline:"none", appearance:"none", backgroundImage:`url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%234d6280' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat:"no-repeat", backgroundPosition:"right 9px center" }}
+                >
+                  <option value="all">All Status</option>
+                  <option value="disabled">Disabled Only</option>
+                  <option value="expired">Expired Only</option>
                 </select>
                 <button onClick={() => { setCreateGateInput(""); setCreateGateError(""); setCreateGateShow(false); setShowCreateGate(true); }} className="ma-hide-mob" style={{ padding: "8px 16px", borderRadius: 10, background: "linear-gradient(135deg,#5254d4,#7c3aed)", border: "none", color: "#fff", fontWeight: 800, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}><Ic.Plus /> New App</button>
               </div>
