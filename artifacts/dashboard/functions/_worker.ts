@@ -2568,6 +2568,7 @@ app.delete("/api/admin/sessions/:id", async (c) => {
     if (rows[0].app_id !== callerAppId) return c.json({ error: "Unauthorized" }, 401);
   }
   await sqlClient(`DELETE FROM admin_sessions WHERE id = $1`, [sessionId]);
+  _sessionCache.delete(sessionId); // evict immediately — JWT replay fix
   return c.json({ ok: true });
 });
 app.delete("/api/admin/sessions", async (c) => {
