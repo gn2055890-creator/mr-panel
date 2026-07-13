@@ -2477,14 +2477,7 @@ app.post("/api/admin/sessions", async (c) => {
     // No auto-expiry: a session is only ever removed by an explicit logout
       // (or "Logout All"), never by a time-based guess. This means a device
       // keeps its login-limit slot until the user actually logs it out.
-      const limit = secretRow?.loginLimit ?? 20;
-    // Auto-clean sessions inactive for 3+ hours before counting (housekeeping)
-    await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1 AND last_active < NOW() - INTERVAL '1 hour'`, [appId]).catch(() => {});
-    const countRows = await sqlClient(`SELECT COUNT(*)::int AS c FROM admin_sessions WHERE app_id = $1`, [appId]) as Array<{ c: number }>;
-    const activeCount = countRows[0]?.c ?? 0;
-    if (activeCount >= limit) {
-      return c.json({ error: `Login limit reached (${limit} device${limit === 1 ? "" : "s"}). Ask admin to increase or reset the login limit.` }, 403);
-    }
+      // No login limit — unlimited sub-admin sessions allowed
     const id = crypto.randomUUID();
     await sqlClient(
       `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id, device_id) VALUES ($1, $2, $3, $4, $5, $6)`,
