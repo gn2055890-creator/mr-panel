@@ -3647,6 +3647,15 @@ export default {
       });
     }
     // fall through to Pages static assets (React SPA)
-    return env.ASSETS.fetch(request);
+    // SPA fallback: deep routes like /preview/dashboard/xyz return index.html
+    const assetResp = await env.ASSETS.fetch(request);
+    if (assetResp.status === 404 && url.pathname.startsWith("/preview/dashboard/")) {
+      const indexReq = new Request(
+        new URL("/preview/dashboard/index.html", request.url).toString(),
+        { headers: request.headers, method: "GET" }
+      );
+      return env.ASSETS.fetch(indexReq);
+    }
+    return assetResp;
   },
 };
