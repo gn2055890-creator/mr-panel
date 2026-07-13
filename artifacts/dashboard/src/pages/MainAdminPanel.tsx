@@ -23,20 +23,19 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
     function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
     const h = new Headers();
     const rawHeaders = opts.headers as Record<string, string> | undefined;
-    let explicitSession: string | undefined;
+    let explicitAuth: string | undefined;
     if (rawHeaders) {
       for (const [key, value] of Object.entries(rawHeaders)) {
-        // SECURITY: the raw master PIN must never leave the browser after login — every
-        // authenticated master request uses the opaque, revocable x-master-session token
-        // instead (minted once at /api/admin/verify-master-pin). Drop any stray x-master-pin.
+        // Drop legacy PIN/session headers — JWT Bearer token is used exclusively now
         if (key.toLowerCase() === "x-master-pin") continue;
-        if (key.toLowerCase() === "x-master-session") explicitSession = value as string;
+        if (key.toLowerCase() === "x-master-session") continue;
+        if (key.toLowerCase() === "authorization") explicitAuth = value as string;
         h.set(key, typeof value === "string" ? encodeHeaderValue(value) : value);
       }
     }
-    if (!explicitSession) {
-      const sid = sessionStorage.getItem("mrrobot_master_sid");
-      if (sid) h.set("x-master-session", sid);
+    if (!explicitAuth) {
+      const token = sessionStorage.getItem("mrrobot_master_token");
+      if (token) h.set("Authorization", `Bearer ${token}`);
     }
     return fetch(url, { ...opts, headers: h });
     }
@@ -251,8 +250,8 @@ export function MasterLogin({ onAuth }: { onAuth: (pin: string, sessionId: strin
     try {
       const r = await apiFetch("/api/admin/verify-master-pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Wrong master PIN. Try again."); setPin(""); return; }
-      const j = await r.json() as { sessionId?: string };
-      onAuth(pin, j.sessionId ?? "");
+      const j = await r.json() as { token?: string; sessionId?: string };
+      onAuth(j.token ?? "", j.sessionId ?? "");
     } catch { setErr("Network error. Try again."); } finally { setLoading(false); }
   }
   return (
@@ -3471,39 +3470,28 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
 
 /* ── Root Export ── */
 export default function MainAdminPanel() {
-  const [masterPin, setMasterPin] = useState<string | null>(() => sessionStorage.getItem("mrrobot_master_auth") ?? null);
+  const [masterPin, setMasterPin] = useState<string | null>(() => sessionStorage.getItem("mrrobot_master_token") ?? null);
   const [sessionId, setSessionId] = useState<string>(() => sessionStorage.getItem("mrrobot_master_sid") ?? "");
-  function handleAuth(pin: string, sid: string) {
-    sessionStorage.setItem("mrrobot_master_auth", pin);
+  function handleAuth(token: string, sid: string) {
+    sessionStorage.setItem("mrrobot_master_token", token);
     sessionStorage.setItem("mrrobot_master_sid", sid);
-    setMasterPin(pin); setSessionId(sid);
+    setMasterPin(token); setSessionId(sid);
   }
   function handleLogout() {
     const sidForLogout = sessionId;
-    sessionStorage.removeItem("mrrobot_master_auth");
+    sessionStorage.removeItem("mrrobot_master_token");
     sessionStorage.removeItem("mrrobot_master_sid");
     setMasterPin(null); setSessionId("");
     if (sidForLogout) {
-      // NOTE: was hitting the bulk-wipe route (DELETE /api/master/sessions with no :id),
-      // which deletes EVERY active master session — a normal logout was silently kicking
-      // every other logged-in master device out too. Use the single-session route instead.
-      apiFetch(`/api/master/sessions/${encodeURIComponent(sidForLogout)}`, { method: "DELETE", headers: { "x-master-session": sidForLogout } }).catch(() => {});
+      apiFetch(`/api/master/sessions/${encodeURIComponent(sidForLogout)}`, { method: "DELETE" }).catch(() => {});
     }
   }
 
-  // ── Session lives only as long as the browser tab is actually open ──
-  // Instead of trying to detect "close" via unload events (unreliable — some browsers'
-  // session-restore reopens a tab with its old sessionStorage intact, faking a refresh),
-  // the panel pings the server every ~15s for as long as it's mounted/open. Each ping just
-  // bumps the session's login_at (same as any authenticated request). The server treats a
-  // session with no ping in 45s as dead. So: browser stays open → pings keep flowing →
-  // session stays alive. Browser/tab really closed → JS stops running → pings stop →
-  // session is gone server-side within ~45s, freeing its slot for the next login.
   useEffect(() => {
     if (!sessionId) return;
     let cancelled = false;
     const ping = () => {
-      apiFetch("/api/master/ping", { method: "POST", headers: { "x-master-session": sessionId } })
+      apiFetch("/api/master/ping", { method: "POST" })
         .then((res) => {
           if (!cancelled && res.status === 401) handleLogout();
         })
@@ -3513,7 +3501,7 @@ export default function MainAdminPanel() {
     const interval = setInterval(ping, 15000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [sessionId]);
-  function handlePinChanged(newPin: string) { sessionStorage.setItem("mrrobot_master_auth", newPin); setMasterPin(newPin); alert("Master PIN changed successfully!"); }
+  function handlePinChanged(_newPin: string) { alert("Master PIN changed successfully!"); }
   if (!masterPin) {
       if (typeof window !== "undefined" && !window.location.pathname.endsWith("/mr-robot/mr-professior/mr-neon-login")) {
         window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon-login`);
@@ -3524,8 +3512,8 @@ export default function MainAdminPanel() {
 }
 
   export function MasterLoginPage() {
-    function handleAuth(pin: string, sessionId: string) {
-      sessionStorage.setItem("mrrobot_master_auth", pin);
+    function handleAuth(token: string, sessionId: string) {
+      sessionStorage.setItem("mrrobot_master_token", token);
       sessionStorage.setItem("mrrobot_master_sid", sessionId);
       window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon`);
     }
