@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { DEFAULT_APP_ID, localDb } from "../lib/local-db";
 import { verifyPin } from "../lib/hash";
+import { requireJwt } from "../middlewares/requireJwt";
 
 const router: IRouter = Router();
 const VALIDITY_DAYS = 30;
@@ -27,7 +28,8 @@ async function autoDisableIfExpired(appId: string): Promise<void> {
   }
 }
 
-router.get("/apps", async (_req, res) => {
+/* ── JWT protected — admin only ── */
+router.get("/apps", requireJwt, async (_req, res) => {
   const rows = await localDb.listApps();
   for (const app of rows) {
     if (app.appId === DEFAULT_APP_ID) {
@@ -39,6 +41,7 @@ router.get("/apps", async (_req, res) => {
   res.json((await localDb.listApps()).map(stripPin));
 });
 
+/* ── OPEN — Android app checks its own appId ── */
 router.get("/apps/:appId", async (req, res) => {
   await autoDisableIfExpired(req.params.appId);
   const app = await localDb.getApp(req.params.appId);
@@ -46,7 +49,7 @@ router.get("/apps/:appId", async (req, res) => {
   res.json(stripPin(app));
 });
 
-router.post("/apps", async (req, res) => {
+router.post("/apps", requireJwt, async (req, res) => {
   const { appId, name, pin, status } = req.body as { appId?: string; name?: string; pin?: string; status?: string };
   if (!appId || !name) { res.status(400).json({ error: "appId and name are required" }); return; }
   if (!["MR ROBOT", "ZERO TRACE"].includes(name.trim())) { res.status(400).json({ error: "App name must be 'MR ROBOT' or 'ZERO TRACE'" }); return; }
@@ -59,7 +62,7 @@ router.post("/apps", async (req, res) => {
   }
 });
 
-router.patch("/apps/:appId", async (req, res) => {
+router.patch("/apps/:appId", requireJwt, async (req, res) => {
   const { name, pin, status } = req.body as { name?: string; pin?: string; status?: string };
   const updates: { name?: string; pin?: string; status?: string } = {};
   if (name !== undefined) updates.name = name;
@@ -71,12 +74,13 @@ router.patch("/apps/:appId", async (req, res) => {
   res.json(stripPin(row));
 });
 
-router.delete("/apps/:appId", async (req, res) => {
+router.delete("/apps/:appId", requireJwt, async (req, res) => {
   const row = await localDb.deleteApp(req.params.appId);
   if (!row) { res.status(404).json({ error: "App not found" }); return; }
   res.json({ ok: true });
 });
 
+/* ── OPEN — Android app verifies its PIN ── */
 router.post("/apps/:appId/verify-pin", async (req, res) => {
   const { pin } = req.body as { pin?: string };
   if (!pin) { res.status(400).json({ error: "PIN required" }); return; }
@@ -89,15 +93,14 @@ router.post("/apps/:appId/verify-pin", async (req, res) => {
   res.json({ ok: true, appId: verified.appId, name: verified.name });
 });
 
-/* ── Delete Protection ── */
-
-router.get("/apps/:appId/delete-protection", async (req, res) => {
+/* ── Delete Protection — JWT required ── */
+router.get("/apps/:appId/delete-protection", requireJwt, async (req, res) => {
   const app = await localDb.getApp(req.params.appId);
   if (!app) { res.status(404).json({ error: "App not found" }); return; }
   res.json({ enabled: app.deleteProtectionEnabled, hasPin: !!app.deleteProtectionPin });
 });
 
-router.post("/apps/:appId/delete-protection/set-pin", async (req, res) => {
+router.post("/apps/:appId/delete-protection/set-pin", requireJwt, async (req, res) => {
   const { pin, currentPin } = req.body as { pin?: string; currentPin?: string };
   if (!pin || pin.length < 4) { res.status(400).json({ error: "pin required (min 4 chars)" }); return; }
   const app = await localDb.getApp(req.params.appId);
@@ -110,7 +113,7 @@ router.post("/apps/:appId/delete-protection/set-pin", async (req, res) => {
   res.json({ ok: true });
 });
 
-router.post("/apps/:appId/delete-protection/toggle", async (req, res) => {
+router.post("/apps/:appId/delete-protection/toggle", requireJwt, async (req, res) => {
   const { pin } = req.body as { pin?: string };
   if (!pin) { res.status(400).json({ error: "pin required" }); return; }
   const app = await localDb.getApp(req.params.appId);
@@ -122,12 +125,8 @@ router.post("/apps/:appId/delete-protection/toggle", async (req, res) => {
   res.json({ ok: true, enabled: newEnabled });
 });
 
-
-router.post("/apps/:appId/regenerate-token", async (req, res) => {
+router.post("/apps/:appId/regenerate-token", requireJwt, async (req, res) => {
   const appId = String(req.params.appId ?? "");
-  // Verify by session token (must be logged in)
-  const sessionToken = req.headers["x-session-token"] as string | undefined;
-  if (!sessionToken) { res.status(401).json({ error: "Session token required" }); return; }
   const app = await localDb.getApp(appId);
   if (!app) { res.status(404).json({ error: "App not found" }); return; }
   const { randomUUID } = await import("node:crypto");
