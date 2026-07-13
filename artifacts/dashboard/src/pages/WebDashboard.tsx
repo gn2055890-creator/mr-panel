@@ -3386,9 +3386,21 @@ export function LoginPage({ onAuth, appId, appName, panelToken }: { onAuth: () =
     finally { setLoading(false); }
   }
 
+  const isZT = appName === "ZERO TRACE";
+    const inputStyle: React.CSSProperties = {
+      width: "100%", padding: "10px 14px", borderRadius: 10,
+      border: `1.5px solid ${isZT ? "#1d4ed8" : t.cardB}`,
+      background: isZT ? "#eff6ff" : "#0f172a",
+      color: isZT ? "#1e3a8a" : "#f8fafc",
+      fontSize: 15, outline: "none", boxSizing: "border-box",
+    };
+    const labelStyle: React.CSSProperties = {
+      display: "block", marginBottom: 6, fontSize: 12, fontWeight: 700,
+      color: isZT ? "#1d4ed8" : "#94a3b8", letterSpacing: 0.5,
+      textTransform: "uppercase",
+    };
 
-
-  return (
+    return (
     <div style={{
       minHeight: "100vh", background: appName === "ZERO TRACE" ? "#eff6ff" : "#0a0f1a",
       display: "flex", alignItems: "center", justifyContent: "center",
