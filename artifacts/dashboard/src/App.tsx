@@ -19,8 +19,8 @@ function Router() {
     <Switch>
       <Route path="/preview/dashboard/WebDashboard" component={WebDashboard} />
       <Route path="/login" component={SubAdminLoginPage} />
-      <Route path="/mr-robot/mr-professior/mr-neon" component={MainAdminPanel} />
-      <Route path="/mr-robot/mr-professior/mr-neon-login" component={MasterLoginPage} />
+      <Route path="/317e781ab525/a68e0143156d/f072e5c62bf1" component={MainAdminPanel} />
+      <Route path="/317e781ab525/a68e0143156d/f072e5c62bf1-access" component={MasterLoginPage} />
       <Route component={NotFound} />
     </Switch>
   );
