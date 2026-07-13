@@ -2572,20 +2572,18 @@ app.delete("/api/admin/sessions", async (c) => {
   const appId = c.req.query("appId") ?? "";
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   if (!isMaster) {
-  if (!isMaster) {
-    const callerAppId = c.get('sessionAppId'); // set by JWT middleware
+    const callerAppId = c.get('sessionAppId');
     if (!sessionToken && !callerAppId) return c.json({ error: "Unauthorized" }, 401);
     if (callerAppId) {
-      // JWT auth — middleware already verified token; just confirm app scope
       if (callerAppId !== appId) return c.json({ error: "Unauthorized" }, 401);
     } else {
-      // Legacy x-session-token fallback
       const rows = await sqlClient(
         `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2`,
         [sessionToken, appId]
       ) as Array<{id:string}>;
       if (rows.length === 0) return c.json({ error: "Unauthorized" }, 401);
     }
+  }
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
   return c.json({ ok: true });
 });
