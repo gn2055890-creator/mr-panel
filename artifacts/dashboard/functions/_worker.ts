@@ -2436,11 +2436,9 @@ app.get("/api/admin/sessions", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const appId = c.req.query("appId") ?? "";
   const isMaster = await isMasterSession(c);
-  const sessionToken = c.req.header("x-session-token") ?? "";
-  if (!isMaster) {
-    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
-  }
+    if (!isMaster) {
+      if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+    }
   const rows = await sqlClient(
     `SELECT id, login_time, last_active, user_agent, ip, device FROM admin_sessions WHERE app_id = $1 ORDER BY login_time DESC`,
     [appId],
