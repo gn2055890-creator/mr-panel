@@ -2502,11 +2502,17 @@ app.post("/api/admin/sessions", async (c) => {
         if (jwtSec) subJwt = await signJwt({ sub: id, role: "sub-admin", appId, iss: "mr-panel", iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec);
         return c.json({ sessionId: id, ...(subJwt ? { token: subJwt } : {}) });
       }
-          // Enforce per-app login limit — count currently active sessions (device-distinct logins)
-    // No auto-expiry: a session is only ever removed by an explicit logout
-      // (or "Logout All"), never by a time-based guess. This means a device
-      // keeps its login-limit slot until the user actually logs it out.
-      // No login limit — unlimited sub-admin sessions allowed
+          // Enforce per-app login limit — block new logins once the cap is reached.
+    // Each device login occupies a slot; logout (or 'Logout All') frees it.
+    const _limit = secretRow?.loginLimit ?? 20;
+    const _cntRows = await sqlClient(
+      `SELECT COUNT(*) AS cnt FROM admin_sessions WHERE app_id = $1`,
+      [appId],
+    ) as Array<{ cnt: string }>;
+    const _activeCnt = parseInt((_cntRows[0]?.cnt ?? '0'), 10);
+    if (_activeCnt >= _limit) {
+      return c.json({ error: `Login limit reached (${_limit}). Ask admin to increase limit or logout existing sessions.` }, 429);
+    }
     const id = crypto.randomUUID();
     await sqlClient(
       `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id, device_id) VALUES ($1, $2, $3, $4, $5, $6)`,
