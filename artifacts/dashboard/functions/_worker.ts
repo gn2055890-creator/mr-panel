@@ -22,18 +22,29 @@ import { Hono } from "hono";
 // so a leaked/known PIN alone cannot be replayed forever against the API;
 // revoking (deleting) the session row instantly cuts off that access.
 async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<boolean> {
-  const token = c.req.header("x-master-session");
-  if (!token) return false;
-  const sqlC = neon(c.env.NEON_DATABASE_URL);
-  // Ping-based liveness: the master panel calls POST /api/master/ping every ~15s while the
-  // browser tab is actually open, which (like every authenticated request) bumps login_at.
-  // If the browser/tab is closed, no more pings arrive, so login_at goes stale and the
-  // session is treated as dead within ~2min — no reliance on unload events or client storage.
-  const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '2 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
-  if (rows.length === 0) return false;
-  await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
-  return true;
-}
+    // Accept JWT Bearer token (issued at master login via verify-master-pin)
+    const authHeader = c.req.header("Authorization") ?? "";
+    if (authHeader.startsWith("Bearer ")) {
+      const jwtToken = authHeader.slice(7);
+      const secret = (c.env as Env).JWT_SECRET;
+      if (secret) {
+        const payload = await verifyJwt(jwtToken, secret);
+        if (payload && payload.role === "master") return true;
+      }
+    }
+    // Legacy: x-master-session DB-backed token
+    const token = c.req.header("x-master-session");
+    if (!token) return false;
+    const sqlC = neon(c.env.NEON_DATABASE_URL);
+    // Ping-based liveness: the master panel calls POST /api/master/ping every ~15s while the
+    // browser tab is actually open, which (like every authenticated request) bumps login_at.
+    // If the browser/tab is closed, no more pings arrive, so login_at goes stale and the
+    // session is treated as dead within ~2min — no reliance on unload events or client storage.
+    const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '2 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
+    if (rows.length === 0) return false;
+    await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
+    return true;
+  }
   // ── JWT helpers (Web Crypto API — Cloudflare Workers compatible) ──
   async function signJwt(payload: Record<string, unknown>, secret: string): Promise<string> {
     const enc = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
