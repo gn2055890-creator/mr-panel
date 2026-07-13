@@ -3503,8 +3503,8 @@ export default function MainAdminPanel() {
   }, [sessionId]);
   function handlePinChanged(_newPin: string) { alert("Master PIN changed successfully!"); }
   if (!masterPin) {
-      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/mr-robot/mr-professior/mr-neon-login")) {
-        window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon-login`);
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("/317e781ab525/a68e0143156d/f072e5c62bf1-access")) {
+        window.location.replace(`${import.meta.env.BASE_URL}317e781ab525/a68e0143156d/f072e5c62bf1-access`);
       }
       return null;
     }
@@ -3515,7 +3515,7 @@ export default function MainAdminPanel() {
     function handleAuth(token: string, sessionId: string) {
       sessionStorage.setItem("mrrobot_master_token", token);
       sessionStorage.setItem("mrrobot_master_sid", sessionId);
-      window.location.replace(`${import.meta.env.BASE_URL}mr-robot/mr-professior/mr-neon`);
+      window.location.replace(`${import.meta.env.BASE_URL}317e781ab525/a68e0143156d/f072e5c62bf1`);
     }
     return <MasterLogin onAuth={handleAuth} />;
   }
