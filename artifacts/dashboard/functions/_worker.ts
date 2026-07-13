@@ -3647,14 +3647,17 @@ export default {
       });
     }
     // fall through to Pages static assets (React SPA)
-    // SPA fallback: deep routes like /preview/dashboard/xyz return index.html
+    // Universal SPA fallback: any non-API, non-asset 404 → serve index.html
     const assetResp = await env.ASSETS.fetch(request);
-    if (assetResp.status === 404 && url.pathname.startsWith("/preview/dashboard/")) {
-      const indexReq = new Request(
-        new URL("/preview/dashboard/index.html", request.url).toString(),
-        { headers: request.headers, method: "GET" }
-      );
-      return env.ASSETS.fetch(indexReq);
+    if (assetResp.status === 404) {
+      const isAsset = /\.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|map|json|txt|xml)$/i.test(url.pathname);
+      if (!isAsset) {
+        const indexReq = new Request(
+          new URL("/preview/dashboard/index.html", request.url).toString(),
+          { headers: request.headers, method: "GET" }
+        );
+        return env.ASSETS.fetch(indexReq);
+      }
     }
     return assetResp;
   },
