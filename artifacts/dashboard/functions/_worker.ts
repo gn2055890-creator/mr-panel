@@ -1035,7 +1035,7 @@ app.patch("/api/apps/:appId", async (c) => {
 
     // Master PIN → full access. Session → must belong to THIS appId. Neither → deny.
     if (!isMaster) {
-      if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+      if (!sessionToken && !c.get('sessionAppId')) return c.json({ error: "Unauthorized" }, 401);
       if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
     }
 
