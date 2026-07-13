@@ -47,36 +47,40 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
   }
   // ── JWT helpers (Web Crypto API — Cloudflare Workers compatible) ──
   async function signJwt(payload: Record<string, unknown>, secret: string): Promise<string> {
-    const enc = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    const header = { alg: "HS256", typ: "JWT" };
-    const data = `${enc(header)}.${enc(payload)}`;
-    const key = await crypto.subtle.importKey(
-      "raw", new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-    );
-    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-    const b64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-    return `${data}.${b64}`;
-  }
-
-  async function verifyJwt(token: string, secret: string): Promise<Record<string, unknown> | null> {
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-      const [headerB64, payloadB64, sigB64] = parts;
+      // UTF-8 safe base64url encoding — handles non-ASCII correctly (RFC 7515)
+      const b64url = (bytes: Uint8Array): string => {
+        let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+        return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      };
+      const enc = (obj: unknown) => b64url(new TextEncoder().encode(JSON.stringify(obj)));
+      const header = { alg: "HS256", typ: "JWT" };
+      const data = `${enc(header)}.${enc(payload)}`;
       const key = await crypto.subtle.importKey(
         "raw", new TextEncoder().encode(secret),
-        { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+        { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
       );
-      const sigBytes = Uint8Array.from(atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
-      const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(`${headerB64}.${payloadB64}`));
-      if (!valid) return null;
-      const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
-      if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) return null;
-      return payload;
-    } catch { return null; }
-  }
+      const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+      return `${data}.${b64url(new Uint8Array(sig))}`;
+    }
 
+    async function verifyJwt(token: string, secret: string): Promise<Record<string, unknown> | null> {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const [headerB64, payloadB64, sigB64] = parts;
+        const key = await crypto.subtle.importKey(
+          "raw", new TextEncoder().encode(secret),
+          { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+        );
+        const sigBytes = Uint8Array.from(atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+        const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(`${headerB64}.${payloadB64}`));
+        if (!valid) return null;
+        const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+        if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) return null;
+        if (payload.iss !== "mr-panel") return null; // Reject tokens not issued by this service
+        return payload;
+      } catch { return null; }
+    }
   async function requireJwt(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<boolean> {
     const secret = (c.env as Env).JWT_SECRET;
     if (!secret) return false;
@@ -1846,7 +1850,7 @@ app.post("/api/master/change-pin", async (c) => {
     let token: string | undefined;
     if (jwtSecret) {
       token = await signJwt(
-        { sub: sessionId, role: "master", iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 },
+        { sub: sessionId, role: "master", iss: "mr-panel", iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 },
         jwtSecret
       );
     }
@@ -2495,7 +2499,7 @@ app.post("/api/admin/sessions", async (c) => {
       await sqlClient(`UPDATE admin_sessions SET last_active = NOW(), ip = $2, user_agent = $3, device_id = COALESCE($4, device_id) WHERE id = $1`, [id, ip, ua, deviceId || null]);
       const jwtSec = (c.env as Env).JWT_SECRET;
         let subJwt: string | undefined;
-        if (jwtSec) subJwt = await signJwt({ sub: id, role: "sub-admin", appId, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec);
+        if (jwtSec) subJwt = await signJwt({ sub: id, role: "sub-admin", appId, iss: "mr-panel", iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec);
         return c.json({ sessionId: id, ...(subJwt ? { token: subJwt } : {}) });
       }
           // Enforce per-app login limit — count currently active sessions (device-distinct logins)
@@ -2510,7 +2514,7 @@ app.post("/api/admin/sessions", async (c) => {
     );
     const jwtSec2 = (c.env as Env).JWT_SECRET;
       let subJwt2: string | undefined;
-      if (jwtSec2) subJwt2 = await signJwt({ sub: id, role: "sub-admin", appId, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec2);
+      if (jwtSec2) subJwt2 = await signJwt({ sub: id, role: "sub-admin", appId, iss: "mr-panel", iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec2);
       return c.json({ sessionId: id, ...(subJwt2 ? { token: subJwt2 } : {}) });
     });
 app.patch("/api/admin/sessions/:id/ping", async (c) => {
