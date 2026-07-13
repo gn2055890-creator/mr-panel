@@ -786,7 +786,20 @@ app.use("*", async (c, next) => {
       return await next();
     }
       // Per-app session token (WebDashboard users after PIN login)
-  const sessionToken = c.req.header("x-session-token") ?? "";
+  // Sub-admin JWT Bearer check (payload: role="sub-admin", appId)
+    const _subAuthHdr = c.req.header("Authorization") ?? "";
+    if (_subAuthHdr.startsWith("Bearer ")) {
+      const _subJwtTok = _subAuthHdr.slice(7);
+      const _subJwtSec = (c.env as Env).JWT_SECRET;
+      if (_subJwtSec) {
+        const _subPl = await verifyJwt(_subJwtTok, _subJwtSec);
+        if (_subPl && _subPl.role === "sub-admin" && typeof _subPl.appId === "string") {
+          c.set('sessionAppId', _subPl.appId);
+          return await next();
+        }
+      }
+    }
+    const sessionToken = c.req.header("x-session-token") ?? "";
   if (sessionToken) {
     const cached = _sessionCache.get(sessionToken);
     if (cached && Date.now() < cached.expiry) {
@@ -2482,9 +2495,13 @@ app.post("/api/admin/sessions", async (c) => {
     if (existing.length > 0) {
       const id = existing[0].id;
       await sqlClient(`UPDATE admin_sessions SET last_active = NOW(), ip = $2, user_agent = $3, device_id = COALESCE($4, device_id) WHERE id = $1`, [id, ip, ua, deviceId || null]);
-      return c.json({ sessionId: id });
-    }
-    // Enforce per-app login limit — count currently active sessions (device-distinct logins)
+      {
+        const jwtSec = (c.env as Env).JWT_SECRET;
+        let subJwt: string | undefined;
+        if (jwtSec) subJwt = await signJwt({ sub: id, role: "sub-admin", appId, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec);
+        return c.json({ sessionId: id, ...(subJwt ? { token: subJwt } : {}) });
+      }
+      // Enforce per-app login limit — count currently active sessions (device-distinct logins)
     // No auto-expiry: a session is only ever removed by an explicit logout
       // (or "Logout All"), never by a time-based guess. This means a device
       // keeps its login-limit slot until the user actually logs it out.
@@ -2494,8 +2511,13 @@ app.post("/api/admin/sessions", async (c) => {
       `INSERT INTO admin_sessions (id, user_agent, ip, device, app_id, device_id) VALUES ($1, $2, $3, $4, $5, $6)`,
       [id, ua, ip, parseDevice(ua), appId, deviceId || null],
     );
-    return c.json({ sessionId: id });
-  });
+    {
+        const jwtSec2 = (c.env as Env).JWT_SECRET;
+        let subJwt2: string | undefined;
+        if (jwtSec2) subJwt2 = await signJwt({ sub: id, role: "sub-admin", appId, iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+86400 }, jwtSec2);
+        return c.json({ sessionId: id, ...(subJwt2 ? { token: subJwt2 } : {}) });
+      }
+    });
 app.patch("/api/admin/sessions/:id/ping", async (c) => {
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   const rows = await sqlClient(
