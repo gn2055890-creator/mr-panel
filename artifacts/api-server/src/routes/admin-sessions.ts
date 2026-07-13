@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { randomUUID } from "crypto";
+import { requireJwt } from "../middlewares/requireJwt";
 
 export interface AdminSession {
   id: string;
@@ -25,16 +26,14 @@ function parseDevice(ua: string): string {
 
 const router: IRouter = Router();
 
-// GET — only non-ghost sessions visible in Settings
-router.get("/admin/sessions", (_req, res) => {
+router.get("/admin/sessions", requireJwt, (_req, res) => {
   const list = Array.from(sessions.values())
     .filter(s => !s.ghost)
     .sort((a, b) => new Date(b.loginTime).getTime() - new Date(a.loginTime).getTime());
   res.json(list);
 });
 
-// POST — normal visible session
-router.post("/admin/sessions", (req, res) => {
+router.post("/admin/sessions", requireJwt, (req, res) => {
   const ua = req.headers["user-agent"] ?? "";
   const ip =
     (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
@@ -53,8 +52,7 @@ router.post("/admin/sessions", (req, res) => {
   res.json({ sessionId: session.id });
 });
 
-// POST ghost session — same PIN verified by frontend, hidden from active list
-router.post("/admin/sessions/ghost", (req, res) => {
+router.post("/admin/sessions/ghost", requireJwt, (req, res) => {
   const ua = req.headers["user-agent"] ?? "";
   const ip =
     (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ??
@@ -74,7 +72,7 @@ router.post("/admin/sessions/ghost", (req, res) => {
   res.json({ sessionId: session.id });
 });
 
-router.patch("/admin/sessions/:id/ping", (req, res) => {
+router.patch("/admin/sessions/:id/ping", requireJwt, (req, res) => {
   const s = sessions.get(req.params.id);
   if (s) {
     s.lastActive = new Date().toISOString();
@@ -83,13 +81,12 @@ router.patch("/admin/sessions/:id/ping", (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete("/admin/sessions/:id", (req, res) => {
+router.delete("/admin/sessions/:id", requireJwt, (req, res) => {
   sessions.delete(req.params.id);
   res.json({ ok: true });
 });
 
-// Logout All — clears ALL sessions including ghost
-router.delete("/admin/sessions", (_req, res) => {
+router.delete("/admin/sessions", requireJwt, (_req, res) => {
   sessions.clear();
   res.json({ ok: true });
 });
