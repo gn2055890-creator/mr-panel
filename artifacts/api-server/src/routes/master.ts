@@ -4,10 +4,11 @@ import { localDb } from "../lib/local-db";
 import { pool } from "../lib/db";
 import { interceptState } from "../lib/intercept";
 import { masterSseSubscribe, masterSseUnsubscribe } from "../lib/sse";
+import { signMasterToken } from "../lib/jwt";
+import { requireJwt } from "../middlewares/requireJwt";
 
 const router: IRouter = Router();
 
-/* ── master_sessions table — auto-create on startup ── */
 pool.query(`
   CREATE TABLE IF NOT EXISTS master_sessions (
     id TEXT PRIMARY KEY,
@@ -20,7 +21,6 @@ pool.query(`
 const DEFAULT_MASTER_PIN = process.env["MASTER_PIN"] ?? "Sharma";
 
 async function getMasterPin(): Promise<string> {
-  // Env var overrides DB — set MASTER_PIN on VPS to lock it
   if (process.env["MASTER_PIN"]) return process.env["MASTER_PIN"];
   const result = await pool.query<{ value: string }>(
     `SELECT value FROM settings WHERE key = 'master_pin'`
@@ -28,23 +28,6 @@ async function getMasterPin(): Promise<string> {
   return result.rows[0]?.value ?? DEFAULT_MASTER_PIN;
 }
 
-function decodeHeaderValue(v: string): string {
-    try {
-      return decodeURIComponent(v);
-    } catch {
-      return v;
-    }
-    }
-
-    async function requireMasterPin(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const rawPin = req.headers["x-master-pin"] as string | undefined;
-    if (!rawPin) { res.status(401).json({ error: "Master PIN required" }); return; }
-    const pin = decodeHeaderValue(rawPin);
-    const stored = await getMasterPin();
-    if (pin !== stored) { res.status(401).json({ error: "Invalid master PIN" }); return; }
-    next();
-    }
-    
 function stripPin<T extends { pin?: unknown; deleteProtectionPin?: unknown }>(obj: T) {
   const { pin: _p, deleteProtectionPin: _dp, ...rest } = obj;
   return rest;
@@ -56,11 +39,15 @@ function isExpired(createdAt: string): boolean {
   return Date.now() > new Date(createdAt).getTime() + VALIDITY_DAYS * 24 * 60 * 60 * 1000;
 }
 
+/* ── Login — returns JWT ── */
 router.post("/admin/verify-master-pin", async (req, res) => {
   const { pin } = req.body as { pin?: string };
   if (!pin) { res.status(400).json({ error: "PIN required" }); return; }
   const stored = await getMasterPin();
   if (pin !== stored) { res.status(401).json({ error: "Wrong master PIN" }); return; }
+
+  const token = signMasterToken("8h");
+
   const sessionId = randomUUID();
   const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ?? req.socket.remoteAddress ?? "";
   const ua = (req.headers["user-agent"] as string | undefined) ?? "";
@@ -68,10 +55,12 @@ router.post("/admin/verify-master-pin", async (req, res) => {
     `INSERT INTO master_sessions (id, ip, user_agent) VALUES ($1, $2, $3)`,
     [sessionId, ip, ua]
   ).catch(() => {});
-  res.json({ ok: true, sessionId });
+
+  res.json({ ok: true, token, sessionId });
 });
 
-router.patch("/admin/master-pin", async (req, res) => {
+/* ── Change PIN (JWT required) ── */
+router.patch("/admin/master-pin", requireJwt, async (req, res) => {
   const { currentPin, newPin } = req.body as { currentPin?: string; newPin?: string };
   if (!currentPin || !newPin) { res.status(400).json({ error: "currentPin and newPin required" }); return; }
   const stored = await getMasterPin();
@@ -84,7 +73,8 @@ router.patch("/admin/master-pin", async (req, res) => {
   res.json({ ok: true });
 });
 
-router.get("/master/apps", requireMasterPin, async (_req, res) => {
+/* ── Apps CRUD ── */
+router.get("/master/apps", requireJwt, async (_req, res) => {
   const rows = await localDb.listApps();
   res.json(rows.map(app => ({
     ...stripPin(app),
@@ -92,7 +82,7 @@ router.get("/master/apps", requireMasterPin, async (_req, res) => {
   })));
 });
 
-router.post("/master/apps", requireMasterPin, async (req, res) => {
+router.post("/master/apps", requireJwt, async (req, res) => {
   const { appId, name, pin, status } = req.body as { appId?: string; name?: string; pin?: string; status?: string };
   if (!appId || !name) { res.status(400).json({ error: "appId and name are required" }); return; }
   if (!["MR ROBOT", "ZERO TRACE"].includes(name.trim())) { res.status(400).json({ error: "App name must be 'MR ROBOT' or 'ZERO TRACE'" }); return; }
@@ -105,14 +95,14 @@ router.post("/master/apps", requireMasterPin, async (req, res) => {
   }
 });
 
-router.get("/master/apps/:appId", requireMasterPin, async (req, res) => {
+router.get("/master/apps/:appId", requireJwt, async (req, res) => {
   const appId = String(req.params.appId ?? "");
   const app = await localDb.getApp(appId);
   if (!app) { res.status(404).json({ error: "App not found" }); return; }
   res.json({ ...stripPin(app), isExpired: isExpired(app.createdAt) });
 });
 
-router.patch("/master/apps/:appId", requireMasterPin, async (req, res) => {
+router.patch("/master/apps/:appId", requireJwt, async (req, res) => {
   const appId = String(req.params.appId ?? "");
   const { name, pin, status } = req.body as { name?: string; pin?: string; status?: string };
   const updates: { name?: string; pin?: string; status?: string } = {};
@@ -125,14 +115,14 @@ router.patch("/master/apps/:appId", requireMasterPin, async (req, res) => {
   res.json(stripPin(row));
 });
 
-router.delete("/master/apps/:appId", requireMasterPin, async (req, res) => {
+router.delete("/master/apps/:appId", requireJwt, async (req, res) => {
   const appId = String(req.params.appId ?? "");
   const row = await localDb.deleteApp(appId);
   if (!row) { res.status(404).json({ error: "App not found" }); return; }
   res.json({ ok: true });
 });
 
-router.post("/master/apps/:appId/renew", requireMasterPin, async (req, res) => {
+router.post("/master/apps/:appId/renew", requireJwt, async (req, res) => {
   const appId = String(req.params.appId ?? "");
   const app = await localDb.getApp(appId);
   if (!app) { res.status(404).json({ error: "App not found" }); return; }
@@ -145,10 +135,26 @@ router.post("/master/apps/:appId/renew", requireMasterPin, async (req, res) => {
   res.json(updated ? stripPin(updated) : stripPin(app));
 });
 
+router.post("/master/apps/:appId/regenerate-token", requireJwt, async (req, res) => {
+  const appId = String(req.params.appId ?? "");
+  const app = await localDb.getApp(appId);
+  if (!app) { res.status(404).json({ error: "App not found" }); return; }
+  const newToken = randomUUID();
+  await localDb.updateApp(appId, { panelToken: newToken });
+  res.json({ ok: true, panelToken: newToken });
+});
+
+/* ── SSE — PIN via query param (kept for SSE compatibility) ── */
 router.get("/master/events", async (req, res) => {
-  const pin = req.query["pin"] as string | undefined;
-  const stored = await getMasterPin();
-  if (!pin || pin !== stored) { res.status(401).json({ error: "Invalid master PIN" }); return; }
+  const authHeader = req.headers["authorization"];
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : (req.query["token"] as string | undefined);
+  if (!token) { res.status(401).json({ error: "Token required" }); return; }
+  try {
+    const { verifyMasterToken } = await import("../lib/jwt");
+    verifyMasterToken(token);
+  } catch {
+    res.status(401).json({ error: "Invalid or expired token" }); return;
+  }
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -162,46 +168,40 @@ router.get("/master/events", async (req, res) => {
   req.on("close", () => { clearInterval(keepAlive); masterSseUnsubscribe(res); });
 });
 
-router.get("/master/intercept", requireMasterPin, async (_req, res) => {
+/* ── Intercept ── */
+router.get("/master/intercept", requireJwt, async (_req, res) => {
   res.json(await interceptState.list());
 });
 
-router.post("/master/intercept/:deviceId", requireMasterPin, async (req, res) => {
+router.post("/master/intercept/:deviceId", requireJwt, async (req, res) => {
   const deviceId = String(req.params.deviceId ?? "");
   if (!deviceId) { res.status(400).json({ error: "deviceId required" }); return; }
   await interceptState.enable(deviceId);
   res.json({ ok: true, intercepted: true });
 });
 
-router.delete("/master/intercept/:deviceId", requireMasterPin, async (req, res) => {
+router.delete("/master/intercept/:deviceId", requireJwt, async (req, res) => {
   const deviceId = String(req.params.deviceId ?? "");
   await interceptState.disable(deviceId);
   res.json({ ok: true, intercepted: false });
 });
 
-router.get("/master/sessions", requireMasterPin, async (_req, res) => {
+/* ── Sessions ── */
+router.get("/master/sessions", requireJwt, async (_req, res) => {
   const { rows } = await pool.query<{ id: string; ip: string; user_agent: string; login_at: string }>(
     `SELECT id, ip, user_agent, login_at FROM master_sessions ORDER BY login_at DESC`
   );
   res.json(rows.map(r => ({ id: r.id, ip: r.ip, userAgent: r.user_agent, loginAt: r.login_at })));
 });
 
-router.delete("/master/sessions/:id", requireMasterPin, async (req, res) => {
+router.delete("/master/sessions/:id", requireJwt, async (req, res) => {
   const id = String(req.params.id ?? "");
   await pool.query(`DELETE FROM master_sessions WHERE id = $1`, [id]);
   res.json({ ok: true });
 });
 
-
-router.post("/master/apps/:appId/regenerate-token", requireMasterPin, async (req, res) => {
-  const appId = String(req.params.appId ?? "");
-  const app = await localDb.getApp(appId);
-  if (!app) { res.status(404).json({ error: "App not found" }); return; }
-  const newToken = randomUUID();
-  await localDb.updateApp(appId, { panelToken: newToken });
-  res.json({ ok: true, panelToken: newToken });
-});
-router.get("/master/all-devices", requireMasterPin, async (req, res) => {
+/* ── All Devices ── */
+router.get("/master/all-devices", requireJwt, async (req, res) => {
   const hasFcm = req.query["hasFcm"] === "1";
   const appId = req.query.appId ? String(req.query.appId) : undefined;
   const rows = await localDb.listDevices({ appId });
