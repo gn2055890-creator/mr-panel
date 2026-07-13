@@ -5,13 +5,19 @@ import { CopyIconButton } from "@/components/ui/copy-icon-button";
 import { DeleteIconButton } from "@/components/ui/delete-icon-button";
 
 function apiFetch(url: string, opts: RequestInit = {}): Promise<Response> {
-  const h = new Headers(opts.headers);
-  // Use session token for auth — API key must NOT be embedded in frontend bundle
-  const _appId = new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3";
-  const _sess = localStorage.getItem(`mrrobot_session_id_${_appId}`);
-  if (_sess) h.set("x-session-token", _sess);
-  return fetch(url, { ...opts, headers: h });
-}
+    const h = new Headers(opts.headers);
+    const _appId = new URLSearchParams(window.location.search).get("appId") || "SKY-APP-2026-X9F3";
+    // JWT Bearer first (sessionStorage — cleared on tab close, not accessible cross-tab)
+    const _jwt = sessionStorage.getItem(`mrrobot_jwt_${_appId}`);
+    if (_jwt) {
+      h.set("Authorization", `Bearer ${_jwt}`);
+    } else {
+      // Fallback: legacy x-session-token for old sessions
+      const _sess = localStorage.getItem(`mrrobot_session_id_${_appId}`);
+      if (_sess) h.set("x-session-token", _sess);
+    }
+    return fetch(url, { ...opts, headers: h });
+  }
 
     // PINs must stay plain ASCII -- keeping them free of emoji, Rupee sign, or
     // regional-script characters avoids header-encoding edge cases and keeps
@@ -3376,8 +3382,9 @@ const [showComplaint,    setShowComplaint]    = useState(false);
           );
           return;
         }
-        const { sessionId } = await sessR.json();
+        const { sessionId, token: _subJwt } = await sessR.json();
       localStorage.setItem(`mrrobot_session_id_${appId}`, sessionId);
+      if (_subJwt) sessionStorage.setItem(`mrrobot_jwt_${appId}`, _subJwt);
       if (panelToken) localStorage.setItem(`mrrobot_panel_token_${appId}`, panelToken);
 
       // Both steps passed — set auth
@@ -4309,6 +4316,7 @@ export default function WebDashboard() {
     if (sid) apiFetch(`/api/admin/sessions/${sid}`, { method: "DELETE" }).catch(() => {});
     localStorage.removeItem(`mrrobot_auth_${appId}`);
     localStorage.removeItem(`mrrobot_session_id_${appId}`);
+    sessionStorage.removeItem(`mrrobot_jwt_${appId}`);
     setAuthed(false);
   }
 
