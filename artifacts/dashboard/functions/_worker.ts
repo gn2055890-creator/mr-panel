@@ -34,6 +34,49 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
   await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
   return true;
 }
+  // ── JWT helpers (Web Crypto API — Cloudflare Workers compatible) ──
+  async function signJwt(payload: Record<string, unknown>, secret: string): Promise<string> {
+    const enc = (obj: unknown) => btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    const header = { alg: "HS256", typ: "JWT" };
+    const data = `${enc(header)}.${enc(payload)}`;
+    const key = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    return `${data}.${b64}`;
+  }
+
+  async function verifyJwt(token: string, secret: string): Promise<Record<string, unknown> | null> {
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return null;
+      const [headerB64, payloadB64, sigB64] = parts;
+      const key = await crypto.subtle.importKey(
+        "raw", new TextEncoder().encode(secret),
+        { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+      );
+      const sigBytes = Uint8Array.from(atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
+      const valid = await crypto.subtle.verify("HMAC", key, sigBytes, new TextEncoder().encode(`${headerB64}.${payloadB64}`));
+      if (!valid) return null;
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+      if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) return null;
+      return payload;
+    } catch { return null; }
+  }
+
+  async function requireJwt(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<boolean> {
+    const secret = (c.env as Env).JWT_SECRET;
+    if (!secret) return false;
+    const auth = c.req.header("Authorization") ?? "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+    if (!token) return false;
+    const payload = await verifyJwt(token, secret);
+    return payload !== null;
+  }
+
+  
 import { cors } from "hono/cors";
 import { neon, neonConfig } from "@neondatabase/serverless";
 neonConfig.fetchConnectionCache = true;
@@ -1770,8 +1813,17 @@ app.post("/api/master/change-pin", async (c) => {
   // Clean up old sessions (keep last 20)
   await sqlC(`DELETE FROM master_sessions WHERE id NOT IN (SELECT id FROM master_sessions ORDER BY login_at DESC LIMIT 20)`).catch(() => {});
 
-  return c.json({ ok: true, sessionId });
-});
+  // Issue a JWT for the admin panel session
+    const jwtSecret = (c.env as Env).JWT_SECRET;
+    let token: string | undefined;
+    if (jwtSecret) {
+      token = await signJwt(
+        { sub: sessionId, role: "master", iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 86400 },
+        jwtSecret
+      );
+    }
+    return c.json({ ok: true, sessionId, ...(token ? { token } : {}) });
+  });
 
 // ── Master Login Sessions ──
 // POST: register current session (for already-logged-in users)
