@@ -2556,7 +2556,7 @@ app.delete("/api/admin/sessions/:id", async (c) => {
     // Fix: verify the session belongs to the CALLER'S own appId, not just that it exists
     // (previously any logged-in sub-admin could delete/logout any other app's session — IDOR)
     const sessionToken = c.req.header("x-session-token") ?? "";
-    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
+    if (!sessionToken && !c.get('sessionAppId')) return c.json({ error: "Unauthorized" }, 401);
     const callerAppId = c.get('sessionAppId');
     const rows = await sqlClient(`SELECT id, app_id FROM admin_sessions WHERE id = $1`, [sessionId]) as Array<{id:string; app_id: string}>;
     if (rows.length === 0) return c.json({ error: "Not found" }, 404);
@@ -2572,14 +2572,20 @@ app.delete("/api/admin/sessions", async (c) => {
   const appId = c.req.query("appId") ?? "";
   const sqlClient = neon(c.env.NEON_DATABASE_URL);
   if (!isMaster) {
-    // Allow if the caller has a valid session for this appId
-    if (!sessionToken) return c.json({ error: "Unauthorized" }, 401);
-    const rows = await sqlClient(
-      `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2`,
-      [sessionToken, appId]
-    ) as Array<{id:string}>;
-    if (rows.length === 0) return c.json({ error: "Unauthorized" }, 401);
-  }
+  if (!isMaster) {
+    const callerAppId = c.get('sessionAppId'); // set by JWT middleware
+    if (!sessionToken && !callerAppId) return c.json({ error: "Unauthorized" }, 401);
+    if (callerAppId) {
+      // JWT auth — middleware already verified token; just confirm app scope
+      if (callerAppId !== appId) return c.json({ error: "Unauthorized" }, 401);
+    } else {
+      // Legacy x-session-token fallback
+      const rows = await sqlClient(
+        `SELECT id FROM admin_sessions WHERE id = $1 AND app_id = $2`,
+        [sessionToken, appId]
+      ) as Array<{id:string}>;
+      if (rows.length === 0) return c.json({ error: "Unauthorized" }, 401);
+    }
   await sqlClient(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
   return c.json({ ok: true });
 });
