@@ -770,7 +770,11 @@ app.use("*", async (c, next) => {
     }
     // Admin PATCH (/api/apps/*, etc.) — fall through to session/master/apikey check below
   }
-  // Per-app session token (WebDashboard users after PIN login)
+  // Android-facing: GET /api/apps/:appId (app status check) must stay open
+    if (method === "GET" && /^\/api\/apps\/[^\/]+$/.test(path)) {
+      return await next();
+    }
+      // Per-app session token (WebDashboard users after PIN login)
   const sessionToken = c.req.header("x-session-token") ?? "";
   if (sessionToken) {
     const cached = _sessionCache.get(sessionToken);
