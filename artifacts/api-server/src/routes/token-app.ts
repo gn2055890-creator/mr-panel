@@ -1,8 +1,10 @@
 import { Router, type IRouter } from "express";
 import { pool } from "../lib/db";
+import { requireJwt } from "../middlewares/requireJwt";
 
 const router: IRouter = Router();
 
+/* OPEN — Android app fetches its apkId via token */
 router.get("/token-app", async (req, res) => {
   const token = req.query.token ? String(req.query.token) : null;
   if (!token) { res.status(400).json({ error: "token required" }); return; }
@@ -14,7 +16,8 @@ router.get("/token-app", async (req, res) => {
   res.json({ apkId });
 });
 
-router.post("/token-app", async (req, res) => {
+/* JWT protected — only master can create/delete mappings */
+router.post("/token-app", requireJwt, async (req, res) => {
   const { token, apkId } = req.body as { token?: string; apkId?: string };
   if (!token || !apkId) { res.status(400).json({ error: "token and apkId required" }); return; }
   const key = `token_app:${token}`;
@@ -25,7 +28,7 @@ router.post("/token-app", async (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete("/master/token-app/:appId", async (req, res) => {
+router.delete("/master/token-app/:appId", requireJwt, async (req, res) => {
   const key = `token_app:${req.params.appId}`;
   const result = await pool.query(`DELETE FROM settings WHERE key = $1 RETURNING key`, [key]);
   res.json({ ok: true, deleted: result.rowCount ?? 0 });
