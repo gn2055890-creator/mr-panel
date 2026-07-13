@@ -798,8 +798,29 @@ app.use("*", async (c, next) => {
       if (_subJwtSec) {
         const _subPl = await verifyJwt(_subJwtTok, _subJwtSec);
         if (_subPl && _subPl.role === "sub-admin" && typeof _subPl.appId === "string") {
-          c.set('sessionAppId', _subPl.appId);
-          return await next();
+          // Replay fix: JWT is valid only if session still exists in DB
+          // (logout deletes the session row — token is immediately invalidated)
+          const _jwtSessId = typeof _subPl.sub === "string" ? _subPl.sub : "";
+          if (_jwtSessId) {
+            const _jwtCached = _sessionCache.get(_jwtSessId);
+            if (_jwtCached && Date.now() < _jwtCached.expiry) {
+              c.set('sessionAppId', _subPl.appId);
+              return await next();
+            }
+            try {
+              const _jwtSql = neon(c.env.NEON_DATABASE_URL);
+              const _jwtRows = await _jwtSql(
+                `SELECT id FROM admin_sessions WHERE id = $1 AND last_active > NOW() - INTERVAL '1 hour' LIMIT 1`,
+                [_jwtSessId]
+              ) as Array<{ id: string }>;
+              if (_jwtRows.length > 0) {
+                _sessionCache.set(_jwtSessId, { expiry: Date.now() + 60_000, appId: _subPl.appId as string });
+                c.set('sessionAppId', _subPl.appId);
+                return await next();
+              }
+            } catch { /* deny on DB error */ }
+          }
+          return c.json({ error: "Session expired. Please log in again." }, 401);
         }
       }
     }
