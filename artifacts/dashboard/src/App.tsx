@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useState, useEffect } from "react";
 import WebDashboard, { SubAdminLoginPage } from "@/pages/WebDashboard";
 import MainAdminPanel, { MasterLoginPage } from "@/pages/MainAdminPanel";
 import { TopProgressBar } from "@/components/ui/top-progress";
@@ -14,14 +15,34 @@ function NotFound() {
   );
 }
 
+// Route strings are never stored — only their SHA-256 hashes
+async function _h(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function SecretGateway() {
+  const [view, setView] = useState<"loading" | "main" | "access" | "404">("loading");
+  useEffect(() => {
+    const p = window.location.pathname;
+    _h(p).then(h => {
+      if (h === "939f7cec75dba1897bb7394fb92c93e650f84319ab6407cceb576126233aa3c9") setView("main");
+      else if (h === "dc80d02df4953447479fc133d0b95389d6222ac8fdecd8781df7851a752a81ff") setView("access");
+      else setView("404");
+    });
+  }, []);
+  if (view === "loading") return null;
+  if (view === "main") return <MainAdminPanel />;
+  if (view === "access") return <MasterLoginPage />;
+  return <NotFound />;
+}
+
 function Router() {
   return (
     <Switch>
       <Route path="/preview/dashboard/WebDashboard" component={WebDashboard} />
       <Route path="/login" component={SubAdminLoginPage} />
-      <Route path="/317e781ab525/a68e0143156d/f072e5c62bf1" component={MainAdminPanel} />
-      <Route path="/317e781ab525/a68e0143156d/f072e5c62bf1-access" component={MasterLoginPage} />
-      <Route component={NotFound} />
+      <Route component={SecretGateway} />
     </Switch>
   );
 }

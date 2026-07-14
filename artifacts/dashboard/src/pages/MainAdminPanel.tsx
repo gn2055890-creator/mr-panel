@@ -2503,8 +2503,8 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
       if (r.ok) {
         const list = await r.json() as MasterSession[];
         const tracked = sessionId && list.some(s => s.id === sessionId);
-        if (!tracked) {
-          // Current session not in DB yet — register it now, then re-fetch
+        if (!sessionId) {
+          // Fresh login — sessionId not registered yet, create one now
           const pr = await apiFetch("/api/master/sessions", { method: "POST", headers: { "x-master-pin": masterPin } });
           if (pr.ok) {
             const j = await pr.json() as { sessionId: string };
@@ -2515,6 +2515,11 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
           }
           const r2 = await apiFetch("/api/master/sessions", { headers: { "x-master-pin": masterPin } });
           if (r2.ok) setMSessions(await r2.json() as MasterSession[]);
+        } else if (!tracked) {
+          // sessionId exists but not found in DB — session was revoked remotely, force logout
+          sessionStorage.removeItem("mrrobot_master_token");
+          sessionStorage.removeItem("mrrobot_master_sid");
+          window.location.reload();
         } else {
           setMSessions(list);
         }
@@ -2530,7 +2535,7 @@ function SettingsTab({ apps, masterPin, sessionId, onSessionIdUpdate }: { apps: 
       await apiFetch(`/api/master/sessions/${id}`, { method: "DELETE", headers: { "x-master-pin": masterPin } });
       setMSessions(prev => prev.filter(s => s.id !== id));
       if (id === sessionId) {
-        sessionStorage.removeItem("mrrobot_master_auth");
+        sessionStorage.removeItem("mrrobot_master_token");
         sessionStorage.removeItem("mrrobot_master_sid");
         window.location.reload();
       }
