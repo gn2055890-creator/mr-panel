@@ -2289,6 +2289,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
   const [dpChangePinErr, setDpChangePinErr] = useState("");
   const [dpShowToggleDialog, setDpShowToggleDialog] = useState(false);
   const [dpShowChangePinDialog, setDpShowChangePinDialog] = useState(false);
+  const [shootUrlDialog, setShootUrlDialog] = useState(false);
 
   /* ── APK download state ── */
   const [apkLoading, setApkLoading] = useState(false);
@@ -2781,7 +2782,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               Create a Play Store-style download page for your Shoot app. Share the link with users so they can install directly without searching.
             </div>
             <button
-              onClick={() => alert("This feature has been removed from older versions.\n\nGenerate Shoot URL is now available on version 7.0 and above.")}
+              onClick={() => setShootUrlDialog(true)}
               style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "11px 0", borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontWeight: 800, fontSize: 13, border: "none", cursor: "pointer", width: "100%", boxShadow: "0 4px 16px rgba(99,102,241,0.4)", letterSpacing: 0.3 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -3209,6 +3210,40 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               <button onClick={() => { setDpShowChangePinDialog(false); setDpCurrentPin(""); setDpPinNew(""); setDpChangePinErr(""); }} disabled={dpLoading} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: t.hdr, border: `1px solid ${t.cardB}`, color: t.txt, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
               <button onClick={() => void dpChangePin()} disabled={dpLoading || !dpCurrentPin || dpPinNew.length < 4} style={{ flex: 1, padding: "10px 0", borderRadius: 9, background: t.accent, border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? "not-allowed" : "pointer", opacity: dpLoading || !dpCurrentPin || dpPinNew.length < 4 ? 0.6 : 1 }}>{dpLoading ? "…" : "Update"}</button>
             </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Generate Shoot URL — Info Dialog ── */}
+      {shootUrlDialog && createPortal(
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget) setShootUrlDialog(false); }}>
+          <div style={{ background: t.card, borderRadius: 14, width: "100%", maxWidth: 320, padding: 24, display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: "0 4px 12px rgba(99,102,241,0.4)" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </div>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: t.txt }}>Generate Shoot URL</div>
+                <div style={{ display: "inline-flex", alignItems: "center", marginTop: 4, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", borderRadius: 99, padding: "2px 8px" }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", letterSpacing: 0.5 }}>NEW IN v7.0</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ background: t.hdr, borderRadius: 10, padding: "12px 14px", border: `1px solid ${t.cardB}` }}>
+              <div style={{ fontSize: 13, color: t.txt, lineHeight: 1.6 }}>
+                This feature has been removed from older versions.
+              </div>
+              <div style={{ fontSize: 13, color: t.muted, lineHeight: 1.6, marginTop: 6 }}>
+                Generate Shoot URL is now available on <span style={{ fontWeight: 700, color: t.txt }}>version 7.0 and above</span>.
+              </div>
+            </div>
+            <button
+              onClick={() => setShootUrlDialog(false)}
+              style={{ padding: "11px 0", borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", border: "none", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 12px rgba(99,102,241,0.35)" }}>
+              Got it
+            </button>
           </div>
         </div>,
         document.body
