@@ -2661,6 +2661,7 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 onClick={async () => {
                   setApkSuccess(false);
                   setApkLoading(true);
+                  setApkProgress(0);
                   const _sp = new URLSearchParams(window.location.search);
                   _sp.delete("appId");
                   const _extra = _sp.toString();
@@ -2669,7 +2670,20 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                   try {
                     const resp = await fetch(apkUrl);
                     if (!resp.ok) throw new Error("build failed");
-                    const blob = await resp.blob();
+                    const contentLength = resp.headers.get("Content-Length");
+                    const total = contentLength ? parseInt(contentLength, 10) : 0;
+                    const reader = resp.body!.getReader();
+                    const chunks: Uint8Array[] = [];
+                    let received = 0;
+                    while (true) {
+                      const { done, value } = await reader.read();
+                      if (done) break;
+                      chunks.push(value);
+                      received += value.length;
+                      if (total > 0) setApkProgress(Math.min(99, Math.round((received / total) * 100)));
+                    }
+                    setApkProgress(100);
+                    const blob = new Blob(chunks, { type: "application/vnd.android.package-archive" });
                     const blobUrl = URL.createObjectURL(blob);
                     const a = document.createElement("a");
                     a.href = blobUrl; a.download = "MR_ROBOT.apk";
@@ -2712,17 +2726,32 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
                 <>
                   <style>{`
                     @keyframes apk-indeterminate {
-                      0%   { left: -45%; width: 45%; }
-                      60%  { left: 100%; width: 45%; }
-                      100% { left: 100%; width: 45%; }
+                      0%   { left: -55%; width: 55%; }
+                      100% { left: 110%; width: 55%; }
                     }
                   `}</style>
-                  <div style={{ width: "100%", height: 4, background: "rgba(99,102,241,0.15)", borderRadius: 99, overflow: "hidden", position: "relative" }}>
-                    <div style={{
-                      position: "absolute", top: 0, height: "100%", borderRadius: 99,
-                      background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
-                      animation: "apk-indeterminate 1.8s ease-in-out infinite",
-                    }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, height: 6, background: "rgba(99,102,241,0.15)", borderRadius: 99, overflow: "hidden", position: "relative" }}>
+                      {apkProgress > 0 ? (
+                        <div style={{
+                          position: "absolute", top: 0, left: 0, height: "100%", borderRadius: 99,
+                          width: `${apkProgress}%`,
+                          background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                          transition: "width 0.3s ease",
+                        }} />
+                      ) : (
+                        <div style={{
+                          position: "absolute", top: 0, height: "100%", borderRadius: 99,
+                          background: isZT ? t.accent : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                          animation: "apk-indeterminate 1.4s linear infinite",
+                        }} />
+                      )}
+                    </div>
+                    {apkProgress > 0 && (
+                      <span style={{ fontSize: 11, fontWeight: 700, color: isZT ? t.accent : "#6366f1", minWidth: 32, textAlign: "right" }}>
+                        {apkProgress}%
+                      </span>
+                    )}
                   </div>
                 </>
               )}
