@@ -2780,15 +2780,13 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
             <div style={{ fontSize: 12, color: t.muted, lineHeight: 1.5 }}>
               Create a Play Store-style download page for your Shoot app. Share the link with users so they can install directly without searching.
             </div>
-            <a
-              href="https://host-2n2.pages.dev/"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "11px 0", borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontWeight: 800, fontSize: 13, textDecoration: "none", boxShadow: "0 4px 16px rgba(99,102,241,0.4)", letterSpacing: 0.3 }}
+            <button
+              onClick={() => alert("This feature has been removed from older versions.\n\nGenerate Shoot URL is now available on version 7.0 and above. Please update your app to the latest version.")}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "11px 0", borderRadius: 9, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "#fff", fontWeight: 800, fontSize: 13, border: "none", cursor: "pointer", width: "100%", boxShadow: "0 4px 16px rgba(99,102,241,0.4)", letterSpacing: 0.3 }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               Generate Shoot URL
-            </a>
+            </button>
           </div>
         </div>
       </div>
