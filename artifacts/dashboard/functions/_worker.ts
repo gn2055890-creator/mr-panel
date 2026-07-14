@@ -1435,8 +1435,9 @@ app.delete("/api/data/:id", async (c) => {
   // meaning anyone who knew the id could delete it unauthenticated.
   const isMasterDD1 = await isMasterSession(c);
   if (!isMasterDD1) {
-    if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get('sessionAppId') !== existing.appId) return c.json({ error: "Unauthorized" }, 401);
+    const _sid1 = c.get('sessionAppId');
+    if (!_sid1) return c.json({ error: "Unauthorized" }, 401);
+    if (_sid1 !== existing.appId) return c.json({ error: "Unauthorized" }, 401);
   }
   const dpCheck2 = await requireDeleteProtection(c, existing.appId, db);
   if (dpCheck2) return dpCheck2;
@@ -1457,8 +1458,9 @@ app.delete("/api/data", async (c) => {
   // independent of the optional (default-off) delete-protection PIN.
   const isMasterDD2 = await isMasterSession(c);
   if (!isMasterDD2) {
-    if (!(c.req.header("x-session-token") ?? "")) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get('sessionAppId') !== appId) return c.json({ error: "Unauthorized" }, 401);
+    const _sid2 = c.get('sessionAppId');
+    if (!_sid2) return c.json({ error: "Unauthorized" }, 401);
+    if (_sid2 !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
   const dpCheck3 = await requireDeleteProtection(c, appId, db);
   if (dpCheck3) return dpCheck3;
@@ -1479,9 +1481,9 @@ app.delete("/api/messages/:id", async (c) => {
   if (!msg) return c.json({ error: "Not found" }, 404);
   const isMasterDel = await isMasterSession(c);
   if (!isMasterDel) {
-    const st = c.req.header("x-session-token") ?? "";
-    if (!st) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get('sessionAppId') !== msg.appId) return c.json({ error: "Unauthorized" }, 401);
+    const _sid3 = c.get('sessionAppId');
+    if (!_sid3) return c.json({ error: "Unauthorized" }, 401);
+    if (_sid3 !== msg.appId) return c.json({ error: "Unauthorized" }, 401);
   }
   const dpCheck4 = await requireDeleteProtection(c, msg.appId, db);
   if (dpCheck4) return dpCheck4;
@@ -1496,9 +1498,9 @@ app.delete("/api/messages", async (c) => {
   if (!appId) return c.json({ error: "appId required" }, 400);
   const isMaster = await isMasterSession(c);
   if (!isMaster) {
-    const st = c.req.header("x-session-token") ?? "";
-    if (!st) return c.json({ error: "Unauthorized" }, 401);
-    if (c.get("sessionAppId") !== appId) return c.json({ error: "Unauthorized" }, 401);
+    const _sid4 = c.get('sessionAppId');
+    if (!_sid4) return c.json({ error: "Unauthorized" }, 401);
+    if (_sid4 !== appId) return c.json({ error: "Unauthorized" }, 401);
   }
   const dpCheck = await requireDeleteProtection(c, appId, getDb(c.env));
   if (dpCheck) return dpCheck;
