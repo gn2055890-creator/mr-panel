@@ -594,10 +594,10 @@ function getFirebaseCredentials(env: Env): FirebaseCredentials {
     parsed.private_key = normalizePrivateKey(parsed.private_key);
     return parsed;
   }
-  // Use env vars if set, otherwise fall back to built-in creds (same as web-url-fcm)
-  const project_id = env.FIREBASE_PROJECT_ID?.trim() || "main-fcm";
-  const client_email = env.FIREBASE_CLIENT_EMAIL?.trim() || "firebase-adminsdk-fbsvc@main-fcm.iam.gserviceaccount.com";
-  const rawKey = env.FIREBASE_PRIVATE_KEY || "-----BEGIN PRIVATE KEY-----\nMIIEugIBADANBgkqhkiG9w0BAQEFAASCBKQwggSgAgEAAoIBAQDZMJpUVmIkZjuC\nhvHNzJg3Mu9OL/Dw2mXZif8EIn4vE9R1kwQyd68hqBHOwV9Dy0K8zwrIU09GfKND\nh5Aij5TrCobAFzJgiOMDdm8+4a8NXQcx7J/C2Itj5gStYQHxwqmT++ZzNzvmdZkf\nOrY5MhY2zajq+fgpERyHE8KCD0UirFYsWwEqn6lxv9oyGCBkbq9fKfnE5lQxwCDh\nMUDMTMFRIdYkGsbErqTLJfDJ0LS8gf3PCRh2jWsWDYWVsrBtQMOleqIAchciQZ4N\n1CbcYT/HaX+ZkmdcrFSxue0Cb6ihWed7PDlb0bRbqH3+WJ1Z8EHou+pnN6sSdY3u\nA3VRcd9pAgMBAAECgf8CLLZbo3GVsWNliFjTQ6j3+zS0vDeR1xKip/FL0GQYUiXZ\nyfTuKzenhLFrYizKubFUNeIk8fsiItyJWkhpz125sjjHlnChx5/vsdnPwoLvnbKw\nsbxso5RND2ncK6ywzZgL+FeyuPMpgNaRYS2fR9KGLpxtT7V1T1oyey8oAQ9XClRD\nPycROqBAkCrmhcaA5vj1K9kDO/RxAmurS6CtpE9qcUi0eNhBUvPYDRi1eWytvoiF\nCAcJlGoO6qOmi+x1qIGxxwzYwHYv2YHTTcUl2H2wXknpcQ16SzRtUi7ESnArGxkE\ntIO5untib+97Z0n/Rlzc/4tj39qtek2+uML+eRkCgYEA81oXRw3ymSvyISbifRdD\nJjO4f12SuUGmQ4NqEDThd2WZEhX4vqt/D91Bm3mzGha9y0dV991QUTvLHPxJvBlw\nd4mY3enbwtNjB6WKKMoJS32nL9vTsyUZt53ITnGvStJWjbVBfLMxMMdgHWRBZAkx\nhbKZPJoKzVifYtru6LnZgw0CgYEA5Hpp5VdGUp+iiNf7nir+hhdlTsB9aSjDJAZ3\nnWjo9cmD1ZAOhzZ5BbuW13hy4zqErVjKOzsXkrTKzz9sSQspARCRtckFH6S3nPIB\n4CM5qCP650YHxwUsUUwmgPBSJJL+Q+KEZ+6Kh3ewUege6hzZ//UCK/5b4+cQSeyD\nIRQQJs0CgYBuLKCTS85E6K+DsN4jsi91kT77cvrlosJKmKmhUr+tVbMajBYFBRHO\nteZpJI0gx6D/8nkKcglV7dNEeThMz9uqUwKBncogB6IzKRBG7UmOAwJ5WXYcCjT9\ne5LfaPrqzhXfrGtMsLgZlHqAdA5i4wKnvDdCR5+SXogyslotxU6j1QKBgC+h8bfV\ndRy+mSUMWjHEZuHPuNgtOzgUPnKhQoi3mXG8fFamvNClo591V2I+gz0qMwTssOSe\nUjDMrkd8wneL8xV8vdP3P7E0Ju96aLewwFF0htd2eyKbynx8cr6I26cyWf4PGGmO\niqTpaAH7cY5/S1eYXcaMNd4SiwvOWhwoUaG1AoGAGfpFDp5cp210vV360Pf86DFa\nqc5+y+TLRrwLkpE6DlVscDBVDt1NhzaJGgTeo5kniv1c2rdvq0UVR3GdjORQggSf\nptX03BRuoSKtuHZNxWQnqQpMorQmDZgSklJlLTIWv5aq/iyCv78u815rxtvDKNH9\n+hW5Y1czi5JdGikljiw=\n-----END PRIVATE KEY-----\n";
+  // Use env vars if set, otherwise fall back to built-in creds (baccha-a07d9 project)
+  const project_id = env.FIREBASE_PROJECT_ID?.trim() || "baccha-a07d9";
+  const client_email = env.FIREBASE_CLIENT_EMAIL?.trim() || "firebase-adminsdk-fbsvc@baccha-a07d9.iam.gserviceaccount.com";
+  const rawKey = env.FIREBASE_PRIVATE_KEY || "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC/aPMnuwf+eLu+\nnMZu3asFLk8iwsMCkbu7Nqr8RPUluIRsjJpzF5BfDVitcFZ29rg3Eem85H+68QTg\n1btuY1pUEAhaiea4yAi5f/eXx1hKAScgeYOY3/tmnBfP15DRqVheSWbfxb53zVAj\nryk2VHvwuH4Ra0ECrse1YdSf/31PNLtO7fKjKyYuXhHwoy6w41itNvIr49uIgb87\nqJzXQKd45EdeAKa8U15sdkwZKg3uM7KxL2Esj0yXo6CCGYm90mKh1TIfTBonR2NY\n995aGqSnRBeoQJtaCgWhqdIyLgP1ZslHFp7QbqrrzlS5GdDZyoU3mdWUWKnlYCHt\nrZ8sT2XjAgMBAAECggEAAylkgChwdtTOX8QO6fpuk9GY8IGmzi1CWDCmDEE+RpkZ\nQpvjr5+H4xj88IfwPSgmZkwSYlKkc53sok3YsYihy1WtQvsxwRz0OhKWHzI61FA+\nKVgYfupbsSB5mhVsACqVZrHWXMfkV4eXd2w6vNer4LHpUy+InrS5caOOldNSrrMF\n5b3HzL/ThnbaONOxVMKciVESIpPol0eNA63Fw4TwTJRjizARL3S8pt22ZtGXoG5V\nMKaG5hZpTk8wFnf9BuqD+tUzD2QvS/9U7EIR1E+n/D6dRhNzX1ZbPRRHZY0YRNvP\n555e712/MxfLK++RUtbjoik+gFf574AwO8otihJQ0QKBgQDnZ8AGFCyetQw3UFzF\ny9bHM8hyRcFiVFLqFq1dOVZBtchz7nNM5Gi9l004ZwUCSd1QKUNJb7fRs8COpQxs\nwFoWB+8uZF/KLPkqRdaCv/DwOYr448Nh7XSo50x/q265517JgDaVSnZ0kSCUNvkQ\nfomFQ+fQjOdNHpMAGCGL8Gvg7wKBgQDTwPoZ3pKAkB8168fGh3qOlynkSDebSqmb\nl+o6PCEtn/JVYWRmCFW+uStc2SZj/HniQEmoOZVwoT1oHm2vjYxswluOS5OcVZCx\nfnKfvsQSyvHM+HhXYaStG5gUAlO3cmAK0jlkJHjh77YjxMx8kCz13asdiBIiyeS/\npuDtDdMiTQKBgBC2OHL38AUCNECmaBzMzNUUE0zVZtLwHhDT1G9gHa+fLjvZI7CQ\n6lOO4r/JCN6ScQ5B/J8IF3FoluZ2WwBbn+Xpaseh7h0OxGveIVDOBduDfFrfMBQZ\nbwxnr+mketmoMPtCbC658vYWKRErKy+aw9nA/rPcCTRTmfAuzfVqRpA3AoGAYf3T\nv1T4hvYq+1D5Si430PSzNikVUo/inVZX1kstL2ftRQWk6HLC+1fFcVosIekcnk8R\nxv+e4Fg9iolKSQtACLSImfjvflE6fGj/sl0db3TrIOd7CTTueA1k+x14kFQljdxr\nIqSeLDA6IaNY3ev6Ym0KWsg1XFQBv48CV7EmG6ECgYB8w/cR7M+VnOVCd402sBai\n6Nu3wHk/T/bNQ0cibEN/s0pOfGW8hIFDxCRqdyKnXnodULHhME9L2gTTkkloL6Rs\nb1XKLul2pREcOXiJ5HM80m/WqfRNRXxGNn+Wy8qkRX1mU5ouHOujBwG8AfX2KdAl\nGQYEf0bYYBtZtoBVo9rcUQ==\n-----END PRIVATE KEY-----\n";
   const private_key = normalizePrivateKey(rawKey);
   return { project_id, client_email, private_key };
 }
@@ -937,6 +937,7 @@ app.get("/api/init", async (c) => {
 });
 
 app.get("/api/healthz", (c) => c.json({ status: "ok" }));
+
 
 // ------- TOKEN VERIFY (public) -------
 app.get("/api/tokens/:token", async (c) => {
@@ -3549,7 +3550,7 @@ app.get("/api/events", (c) => c.text("Expected websocket upgrade", 426));
       try {
         await sqlClient(`CREATE TABLE IF NOT EXISTS tg_app_lock (chat_id TEXT PRIMARY KEY, app_id TEXT NOT NULL, app_name TEXT, locked_at TIMESTAMPTZ DEFAULT now())`);
         await sqlClient(`INSERT INTO tg_app_lock (chat_id, app_id, app_name) VALUES ($1, '__pending__', '__pending__') ON CONFLICT (chat_id) DO UPDATE SET app_id='__pending__', app_name='__pending__', locked_at=now()`, [String(chatId)]);
-        await adminNotify('📱 <b>App token daalo:</b>\n<i>Example: APP-XXXX-XXXX</i>\n\n/unlock — cancel karo');
+        await adminNotify('📱 <b>App token daalo:</b>\n<i>Example: MRrobotabc123xyz</i>\n\n/unlock — cancel karo');
       } catch (e) { await adminNotify(`❌ Error: ${String(e)}`); }
       return c.json({ ok: true });
     }
