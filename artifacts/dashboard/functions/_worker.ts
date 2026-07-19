@@ -32,18 +32,8 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
         if (payload && payload.role === "master") return true;
       }
     }
-    // Legacy: x-master-session DB-backed token
-    const token = c.req.header("x-master-session");
-    if (!token) return false;
-    const sqlC = neon(c.env.NEON_DATABASE_URL);
-    // Ping-based liveness: the master panel calls POST /api/master/ping every ~15s while the
-    // browser tab is actually open, which (like every authenticated request) bumps login_at.
-    // If the browser/tab is closed, no more pings arrive, so login_at goes stale and the
-    // session is treated as dead within ~2min — no reliance on unload events or client storage.
-    const rows = await sqlC(`SELECT id FROM master_sessions WHERE id = $1 AND login_at > NOW() - INTERVAL '2 minutes' LIMIT 1`, [token]).catch(() => []) as Array<{ id: string }>;
-    if (rows.length === 0) return false;
-    await sqlC(`UPDATE master_sessions SET login_at = NOW() WHERE id = $1`, [token]).catch(() => {});
-    return true;
+    // JWT only — legacy x-master-session removed
+    return false;
   }
   // ── JWT helpers (Web Crypto API — Cloudflare Workers compatible) ──
   async function signJwt(payload: Record<string, unknown>, secret: string): Promise<string> {
@@ -81,6 +71,31 @@ async function isMasterSession(c: Parameters<typeof app.use>[1] extends (c: infe
         return payload;
       } catch { return null; }
     }
+// ── PBKDF2 PIN helpers (Web Crypto API — Cloudflare Workers compatible) ──
+async function hashPin(pin: string, pepper: string): Promise<string> {
+  const enc = new TextEncoder();
+  const keyMat = await crypto.subtle.importKey("raw", enc.encode(pin + pepper), "PBKDF2", false, ["deriveBits"]);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 100_000 }, keyMat, 256);
+  const b64 = (b: Uint8Array) => btoa(Array.from(b).map(x => String.fromCharCode(x)).join("")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  return `pbkdf2:v1:100000:${b64(salt)}:${b64(new Uint8Array(bits))}`;
+}
+async function verifyHashedPin(pin: string, stored: string, pepper: string): Promise<boolean> {
+  if (!stored.startsWith("pbkdf2:")) return stored === pin; // plain-text legacy — auto-upgrades on next login
+  const parts = stored.split(":");
+  if (parts.length !== 5) return false;
+  const [, , iterStr, saltB64, hashB64] = parts;
+  const iterations = parseInt(iterStr, 10);
+  const fromB64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+  const salt = fromB64(saltB64);
+  const keyMat = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin + pepper), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations }, keyMat, 256);
+  const derived = new Uint8Array(bits); const expected = fromB64(hashB64);
+  if (derived.length !== expected.length) return false;
+  let diff = 0; for (let i = 0; i < derived.length; i++) diff |= derived[i] ^ expected[i];
+  return diff === 0;
+}
+
   async function requireJwt(c: Parameters<typeof app.use>[1] extends (c: infer C, n: () => Promise<void>) => unknown ? C : never): Promise<boolean> {
     const secret = (c.env as Env).JWT_SECRET;
     if (!secret) return false;
@@ -113,6 +128,8 @@ type Env = {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  PIN_PEPPER?: string;
+  JWT_SECRET?: string;
 };
 
 // =================== SCHEMA ===================
@@ -410,6 +427,11 @@ async function ensureSchema(env: Env): Promise<void> {
         `INSERT INTO settings (key, value) VALUES ('master_pin', 'CHANGE-ME-4e5fdd7e-206')
          ON CONFLICT (key) DO NOTHING`,
       ),
+      // Migration: ensure default app has a PIN row
+      sqlClient(
+        `INSERT INTO app_secrets (app_id, pin) VALUES ($1, $2) ON CONFLICT (app_id) DO NOTHING`,
+        [DEFAULT_APP_ID, DEFAULT_APP_PIN],
+      ).catch(() => {}),
       sqlClient(
         `INSERT INTO settings (key, value) VALUES ('master_max_attempts', '5')
          ON CONFLICT (key) DO NOTHING`,
@@ -1020,8 +1042,11 @@ app.post("/api/apps", async (c) => {
       appId: body.appId, name: body.name, status: body.status ?? "active",
     }).onConflictDoNothing({ target: apps.appId }).returning();
     if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
+    const pepperNew = (c.env as Env).PIN_PEPPER ?? "";
+    const rawPin = (body.pin ?? "1234").trim();
+    const hashedNewPin = await hashPin(rawPin, pepperNew);
     await db.insert(appSecrets).values({
-      appId: body.appId, pin: body.pin ?? "1234",
+      appId: body.appId, pin: hashedNewPin,
     }).onConflictDoNothing({ target: appSecrets.appId });
     await db.insert(appPanelTokens).values({
       appId: body.appId, panelToken: crypto.randomUUID(),
@@ -1061,11 +1086,14 @@ app.patch("/api/apps/:appId", async (c) => {
     if (body.pin !== undefined) {
       const [existingSecret] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
       if (!existingSecret) return c.json({ error: "App not found" }, 404);
+      const pepperP = (c.env as Env).PIN_PEPPER ?? "";
       if (!isMaster) {
         if (!body.currentPin) return c.json({ error: "currentPin required to change PIN" }, 400);
-        if (body.currentPin !== existingSecret.pin) return c.json({ error: "Wrong current PIN" }, 401);
+        const curPinOk = await verifyHashedPin(body.currentPin, existingSecret.pin, pepperP);
+        if (!curPinOk) return c.json({ error: "Wrong current PIN" }, 401);
       }
-      await db.update(appSecrets).set({ pin: body.pin }).where(eq(appSecrets.appId, appId));
+      const hashedP = await hashPin(body.pin, pepperP);
+      await db.update(appSecrets).set({ pin: hashedP }).where(eq(appSecrets.appId, appId));
       pinChanged = true;
     }
 
@@ -1100,6 +1128,27 @@ app.delete("/api/apps/:appId", async (c) => {
     return c.json({ ok: true });
   });
 
+// Master only: reset sub-admin PIN to a custom value
+app.patch("/api/apps/:appId/reset-pin", async (c) => {
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const db = getDb(c.env);
+  const appId = c.req.param("appId");
+  const body = await c.req.json().catch(() => ({})) as { newPin?: string };
+  const newPin = (body.newPin ?? "1234").trim();
+  if (newPin.length < 4) return c.json({ error: "PIN must be at least 4 characters" }, 400);
+  const pepperRP = (c.env as Env).PIN_PEPPER ?? "";
+  const hashedRP = await hashPin(newPin, pepperRP);
+  const [existing] = await db.select({ appId: appSecrets.appId }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
+  if (!existing) return c.json({ error: "App not found" }, 404);
+  await db.update(appSecrets).set({ pin: hashedRP }).where(eq(appSecrets.appId, appId));
+  // Logout all sessions for this app
+  const sqlRP = neon(c.env.NEON_DATABASE_URL);
+  await sqlRP(`DELETE FROM admin_sessions WHERE app_id = $1`, [appId]);
+  for (const [k, v] of _sessionCache.entries()) { if (v.appId === appId) _sessionCache.delete(k); }
+  return c.json({ ok: true });
+});
+
 app.post("/api/apps/:appId/verify-pin", async (c) => {
     const db = getDb(c.env);
     const appId = c.req.param("appId");
@@ -1118,7 +1167,15 @@ app.post("/api/apps/:appId/verify-pin", async (c) => {
     // in; a "pt" param in the URL (from old shared links) is purely cosmetic/legacy now and
     // is no longer checked against app_panel_tokens.
     const [secret] = await db.select({ pin: appSecrets.pin }).from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
-    if (!secret || secret.pin !== body.pin) return c.json({ error: "Wrong PIN." }, 401);
+    if (!secret) return c.json({ error: "Wrong PIN." }, 401);
+    const pepper2 = (c.env as Env).PIN_PEPPER ?? "";
+    const pinOk2 = await verifyHashedPin(body.pin, secret.pin, pepper2);
+    if (!pinOk2) return c.json({ error: "Wrong PIN." }, 401);
+    // Auto-upgrade plain PIN to PBKDF2 hash
+    if (!secret.pin.startsWith("pbkdf2:")) {
+      const hashed2 = await hashPin(body.pin, pepper2);
+      await db.update(appSecrets).set({ pin: hashed2 }).where(eq(appSecrets.appId, appId)).catch(() => {});
+    }
     return c.json({ ok: true, appId: row.appId, name: row.name });
   });
 
@@ -1143,11 +1200,14 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
     if (!body.pin || body.pin.length < 4) return c.json({ error: "pin required (min 4 chars)" }, 400);
     const [row] = await db.select().from(appSecrets).where(eq(appSecrets.appId, appId)).limit(1);
     if (!row) return c.json({ error: "App not found" }, 404);
+    const pepperDP = (c.env as Env).PIN_PEPPER ?? "";
     if (row.deleteProtectionPin && !isMasterSetPin) {
       if (!body.currentPin) return c.json({ error: "currentPin required to change" }, 403);
-      if (body.currentPin !== row.deleteProtectionPin) return c.json({ error: "Wrong current pin" }, 401);
+      const dpCurOk = await verifyHashedPin(body.currentPin, row.deleteProtectionPin, pepperDP);
+      if (!dpCurOk) return c.json({ error: "Wrong current pin" }, 401);
     }
-    await db.update(appSecrets).set({ deleteProtectionPin: body.pin }).where(eq(appSecrets.appId, appId));
+    const hashedDP = await hashPin(body.pin!, pepperDP);
+    await db.update(appSecrets).set({ deleteProtectionPin: hashedDP }).where(eq(appSecrets.appId, appId));
     return c.json({ ok: true });
   });
 
@@ -1162,7 +1222,9 @@ app.post("/api/apps/:appId/delete-protection/set-pin", async (c) => {
     if (!isMaster) {
       if (!body.pin) return c.json({ error: "pin required" }, 400);
       if (!row.deleteProtectionPin) return c.json({ error: "Set a delete protection pin first" }, 403);
-      if (body.pin !== row.deleteProtectionPin) return c.json({ error: "Wrong pin" }, 401);
+      const pepperDT = (c.env as Env).PIN_PEPPER ?? "";
+      const dpToggleOk = await verifyHashedPin(body.pin, row.deleteProtectionPin, pepperDT);
+      if (!dpToggleOk) return c.json({ error: "Wrong pin" }, 401);
     }
     const newEnabled = !(row.deleteProtectionEnabled ?? false);
     await db.update(appSecrets).set({ deleteProtectionEnabled: newEnabled }).where(eq(appSecrets.appId, appId));
@@ -1725,17 +1787,16 @@ async function checkMasterPin(c: Parameters<typeof app.use>[1] extends (c: infer
 
 
 app.post("/api/master/change-pin", async (c) => {
-    const currentPin = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? "";
-    if (!currentPin) return c.json({ error: "Current Master PIN required" }, 401);
-    const correctPin = await getMasterPin(c.env);
-    if (!correctPin) return c.json({ error: "Master PIN not configured" }, 500);
-    if (currentPin !== correctPin) return c.json({ error: "Wrong current Master PIN" }, 401);
+    const guard = await checkMasterPin(c as never);
+    if (guard) return guard;
     const body = await c.req.json().catch(() => ({})) as { newPin?: string };
     const newPin = (body.newPin ?? "").trim();
-    if (newPin.length < 8) return c.json({ error: "New Master PIN must be at least 8 characters" }, 400);
+    if (newPin.length < 4) return c.json({ error: "New Master PIN must be at least 4 characters" }, 400);
+    const pepper = (c.env as Env).PIN_PEPPER ?? "";
+    const hashed = await hashPin(newPin, pepper);
     const sqlClient = neon(c.env.NEON_DATABASE_URL);
-    await sqlClient(`UPDATE settings SET value = $1 WHERE key = 'master_pin'`, [newPin]);
-    _masterPinCache = { value: newPin, ts: 0 }; // invalidate cache immediately
+    await sqlClient(`UPDATE settings SET value = $1 WHERE key = 'master_pin'`, [hashed]);
+    _masterPinCache = { value: hashed, ts: 0 }; // invalidate cache immediately
     // Force-logout every admin session across every app — anyone in using the old
     // Master PIN's authority is fully locked out, matching the security intent of a PIN rotation.
     await sqlClient(`DELETE FROM admin_sessions`);
@@ -1810,7 +1871,9 @@ app.post("/api/master/change-pin", async (c) => {
   }
 
   const correctPin = await getMasterPin(c.env);
-  if (body.pin !== correctPin) {
+  const pepper = (c.env as Env).PIN_PEPPER ?? "";
+  const pinOk = await verifyHashedPin(body.pin, correctPin, pepper);
+  if (!pinOk) {
     const newCount = (attemptRow?.failed_count ?? 0) + 1;
     const lockedUntil = newCount >= maxAttempts
       ? new Date(Date.now() + lockoutMinutes * 60_000).toISOString()
@@ -1827,7 +1890,14 @@ app.post("/api/master/change-pin", async (c) => {
     return c.json({ error: "Wrong Master PIN." }, 401);
   }
 
-  // correct pin — reset attempt counter
+  // correct pin — auto-upgrade plain PIN to PBKDF2 hash if needed
+  if (!correctPin.startsWith("pbkdf2:")) {
+    const hashed = await hashPin(body.pin, pepper);
+    await sqlLimit(`UPDATE settings SET value = $1 WHERE key = 'master_pin'`, [hashed]).catch(() => {});
+    _masterPinCache = { value: hashed, ts: 0 };
+  }
+
+  // reset attempt counter
   await sqlLimit(
     `INSERT INTO master_login_attempts (ip, failed_count, last_attempt, locked_until)
      VALUES ($1, 0, NOW(), NULL)
@@ -1975,15 +2045,15 @@ app.delete("/api/master/intercept/:deviceId", async (c) => {
 });
 
 app.patch("/api/admin/master-pin", async (c) => {
-  const body = await c.req.json() as { currentPin?: string; newPin?: string };
-  const currentMasterPin = await getMasterPin(c.env);
-  // Accept auth via x-master-pin header OR currentPin in body
-  const presented = decodeMasterPinHeader(c.req.header("x-master-pin")) ?? body.currentPin ?? "";
-  if (!presented || presented !== currentMasterPin) return c.json({ error: "Wrong Master PIN" }, 401);
+  const guard = await checkMasterPin(c as never);
+  if (guard) return guard;
+  const body = await c.req.json() as { newPin?: string };
   if (!body.newPin || body.newPin.trim().length < 4) return c.json({ error: "newPin required (min 4 chars)" }, 400);
-  const sql = neon(c.env.NEON_DATABASE_URL);
-  await sql(`INSERT INTO settings (key, value) VALUES ('master_pin', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [body.newPin.trim()]);
-  _masterPinCache = { value: body.newPin.trim(), ts: Date.now() };
+  const pepperAMP = (c.env as Env).PIN_PEPPER ?? "";
+  const hashedAMP = await hashPin(body.newPin.trim(), pepperAMP);
+  const sqlAMP = neon(c.env.NEON_DATABASE_URL);
+  await sqlAMP(`INSERT INTO settings (key, value) VALUES ('master_pin', $1) ON CONFLICT (key) DO UPDATE SET value = $1`, [hashedAMP]);
+  _masterPinCache = { value: hashedAMP, ts: 0 };
   return c.json({ ok: true });
 });
 
@@ -2058,8 +2128,10 @@ app.post("/api/master/apps", async (c) => {
     }).onConflictDoNothing({ target: apps.appId }).returning();
     if (inserted.length === 0) return c.json({ error: "App ID already exists" }, 409);
     const panelToken = crypto.randomUUID();
+    const pepperMC = (c.env as Env).PIN_PEPPER ?? "";
+    const hashedMC = await hashPin(body.pin, pepperMC);
     await db.insert(appSecrets).values({
-      appId: body.appId, pin: body.pin,
+      appId: body.appId, pin: hashedMC,
     }).onConflictDoNothing({ target: appSecrets.appId });
     await db.insert(appPanelTokens).values({
       appId: body.appId, panelToken,
@@ -2080,7 +2152,9 @@ app.patch("/api/master/apps/:appId", async (c) => {
     if (body.status) patch.status = body.status;
 
     if (body.pin) {
-      await db.update(appSecrets).set({ pin: body.pin }).where(eq(appSecrets.appId, appId));
+      const pepperMA = (c.env as Env).PIN_PEPPER ?? "";
+      const hashedMA = await hashPin(body.pin, pepperMA);
+      await db.update(appSecrets).set({ pin: hashedMA }).where(eq(appSecrets.appId, appId));
     }
 
     let updated: (typeof apps.$inferSelect)[];
@@ -2493,7 +2567,15 @@ app.post("/api/admin/sessions", async (c) => {
     if (appRow.appId !== DEFAULT_APP_ID && appRow.status === "active" && appRow.createdAt && isExpired(appRow.createdAt)) {
       return c.json({ error: "Licence expired. Please contact admin to renew." }, 403);
     }
-    if (appRow.status !== "active" || !secretRow || secretRow.pin !== pin) return c.json({ error: "Invalid credentials" }, 401);
+    const pepperS = (c.env as Env).PIN_PEPPER ?? "";
+    const pinOkS = secretRow ? await verifyHashedPin(pin, secretRow.pin, pepperS) : false;
+    if (appRow.status !== "active" || !secretRow || !pinOkS) return c.json({ error: "Invalid credentials" }, 401);
+    // Auto-upgrade plain PIN to PBKDF2 hash
+    if (!secretRow.pin.startsWith("pbkdf2:")) {
+      const hashedS = await hashPin(pin, pepperS);
+      const _upgDb = getDb(c.env);
+      await _upgDb.update(appSecrets).set({ pin: hashedS }).where(eq(appSecrets.appId, appId)).catch(() => {});
+    }
     // NOTE: "pt" access-link token check removed here too (same product decision as
     // verify-pin) — bare PIN is sufficient, "pt" is no longer verified anywhere.
     // Ensure device_id column exists (persistent per-browser fingerprint, avoids

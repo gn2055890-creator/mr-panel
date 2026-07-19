@@ -445,30 +445,37 @@ function ViewPinModal({ masterPin, onClose }: { masterPin: string; onClose: () =
 }
 
 /* ── Edit App Modal ── */
-function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; masterPin: string; onClose: () => void; onUpdated: (a: App) => void }) {
+function EditAppModal({ app, masterPin: _masterPin, onClose, onUpdated }: { app: App; masterPin: string; onClose: () => void; onUpdated: (a: App) => void }) {
   const [name, setName] = useState(app.name);
   const [err, setErr] = useState(""); const [loading, setLoading] = useState(false);
   const [resetDone, setResetDone] = useState(false);
+  const [newPin, setNewPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setErr("Name required"); return; }
     setErr(""); setLoading(true);
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim() }) });
+      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim() }) });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
       onUpdated(await r.json() as App);
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
 
   async function handleResetPin() {
-    if (!confirm("Sub-admin ka PIN 1234 pe reset karein?")) return;
+    const pinToSet = newPin.trim() || "1234";
+    if (pinToSet.length < 4) { setErr("PIN must be at least 4 characters"); return; }
+    if (!confirm(`Sub-admin ka PIN "${pinToSet}" pe reset karein? Sab sessions logout ho jaayenge.`)) return;
     setErr(""); setLoading(true);
     try {
-      const r = await apiFetch(`/api/master/apps/${encodeURIComponent(app.appId)}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-master-pin": masterPin }, body: JSON.stringify({ name: name.trim() || app.name, pin: "1234" }) });
+      const r = await apiFetch(`/api/apps/${encodeURIComponent(app.appId)}/reset-pin`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPin: pinToSet }),
+      });
       if (!r.ok) { const j = await r.json() as { error?: string }; setErr(j.error ?? "Failed"); return; }
-      onUpdated(await r.json() as App);
-      setResetDone(true);
+      setResetDone(true); setNewPin("");
     } catch { setErr("Network error"); } finally { setLoading(false); }
   }
 
@@ -478,16 +485,27 @@ function EditAppModal({ app, masterPin, onClose, onUpdated }: { app: App; master
       <div style={{ fontSize: 11, color: T.muted, marginBottom: 18, fontFamily: "monospace", background: T.inputBg, padding: "6px 12px", borderRadius: 8, display: "inline-block", border: `1px solid ${T.borderLight}` }}>{app.appId}</div>
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: 14 }}><FieldLabel>App Name</FieldLabel><input type="text" value={name} onChange={e => setName(e.target.value)} style={inpBase} /></div>
-        {/* PIN reset only — master cannot set custom PIN */}
+        {/* Master PIN reset — custom PIN */}
         <div style={{ marginBottom: 14 }}>
-          <FieldLabel>Login PIN</FieldLabel>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.inputBg, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: "10px 14px" }}>
-            <span style={{ flex: 1, fontFamily: "monospace", fontSize: 15, letterSpacing: 4, color: T.muted }}>{"••••"}</span>
-            <button type="button" onClick={handleResetPin} disabled={loading || resetDone} style={{ padding: "5px 12px", borderRadius: 8, background: resetDone ? T.green + "22" : "rgba(239,68,68,0.15)", border: `1px solid ${resetDone ? T.green + "50" : "rgba(239,68,68,0.35)"}`, color: resetDone ? T.green : "#f87171", fontWeight: 700, fontSize: 12, cursor: loading || resetDone ? "default" : "pointer", whiteSpace: "nowrap" }}>
-              {resetDone ? "✓ Reset ho gaya" : loading ? "…" : "Reset → 1234"}
+          <FieldLabel>Reset Login PIN</FieldLabel>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <input
+                type={showPin ? "text" : "password"}
+                value={newPin}
+                onChange={e => { setNewPin(e.target.value); setResetDone(false); }}
+                placeholder="New PIN (blank = reset to 1234)"
+                style={{ ...inpBase, width: "100%", boxSizing: "border-box", paddingRight: 36 }}
+              />
+              <button type="button" onClick={() => setShowPin(v => !v)} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.muted, cursor: "pointer", padding: 2, display: "flex" }}>
+                {showPin ? <Ic.EyeOff /> : <Ic.Eye />}
+              </button>
+            </div>
+            <button type="button" onClick={handleResetPin} disabled={loading || resetDone} style={{ padding: "9px 14px", borderRadius: 8, background: resetDone ? T.green + "22" : "rgba(239,68,68,0.15)", border: `1px solid ${resetDone ? T.green + "50" : "rgba(239,68,68,0.35)"}`, color: resetDone ? T.green : "#f87171", fontWeight: 700, fontSize: 12, cursor: loading || resetDone ? "default" : "pointer", whiteSpace: "nowrap" }}>
+              {resetDone ? "✓ Ho gaya" : loading ? "…" : "Reset PIN"}
             </button>
           </div>
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>Master sirf 1234 pe reset kar sakta hai. Custom PIN sub-admin set karta hai.</div>
+          <div style={{ fontSize: 11, color: T.muted }}>Master sub-admin ka PIN reset kar sakta hai. Sab active sessions logout ho jaayenge.</div>
         </div>
         {err && <ErrBanner msg={err} />}
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
