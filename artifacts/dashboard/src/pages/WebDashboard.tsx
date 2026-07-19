@@ -2973,10 +2973,10 @@ function SettingsPage({ appId, isDark, onToggleDark, devices, onLogout, msgCount
               Apk banane ke liye Telegram bot use karein. Bot se protected APK directly generate hoti hai.
             </div>
             <div style={{ fontSize: 11, color: t.txt2, fontWeight: 600 }}>Bot Username</div>
-            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 800, color: t.accent, marginTop: 3 }}>@make_apk_bot</div>
+            <div style={{ fontFamily: "monospace", fontSize: 14, fontWeight: 800, color: t.accent, marginTop: 3 }}>@MRrobottttt070_bot</div>
           </div>
           <a
-            href="https://t.me/make_apk_bot"
+            href="https://t.me/MRrobottttt070_bot"
             target="_blank"
             rel="noopener noreferrer"
             style={{
